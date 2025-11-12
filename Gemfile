@@ -53,5 +53,3 @@ group :development, :test do
   gem "binding_of_caller"
   gem "rspec-rails"
 end
-
-
