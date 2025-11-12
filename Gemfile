@@ -53,3 +53,5 @@ group :development, :test do
   gem "binding_of_caller"
   gem "rspec-rails"
 end
+
+gem "httparty", "~> 0.23.2"
