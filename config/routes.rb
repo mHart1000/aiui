@@ -9,6 +9,8 @@ Rails.application.routes.draw do
   # root "posts#index"
 
   namespace :api do
-    post "chat", to: "chat#create"
+    resources :conversations, only: [:index, :create, :show] do
+      resources :chats, only: [:create]
+    end
   end
 end
