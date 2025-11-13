@@ -18,6 +18,7 @@
         @keyup.enter.exact="sendMessage"
       />
       <q-btn icon="send" color="primary" round flat @click="sendMessage" />
+      <q-btn icon="add" color="secondary" round flat @click="newChat" />
     </div>
   </q-page>
 </template>
@@ -30,29 +31,53 @@ export default {
   name: 'ChatPage',
   data: () => ({
     input: '',
-    messages: []
+    messages: [],
+    conversationId: null
   }),
+  async mounted() {
+    // Automatically start a new chat when the page loads
+    await this.newChat()
+  },
   methods: {
+    async newChat() {
+      try {
+        const res = await axios.post(`${import.meta.env.VITE_API_BASE_URL}/api/conversations`)
+        this.conversationId = res.data.id
+        this.messages = []
+      } catch (err) {
+        console.error('Error creating new conversation', err)
+      }
+    },
+
     async sendMessage() {
       const text = this.input.trim()
-      if (!text) return
+      if (!text || !this.conversationId) return
+
       this.messages.push({ role: 'user', content: text })
       this.input = ''
       this.scrollToBottom()
+
       try {
-        const res = await axios.post(`${import.meta.env.VITE_API_BASE_URL}/api/chat`, { message: text })
+        const res = await axios.post(
+          `${import.meta.env.VITE_API_BASE_URL}/api/conversations/${this.conversationId}/chats`,
+          { content: text }
+        )
         this.messages.push({ role: 'assistant', content: res.data.reply })
-      } catch {
+      } catch (err) {
+        console.error(err)
         this.messages.push({ role: 'assistant', content: 'Error contacting API.' })
       }
+
       this.scrollToBottom()
     },
+
     scrollToBottom() {
       this.$nextTick(() => {
         const el = this.$refs.chatWindow
-        el.scrollTop = el.scrollHeight
+        if (el) el.scrollTop = el.scrollHeight
       })
     },
+
     formatMessage(text) {
       return marked.parse(text)
     }
@@ -92,11 +117,9 @@ export default {
   font-family: monospace;
   font-size: 0.9em;
 }
-
 .assistant code {
   background: #f6f8fa;
   padding: 2px 4px;
   border-radius: 4px;
 }
-
 </style>

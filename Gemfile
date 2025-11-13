@@ -52,3 +52,5 @@ group :development, :test do
 end
 
 gem "httparty", "~> 0.23.2"
+
+gem "ruby-openai", "~> 8.3"
