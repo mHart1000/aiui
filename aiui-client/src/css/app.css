@@ -1,1 +1,43 @@
-/* app global css */
+/* Light mode */
+:root {
+  --bg: #F8F9FB;
+  --bg-panel: #FFFFFF;
+
+  --text: #1A1A1A;
+  --text-subtle: #616161;
+
+  --border: #E2E8F0;
+
+  --accent: #3A86FF;
+  --accent-muted: #E7F0FF;
+
+  --bubble-user: #E9F5FF;
+  --bubble-ai: #F3F4F6;
+}
+
+/* Dark mode */
+.body--dark {
+  background:#1e1e1e !important;
+  --q-dark: #171717;
+
+  --bg: #0D0E11;
+  --bg-panel: #16181D;
+
+  --text: #ECECEC;
+  --text-subtle: #A0A0A0;
+
+  --border: #2A2D34;
+
+  --accent: #4C9CFF;
+  --accent-muted: #1A2333;
+
+  --bubble-user: #1C2638;
+  --bubble-ai: #22252B;
+}
+
+body {
+    font-size: 18px;
+}
+.user p {
+    margin-bottom: 0 !important;
+}
