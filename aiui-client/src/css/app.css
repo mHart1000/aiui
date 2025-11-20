@@ -1,1 +1,13 @@
 /* app global css */
+:root {
+  --chat-bg: #ffffff;
+  --chat-text: #000000;
+  --chat-bubble-user: #9edaff;
+  --chat-bubble-ai: #f1f1f1;
+}
+.body--dark {
+  --chat-bg: #0d0d0d;
+  --chat-text: #e0e0e0;
+  --chat-bubble-user: #1a73e8;
+  --chat-bubble-ai: #2a2a2a;
+}

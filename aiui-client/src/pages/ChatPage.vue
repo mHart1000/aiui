@@ -93,15 +93,16 @@ export default {
 .bubble {
   max-width: 80%;
   line-height: 1.5;
+  border-radius: 5px;
 }
 .user {
-  background: #1976d2;
-  color: white;
+  background: var(--chat-bubble-user);
+  color: var(--chat-text);
   margin-left: auto;
 }
 .assistant {
-  background: rgb(22, 148, 22);
-  color: #ffffff;
+  background: var(--chat-bubble-ai);
+  color: var(--chat-text);
   border: 1px solid #ddd;
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
