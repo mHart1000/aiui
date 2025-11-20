@@ -8,7 +8,7 @@
       </div>
     </div>
 
-    <div class="input-bar q-pa-md row items-end bg-white">
+    <div class="input-bar q-pa-md row items-end">
       <q-input
         filled
         autogrow
@@ -89,7 +89,6 @@ export default {
 .chat-window {
   flex: 1;
   overflow-y: auto;
-  background: #f9f9fb;
 }
 .bubble {
   max-width: 80%;
@@ -101,8 +100,8 @@ export default {
   margin-left: auto;
 }
 .assistant {
-  background: white;
-  color: #222;
+  background: rgb(22, 148, 22);
+  color: #ffffff;
   border: 1px solid #ddd;
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
