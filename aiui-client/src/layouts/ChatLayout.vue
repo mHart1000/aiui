@@ -10,7 +10,10 @@
             </q-item>
           </q-list>
         </div>
-        <div class="text-caption text-grey">Model: GPT-5<br>Budget: $10.00</div>
+        <div class="column items-center">
+          <div class="text-caption text-grey">Model: GPT-5<br>Budget: $10.00</div>
+          <q-btn @click="toggleDark" label="Toggle Dark" />
+        </div>
       </div>
     </q-drawer>
 
@@ -21,6 +24,7 @@
 </template>
 
 <script>
+import { Dark } from 'quasar';
 export default {
   name: 'ChatLayout',
   data: () => ({
@@ -28,6 +32,11 @@ export default {
       { id: 1, title: 'Welcome' },
       { id: 2, title: 'System prompt test' }
     ]
-  })
+  }),
+  methods: {
+    toggleDark() {
+      Dark.toggle();
+    }
+  }
 }
 </script>
