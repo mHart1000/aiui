@@ -91,26 +91,36 @@ export default {
   overflow-y: auto;
 }
 .bubble {
-  max-width: 80%;
+  color: var(--text);
+  max-width: 60%;
   line-height: 1.5;
   border-radius: 5px;
 }
 .user {
-  background: var(--chat-bubble-user);
-  color: var(--chat-text);
-  margin-left: auto;
+  background: var(--bubble-user);
+  margin: 40px 5px 40px auto;
+  display: flex;
+  justify-content: start;
+  align-items: center;
+  padding: 15px 25px;
+}
+p {
+  margin: 0 !important;
+  margin-bottom: 0 !important;
+  background-color: #f6f8fa !important;
 }
 .assistant {
-  background: var(--chat-bubble-ai);
-  color: var(--chat-text);
-  border: 1px solid #ddd;
+  /* ai bubble should blend into the background
+  background: var(--bubble-ai);
+  border: 1px solid var(--border); */
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  margin: 40px auto;
 }
 .input-bar {
-  border-top: 1px solid #e0e0e0;
+  border-top: 1px solid var(--border);
 }
 .assistant pre {
-  background: #f6f8fa;
+  background: var(--bubble-ai);
   padding: 8px 10px;
   border-radius: 6px;
   overflow-x: auto;
