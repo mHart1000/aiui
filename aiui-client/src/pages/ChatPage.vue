@@ -41,7 +41,7 @@ export default {
   methods: {
     async newChat() {
       try {
-        const res = await axios.post(`${import.meta.env.VITE_API_BASE_URL}/api/conversations`)
+        const res = await api.post('/api/conversations')
         this.conversationId = res.data.id
         this.messages = []
       } catch (err) {
@@ -58,8 +58,8 @@ export default {
       this.scrollToBottom()
 
       try {
-        const res = await axios.post(
-          `${import.meta.env.VITE_API_BASE_URL}/api/conversations/${this.conversationId}/chats`,
+        const res = await api.post(
+          `/api/conversations/${this.conversationId}/chats`,
           { content: text }
         )
         this.messages.push({ role: 'assistant', content: res.data.reply })
