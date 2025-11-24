@@ -24,7 +24,7 @@
 </template>
 
 <script>
-import axios from 'axios'
+import { api } from 'boot/axios'
 import { marked } from 'marked'
 
 export default {
