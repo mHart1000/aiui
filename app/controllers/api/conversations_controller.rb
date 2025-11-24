@@ -3,7 +3,7 @@ module Api
     before_action :authenticate_user!
 
     def create
-      conversation = Conversation.create!(title: "New Chat")
+      conversation = current_user.conversations.create!(title: "New Chat")
       render json: { id: conversation.id }
     end
   end

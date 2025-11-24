@@ -1,13 +1,23 @@
+const requireAuth = (to, from, next) => {
+  const token = localStorage.getItem('jwt')
+  if (token) {
+    next()
+  } else {
+    next('/login')
+  }
+}
+
 const routes = [
   {
     path: '/',
     component: () => import('layouts/AuthLayout.vue'),
     children: [
+      { path: 'login', component: () => import('pages/LoginPage.vue') },
       { path: 'signup', component: () => import('pages/SignupPage.vue') }
     ]
   },
   {
-    path: '/',
+    path: '/home',
     component: () => import('layouts/MainLayout.vue'),
     children: [
       { path: '', component: () => import('pages/IndexPage.vue') },
@@ -15,6 +25,7 @@ const routes = [
   },
   {
     path: '/chat',
+    beforeEnter: requireAuth,
     component: () => import('layouts/ChatLayout.vue'),
     children: [
       { path: '', component: () => import('pages/ChatPage.vue') }

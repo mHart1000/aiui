@@ -3,13 +3,12 @@
     <div class="q-pa-md q-gutter-md" style="max-width: 400px; width: 100%">
       <q-input filled v-model="email" label="Email" />
       <q-input filled v-model="password" type="password" label="Password" />
-      <q-input filled v-model="passwordConfirmation" type="password" label="Confirm Password" />
 
-      <q-btn color="primary" label="Sign Up" @click="signup" class="full-width" />
+      <q-btn color="primary" label="Log In" @click="login" class="full-width" />
 
       <div class="text-center q-mt-md">
-        Already have an account?
-        <q-btn flat color="primary" label="Log in" to="/login" />
+        Don't have an account?
+        <q-btn flat color="primary" label="Sign Up" to="/signup" />
       </div>
     </div>
   </q-page>
@@ -19,21 +18,16 @@
 import { api } from 'boot/axios'
 
 export default {
-  name: 'SignupPage',
+  name: 'LoginPage',
   data: () => ({
     email: '',
-    password: '',
-    passwordConfirmation: ''
+    password: ''
   }),
   methods: {
-    async signup() {
+    async login() {
       try {
-        const res = await api.post('/api/signup', {
-          user: {
-            email: this.email,
-            password: this.password,
-            password_confirmation: this.passwordConfirmation
-          }
+        const res = await api.post('/login', {
+          user: { email: this.email, password: this.password }
         })
 
         localStorage.setItem('jwt', res.data.token)
