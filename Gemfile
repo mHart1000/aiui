@@ -56,3 +56,5 @@ gem "httparty", "~> 0.23.2"
 gem "ruby-openai", "~> 8.3"
 
 gem "devise", "~> 4.9"
+
+gem "devise-jwt", "~> 0.12.1"
