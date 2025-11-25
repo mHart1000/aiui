@@ -7,7 +7,7 @@ module Api
 
       if resource.save
         sign_in(resource, store: false)
-        token = request.env['warden-jwt_auth.token']
+        token = request.env["warden-jwt_auth.token"]
         render json: { user: resource, token: token }, status: :ok
       else
         render json: { errors: resource.errors.full_messages }, status: :unprocessable_entity
