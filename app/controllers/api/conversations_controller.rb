@@ -1,7 +1,10 @@
 module Api
   class ConversationsController < ApplicationController
+    before_action :authenticate_api_user!
+    respond_to :json
+
     def create
-      conversation = Conversation.create!(title: "New Chat")
+      conversation = current_api_user.conversations.create!(title: "New Chat")
       render json: { id: conversation.id }
     end
   end

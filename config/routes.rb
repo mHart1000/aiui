@@ -9,6 +9,15 @@ Rails.application.routes.draw do
   # root "posts#index"
 
   namespace :api do
+    devise_for :users, path: "", path_names: {
+      sign_in: "login",
+      sign_out: "logout",
+      registration: "signup"
+    }, controllers: {
+      sessions: "api/sessions",
+      registrations: "api/registrations"
+    }
+
     resources :conversations, only: [ :index, :create, :show ] do
       resources :chats, only: [ :create ]
     end
