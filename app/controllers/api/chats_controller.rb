@@ -1,6 +1,6 @@
 module Api
   class ChatsController < ApplicationController
-    before_action :authenticate_with_jwt!
+    before_action :authenticate_api_user!
 
     def create
       conversation = Conversation.find(params[:conversation_id])
