@@ -23,6 +23,12 @@ export default {
     email: '',
     password: ''
   }),
+  mounted() {
+    const token = localStorage.getItem('jwt')
+    if (token) {
+      this.$router.push('/chat')
+    }
+  },
   methods: {
     async login() {
       try {
