@@ -1,5 +1,5 @@
 module Api
-  class ChatsController < ApplicationController
+  class MessagesController < ApplicationController
     before_action :authenticate_api_user!
 
     def create

@@ -5,7 +5,12 @@
         <div>
           <q-btn flat icon="add" label="New Chat" class="full-width q-mb-md" />
           <q-list dense>
-            <q-item v-for="c in conversations" :key="c.id" clickable>
+            <q-item
+              v-for="c in conversations"
+              :key="c.id"
+              clickable
+              @click="$router.push(`/chat/${c.id}`)"
+            >
               <q-item-section>{{ c.title }}</q-item-section>
             </q-item>
           </q-list>
@@ -26,14 +31,17 @@
 
 <script>
 import { Dark } from 'quasar';
+import { api } from 'src/boot/axios';
+
 export default {
   name: 'ChatLayout',
   data: () => ({
-    conversations: [
-      { id: 1, title: 'Welcome' },
-      { id: 2, title: 'System prompt test' }
-    ]
+    conversations: []
   }),
+  mounted() {
+    console.log('ChatLayout mounted');
+    this.getUserConversations();
+  },
   methods: {
     toggleDark() {
       Dark.toggle();
@@ -41,6 +49,16 @@ export default {
     logout() {
       localStorage.removeItem('jwt')
       this.$router.replace('/login')
+    },
+    getUserConversations() {
+      console.log('Fetching user conversations...')
+      api.get('/api/conversations')
+        .then(response => {
+          this.conversations = response.data;
+        })
+        .catch(error => {
+          console.error('Error fetching conversations:', error);
+        });
     }
   }
 }

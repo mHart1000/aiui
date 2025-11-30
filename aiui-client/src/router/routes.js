@@ -28,7 +28,8 @@ const routes = [
     beforeEnter: requireAuth,
     component: () => import('layouts/ChatLayout.vue'),
     children: [
-      { path: '', component: () => import('pages/ChatPage.vue') }
+      { path: '', beforeEnter: requireAuth, component: () => import('pages/ChatPage.vue') },
+      { path: ':id', beforeEnter: requireAuth, component: () => import('pages/ChatPage.vue') }
     ]
   },
 
