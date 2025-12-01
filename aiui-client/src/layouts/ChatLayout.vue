@@ -1,6 +1,7 @@
 <template>
-  <q-layout view="hHh lpR fFf">
+  <q-layout view="hHh LpR fFf">
     <q-drawer show-if-above bordered width="260">
+      <q-scroll-area class="fit">
       <div class="q-pa-md column justify-between full-height">
         <div>
           <q-btn flat icon="add" label="New Chat" class="full-width q-mb-md" @click="createNewChat"/>
@@ -21,6 +22,7 @@
           <q-btn @click="toggleDark" label="Toggle Dark" />
         </div>
       </div>
+      </q-scroll-area>
     </q-drawer>
 
     <q-page-container>
