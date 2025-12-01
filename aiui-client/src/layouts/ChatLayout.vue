@@ -30,8 +30,8 @@
 </template>
 
 <script>
-import { Dark } from 'quasar';
-import { api } from 'src/boot/axios';
+import { Dark } from 'quasar'
+import { api } from 'src/boot/axios'
 
 export default {
   name: 'ChatLayout',
@@ -39,8 +39,7 @@ export default {
     conversations: []
   }),
   mounted() {
-    console.log('ChatLayout mounted');
-    this.getUserConversations();
+    this.getUserConversations()
   },
   methods: {
     toggleDark() {
@@ -54,19 +53,19 @@ export default {
       console.log('Fetching user conversations...')
       api.get('/api/conversations')
         .then(response => {
-          this.conversations = response.data;
+          this.conversations = response.data.sort((a, b) => b.id - a.id)
         })
         .catch(error => {
-          console.error('Error fetching conversations:', error);
+          console.error('Error fetching conversations:', error)
         });
     },
     async createNewChat() {
       try {
         const response = await api.post('/api/conversations')
         const newConversation = response.data;
-        this.$router.push(`/chat/${newConversation.id}`);
+        this.$router.push(`/chat/${newConversation.id}`)
       } catch (error) {
-        console.error('Error creating new conversation:', error);
+        console.error('Error creating new conversation:', error)
       }
     }
 
