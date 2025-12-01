@@ -1,9 +1,22 @@
 module Api
-  class ChatsController < ApplicationController
+  class MessagesController < ApplicationController
     before_action :authenticate_api_user!
 
     def create
       conversation = Conversation.find(params[:conversation_id])
+
+      if conversation.messages.count == 0
+       result = OpenaiChatService.call(
+          messages: [
+            { role: "system", content: "Generate a short 3-6 word chat title in the style of an article title, based on the following user message. No punctuation." },
+            { role: "user", content: params[:content] }
+          ],
+          model: "gpt-4o-mini"
+        )
+
+        title = result[:reply].presence || params[:content][0..40]
+        conversation.update!(title: title.strip)
+      end
 
       user_message = conversation.messages.create!(
         role: "user",

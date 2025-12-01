@@ -35,8 +35,25 @@ export default {
     conversationId: null
   }),
   async mounted() {
-    // Automatically start a new chat when the page loads
-    await this.newChat()
+    const id = this.$route.params.id
+
+    if (id) {
+      this.conversationId = id
+      await this.loadConversation()
+    } else {
+      await this.newChat()
+    }
+  },
+  watch: {
+    '$route.params.id': {
+      immediate: false,
+      async handler(newId) {
+        if (newId) {
+          this.conversationId = newId
+          await this.loadConversation()
+        }
+      }
+    }
   },
   methods: {
     async newChat() {
@@ -48,7 +65,15 @@ export default {
         console.error('Error creating new conversation', err)
       }
     },
-
+    async loadConversation() {
+      try {
+        const res = await api.get(`/api/conversations/${this.conversationId}`)
+        this.messages = res.data.messages
+        this.scrollToBottom()
+      } catch (err) {
+        console.error('Error loading conversation', err)
+      }
+    },
     async sendMessage() {
       const text = this.input.trim()
       if (!text || !this.conversationId) return
@@ -59,7 +84,7 @@ export default {
 
       try {
         const res = await api.post(
-          `/api/conversations/${this.conversationId}/chats`,
+          `/api/conversations/${this.conversationId}/messages`,
           { content: text }
         )
         this.messages.push({ role: 'assistant', content: res.data.reply })
