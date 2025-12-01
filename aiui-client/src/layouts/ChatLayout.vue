@@ -2,26 +2,32 @@
   <q-layout view="hHh LpR fFf">
     <q-drawer show-if-above bordered width="260">
       <q-scroll-area class="fit">
-      <div class="q-pa-md column justify-between full-height">
-        <div>
-          <q-btn flat icon="add" label="New Chat" class="full-width q-mb-md" @click="createNewChat"/>
-          <q-list dense>
-            <q-item
-              v-for="c in conversations"
-              :key="c.id"
-              clickable
-              @click="$router.push(`/chat/${c.id}`)"
-            >
-              <q-item-section>{{ c.title }}</q-item-section>
-            </q-item>
-          </q-list>
+        <div class="q-pa-md column justify-between full-height">
+          <div>
+            <q-btn
+              flat
+              icon="add"
+              label="New Chat"
+              class="full-width q-mb-md"
+              @click="$router.push('/chat')"
+            />
+            <q-list dense>
+              <q-item
+                v-for="c in conversations"
+                :key="c.id"
+                clickable
+                @click="$router.push(`/chat/${c.id}`)"
+              >
+                <q-item-section>{{ c.title }}</q-item-section>
+              </q-item>
+            </q-list>
+          </div>
+          <div class="column items-center">
+            <q-btn label="Sign Out" color="primary" @click="logout" />
+            <div class="text-caption text-grey">Model: GPT-5<br>Budget: $10.00</div>
+            <q-btn @click="toggleDark" label="Toggle Dark" />
+          </div>
         </div>
-        <div class="column items-center">
-          <q-btn label="Sign Out" color="primary" @click="logout" />
-          <div class="text-caption text-grey">Model: GPT-5<br>Budget: $10.00</div>
-          <q-btn @click="toggleDark" label="Toggle Dark" />
-        </div>
-      </div>
       </q-scroll-area>
     </q-drawer>
 
@@ -60,17 +66,7 @@ export default {
         .catch(error => {
           console.error('Error fetching conversations:', error)
         });
-    },
-    async createNewChat() {
-      try {
-        const response = await api.post('/api/conversations')
-        const newConversation = response.data;
-        this.$router.push(`/chat/${newConversation.id}`)
-      } catch (error) {
-        console.error('Error creating new conversation:', error)
-      }
     }
-
   }
 }
 </script>
