@@ -1,7 +1,7 @@
 /* Light mode */
 :root {
   --bg: #F8F9FB;
-  --bg-panel: #FFFFFF;
+  --bg-panel: #997c56;
 
   --text: #1A1A1A;
   --text-subtle: #616161;
@@ -11,7 +11,8 @@
   --accent: #3A86FF;
   --accent-muted: #E7F0FF;
 
-  --bubble-user: #E9F5FF;
+  --bubble-user: #5d83a3;
+  --text-user: #e9ffea;
   --bubble-ai: #F3F4F6;
 }
 
@@ -31,13 +32,20 @@
   --accent: #4C9CFF;
   --accent-muted: #1A2333;
 
-  --bubble-user: #1C2638;
+  --bubble-user: #4065a8;
+  --text-user: #ffffff;
   --bubble-ai: #22252B;
 }
 
 body {
     font-size: 18px;
 }
+.body--light {
+  background: #a5b4ce !important;
+}
 .user p {
     margin-bottom: 0 !important;
+}
+.bg-panel {
+    background-color: var(--bg-panel) !important;
 }

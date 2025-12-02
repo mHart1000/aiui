@@ -130,6 +130,7 @@ export default {
 }
 .user {
   background: var(--bubble-user);
+  color: var(--text-user);
   margin: 40px 5px 40px auto;
   display: flex;
   justify-content: start;

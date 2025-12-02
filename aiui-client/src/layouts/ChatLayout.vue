@@ -1,6 +1,6 @@
 <template>
   <q-layout view="hHh LpR fFf">
-    <q-drawer show-if-above bordered width="260">
+    <q-drawer show-if-above bordered width="260" class="bg-panel">
       <q-scroll-area class="fit">
         <div class="q-pa-md column justify-between full-height">
           <div>
