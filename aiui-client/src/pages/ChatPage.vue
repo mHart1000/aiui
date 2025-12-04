@@ -34,35 +34,29 @@ export default {
     messages: [],
     conversationId: null
   }),
-  async mounted() {
-    const id = this.$route.params.id
-
-    if (id) {
-      this.conversationId = id
-      await this.loadConversation()
-    } else {
-      await this.newChat()
-    }
-  },
   watch: {
     '$route.params.id': {
-      immediate: false,
+      immediate: true,
       async handler(newId) {
         if (newId) {
           this.conversationId = newId
           await this.loadConversation()
+        } else {
+          this.conversationId = null
+          this.messages = []
+          this.input = ''
         }
       }
     }
   },
   methods: {
-    async newChat() {
-      try {
-        const res = await api.post('/api/conversations')
-        this.conversationId = res.data.id
+    newChat() {
+      if (this.$route.params.id) {
+        this.$router.push('/chat')
+      } else {
+        this.conversationId = null
         this.messages = []
-      } catch (err) {
-        console.error('Error creating new conversation', err)
+        this.input = ''
       }
     },
     async loadConversation() {
@@ -76,26 +70,39 @@ export default {
     },
     async sendMessage() {
       const text = this.input.trim()
-      if (!text || !this.conversationId) return
-
-      this.messages.push({ role: 'user', content: text })
-      this.input = ''
-      this.scrollToBottom()
+      if (!text) return
 
       try {
+        const isNew = !this.conversationId
+
+        if (isNew) {
+          const convRes = await api.post('/api/conversations')
+          this.conversationId = convRes.data.id
+        }
+
+        this.messages.push({ role: 'user', content: text })
+        this.input = ''
+        this.scrollToBottom()
+
         const res = await api.post(
           `/api/conversations/${this.conversationId}/messages`,
           { content: text }
         )
         this.messages.push({ role: 'assistant', content: res.data.reply })
+
+        if (isNew && this.$route.params.id !== String(this.conversationId)) {
+          this.$router.replace(`/chat/${this.conversationId}`)
+        }
       } catch (err) {
         console.error(err)
-        this.messages.push({ role: 'assistant', content: 'Error contacting API.' })
+        this.messages.push({
+          role: 'assistant',
+          content: 'Error contacting API.'
+        })
       }
 
       this.scrollToBottom()
     },
-
     scrollToBottom() {
       this.$nextTick(() => {
         const el = this.$refs.chatWindow
@@ -123,6 +130,7 @@ export default {
 }
 .user {
   background: var(--bubble-user);
+  color: var(--text-user);
   margin: 40px 5px 40px auto;
   display: flex;
   justify-content: start;
