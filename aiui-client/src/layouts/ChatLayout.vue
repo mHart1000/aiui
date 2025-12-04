@@ -18,7 +18,11 @@
                 clickable
                 @click="$router.push(`/chat/${c.id}`)"
               >
-                <q-item-section>{{ c.title }}</q-item-section>
+                <q-item-section class="conversation-title">
+                  <q-item-label class="ellipsis">
+                    {{ c.title }}
+                  </q-item-label>
+                </q-item-section>
               </q-item>
             </q-list>
           </div>
@@ -70,3 +74,12 @@ export default {
   }
 }
 </script>
+<style scoped>
+.conversation-title {
+  min-width: 0;
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+</style>
