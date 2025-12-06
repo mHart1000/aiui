@@ -11,7 +11,7 @@ module Api
             { role: "system", content: "Generate a short 3-6 word chat title in the style of an article title, based on the following user message. No punctuation." },
             { role: "user", content: params[:content] }
           ],
-          model: "gpt-4o-mini"
+          model: "gpt-5-nano"
         )
 
         title = result[:reply].presence || params[:content][0..40]
