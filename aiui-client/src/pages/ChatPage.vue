@@ -69,8 +69,8 @@ export default {
   computed: {
     modelOptions() {
       return this.models.map(m => ({
-        label: m.label,
-        value: m.id
+        label: String(m.id),
+        value: String(m.id)
       }))
     }
   },
