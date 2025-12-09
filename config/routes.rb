@@ -21,5 +21,6 @@ Rails.application.routes.draw do
     resources :conversations, only: [ :index, :create, :show ] do
       resources :messages, only: [ :create ]
     end
+    resources :models, only: [ :index ]
   end
 end

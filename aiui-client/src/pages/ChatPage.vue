@@ -1,5 +1,13 @@
 <template>
   <q-page class="column justify-end">
+    <q-select
+      v-model="modelCode"
+      :options="modelOptions"
+      label="Model"
+      emit-value
+      map-options
+      class="fit-content"
+    />
     <div ref="chatWindow" class="chat-window q-pa-md">
       <div v-for="(msg, i) in messages" :key="i" class="q-mb-md">
         <div :class="msg.role" class="bubble q-pa-sm q-rounded-borders">
@@ -32,8 +40,17 @@ export default {
   data: () => ({
     input: '',
     messages: [],
-    conversationId: null
+    conversationId: null,
+    models: [],
+    modelCode: null
   }),
+  async mounted() {
+    const modelsRes = await api.get('/api/models')
+    this.models = modelsRes.data.models
+    if (!this.modelCode && this.models.length > 0) {
+      this.modelCode = this.models[0].id
+    }
+  },
   watch: {
     '$route.params.id': {
       immediate: true,
@@ -47,6 +64,14 @@ export default {
           this.input = ''
         }
       }
+    }
+  },
+  computed: {
+    modelOptions() {
+      return this.models.map(m => ({
+        label: m.label,
+        value: m.id
+      }))
     }
   },
   methods: {
@@ -63,6 +88,7 @@ export default {
       try {
         const res = await api.get(`/api/conversations/${this.conversationId}`)
         this.messages = res.data.messages
+        this.modelCode = res.data.model_code
         this.scrollToBottom()
       } catch (err) {
         console.error('Error loading conversation', err)
