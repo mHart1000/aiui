@@ -6,7 +6,8 @@
       label="Model"
       emit-value
       map-options
-      class="fit-content"
+      class="q-ma-md"
+      style="max-width: 380px"
     />
     <div ref="chatWindow" class="chat-window q-pa-md">
       <div v-for="(msg, i) in messages" :key="i" class="q-mb-md">
