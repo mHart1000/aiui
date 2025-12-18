@@ -17,7 +17,7 @@ module Api
 
       result = OpenaiChatService.call(
         messages: messages,
-        model: ENV["DEFAULT_MODEL"]
+        model: params[:model_code]
       )
 
       if result[:error]

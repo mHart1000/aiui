@@ -97,6 +97,8 @@ export default {
     },
     async sendMessage() {
       const text = this.input.trim()
+      const model = this.modelCode
+
       if (!text) return
 
       try {
@@ -113,7 +115,7 @@ export default {
 
         const res = await api.post(
           `/api/conversations/${this.conversationId}/messages`,
-          { content: text }
+          { content: text, model_code: model }
         )
         this.messages.push({ role: 'assistant', content: res.data.reply })
 
