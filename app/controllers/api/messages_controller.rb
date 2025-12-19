@@ -4,6 +4,9 @@ module Api
 
     def create
       conversation = Conversation.find(params[:conversation_id])
+      safe_model_code = params[:model_code] if AI_MODELS.map{|m| m['id']}.include?(params[:model_code])
+      safe_model_code ||= conversation.model_code
+      conversation.update!(model_code: safe_model_code) if conversation.model_code != safe_model_code
       conversation.entitle(params[:content]) if conversation.messages.empty?
 
       user_message = conversation.messages.create!(
@@ -17,7 +20,7 @@ module Api
 
       result = OpenaiChatService.call(
         messages: messages,
-        model: params[:model_code]
+        model: safe_model_code
       )
 
       if result[:error]
