@@ -14,6 +14,7 @@ module Api
       render json: {
         id: conversation.id,
         title: conversation.title,
+        model_code: conversation.model_code,
         messages: conversation.messages.order(:created_at).map { |m|
           { role: m.role, content: m.content }
         }

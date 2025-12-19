@@ -36,6 +36,8 @@
 import { api } from 'boot/axios'
 import { marked } from 'marked'
 
+const DEFAULT_MODEL_ID = import.meta.env.VITE_DEFAULT_MODEL_ID || null
+
 export default {
   name: 'ChatPage',
   data: () => ({
@@ -49,7 +51,7 @@ export default {
     const modelsRes = await api.get('/api/models')
     this.models = modelsRes.data.models
     if (!this.modelCode && this.models.length > 0) {
-      this.modelCode = this.models[0].id
+      this.modelCode = DEFAULT_MODEL_ID || String(this.models[0].id)
     }
   },
   watch: {
@@ -63,6 +65,7 @@ export default {
           this.conversationId = null
           this.messages = []
           this.input = ''
+          this.modelCode = DEFAULT_MODEL_ID
         }
       }
     }
@@ -83,13 +86,14 @@ export default {
         this.conversationId = null
         this.messages = []
         this.input = ''
+        this.modelCode = DEFAULT_MODEL_ID
       }
     },
     async loadConversation() {
       try {
         const res = await api.get(`/api/conversations/${this.conversationId}`)
         this.messages = res.data.messages
-        this.modelCode = res.data.model_code
+        this.modelCode = res.data.model_code || DEFAULT_MODEL_ID
         this.scrollToBottom()
       } catch (err) {
         console.error('Error loading conversation', err)
