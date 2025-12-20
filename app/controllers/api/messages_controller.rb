@@ -4,7 +4,7 @@ module Api
 
     def create
       conversation = Conversation.find(params[:conversation_id])
-      safe_model_code = params[:model_code] if AI_MODELS.map{|m| m['id']}.include?(params[:model_code])
+      safe_model_code = params[:model_code] if AI_MODELS.map { |m| m["id"] }.include?(params[:model_code])
       safe_model_code ||= conversation.model_code
       conversation.update!(model_code: safe_model_code) if conversation.model_code != safe_model_code
       conversation.entitle(params[:content]) if conversation.messages.empty?
