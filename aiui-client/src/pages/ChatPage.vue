@@ -1,5 +1,14 @@
 <template>
   <q-page class="column justify-end">
+    <q-select
+      v-model="modelCode"
+      :options="modelOptions"
+      label="Model"
+      emit-value
+      map-options
+      class="q-ma-md"
+      style="max-width: 380px"
+    />
     <div ref="chatWindow" class="chat-window q-pa-md">
       <div v-for="(msg, i) in messages" :key="i" class="q-mb-md">
         <div :class="msg.role" class="bubble q-pa-sm q-rounded-borders">
@@ -27,13 +36,24 @@
 import { api } from 'boot/axios'
 import { marked } from 'marked'
 
+const DEFAULT_MODEL_ID = import.meta.env.VITE_DEFAULT_MODEL_ID || null
+
 export default {
   name: 'ChatPage',
   data: () => ({
     input: '',
     messages: [],
-    conversationId: null
+    conversationId: null,
+    models: [],
+    modelCode: null
   }),
+  async mounted() {
+    const modelsRes = await api.get('/api/models')
+    this.models = modelsRes.data.models
+    if (!this.modelCode && this.models.length > 0) {
+      this.modelCode = DEFAULT_MODEL_ID || String(this.models[0].id)
+    }
+  },
   watch: {
     '$route.params.id': {
       immediate: true,
@@ -45,8 +65,17 @@ export default {
           this.conversationId = null
           this.messages = []
           this.input = ''
+          this.modelCode = DEFAULT_MODEL_ID
         }
       }
+    }
+  },
+  computed: {
+    modelOptions() {
+      return this.models.map(m => ({
+        label: String(m.id),
+        value: String(m.id)
+      }))
     }
   },
   methods: {
@@ -57,12 +86,14 @@ export default {
         this.conversationId = null
         this.messages = []
         this.input = ''
+        this.modelCode = DEFAULT_MODEL_ID
       }
     },
     async loadConversation() {
       try {
         const res = await api.get(`/api/conversations/${this.conversationId}`)
         this.messages = res.data.messages
+        this.modelCode = res.data.model_code || DEFAULT_MODEL_ID
         this.scrollToBottom()
       } catch (err) {
         console.error('Error loading conversation', err)
@@ -70,6 +101,8 @@ export default {
     },
     async sendMessage() {
       const text = this.input.trim()
+      const model = this.modelCode
+
       if (!text) return
 
       try {
@@ -86,7 +119,7 @@ export default {
 
         const res = await api.post(
           `/api/conversations/${this.conversationId}/messages`,
-          { content: text }
+          { content: text, model_code: model }
         )
         this.messages.push({ role: 'assistant', content: res.data.reply })
 

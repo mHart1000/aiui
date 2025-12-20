@@ -6,6 +6,8 @@ class OpenaiChatService
   end
 
   def self.call(messages:, model: nil)
+    Rails.logger.info("OpenAI model #{model || 'none'} called with #{messages.size} messages")
+    Rails.logger.debug("Messages: #{messages.inspect}")
     unless enabled?
       return "[DEV MODE] Assistant reply placeholder" if messages.empty?
       last_content = messages.last[:content].to_s
