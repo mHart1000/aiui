@@ -51,7 +51,7 @@ group :development, :test do
   gem "rspec-rails"
 end
 
-gem "httparty", "~> 0.23.2"
+gem "httparty", "~> 0.24.0"
 
 gem "ruby-openai", "~> 8.3"
 
