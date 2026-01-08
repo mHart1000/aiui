@@ -18,14 +18,12 @@
     </div>
 
     <div class="input-bar q-pa-md row items-end">
-      <q-input
-        filled
-        autogrow
-        v-model="input"
-        placeholder="Send a message..."
-        class="col"
-        @keyup.enter.exact="sendMessage"
-      />
+      <div class="col">
+        <VoskSpeechToText
+          v-model="input"
+          :model-url="voskModelUrl"
+        />
+      </div>
       <q-btn icon="send" color="primary" round flat @click="sendMessage" />
       <q-btn icon="add" color="secondary" round flat @click="newChat" />
     </div>
@@ -35,17 +33,23 @@
 <script>
 import { api } from 'boot/axios'
 import { marked } from 'marked'
+import VoskSpeechToText from 'components/VoskSpeechToText.vue'
 
 const DEFAULT_MODEL_ID = import.meta.env.VITE_DEFAULT_MODEL_ID || null
+const DEFAULT_VOSK_MODEL_URL = import.meta.env.VITE_VOSK_MODEL_URL || '/vosk-models/vosk-model-small-en-us-0.15.tar.gz'
 
 export default {
   name: 'ChatPage',
+  components: {
+    VoskSpeechToText
+  },
   data: () => ({
     input: '',
     messages: [],
     conversationId: null,
     models: [],
-    modelCode: null
+    modelCode: null,
+    voskModelUrl: DEFAULT_VOSK_MODEL_URL
   }),
   async mounted() {
     const modelsRes = await api.get('/api/models')
