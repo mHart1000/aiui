@@ -20,7 +20,8 @@ module Api
 
       result = OpenaiChatService.call(
         messages: messages,
-        model: safe_model_code
+        model: safe_model_code,
+        use_persona: true
       )
 
       if result[:error]
