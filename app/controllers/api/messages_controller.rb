@@ -32,7 +32,7 @@ module Api
         reply = result[:reply]
         thinking = result[:thinking]
         tokens = result[:tokens]
-        
+
         # Aggregate token usage from both passes (or single pass)
         if tokens&.dig(:planning) && tokens&.dig(:execution)
           # Two-pass mode: sum both passes
@@ -45,7 +45,7 @@ module Api
           total_completion = tokens&.dig(:completion_tokens) || 0
           total_all = tokens&.dig(:total_tokens) || 0
         end
-        
+
         assistant_message = conversation.messages.create!(
           role: "assistant",
           content: reply,
@@ -54,7 +54,7 @@ module Api
           completion_tokens: total_completion,
           total_tokens: total_all
         )
-        
+
         render json: {
           reply: reply,
           thinking: thinking,

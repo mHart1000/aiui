@@ -1,7 +1,7 @@
 class OpenaiChatService
   FALLBACK_MODEL = "gpt-4o-2024-08-06"
   PERSONA_PATH = Rails.root.join("persona", "persona1.md")
-  
+
   PLANNING_PROMPT = <<~PROMPT
     Analyze the user's request and create a structured plan:
 
@@ -22,11 +22,11 @@ class OpenaiChatService
   def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false)
     Rails.logger.info("OpenAI model #{model || 'none'} called with #{messages.size} messages, scaffolding: #{use_scaffolding}")
     Rails.logger.debug("Messages: #{messages.inspect}")
-    
+
     unless enabled?
       return dev_mode_response(messages)
     end
-    
+
     model_id = model.presence || FALLBACK_MODEL
     client = OpenAI::Client.new(access_token: ENV["OPENAI_API_KEY"])
 
@@ -64,7 +64,7 @@ class OpenaiChatService
 
       reply = response.dig("choices", 0, "message", "content")
       tokens = extract_token_usage(response)
-      
+
       { reply: reply, tokens: tokens }
     rescue => e
       { error: e.message }
@@ -78,7 +78,7 @@ class OpenaiChatService
         { role: "system", content: PLANNING_PROMPT },
         *messages
       ]
-      
+
       Rails.logger.info("Starting planning pass...")
       planning_response = client.chat(
         parameters: {
@@ -86,26 +86,26 @@ class OpenaiChatService
           messages: planning_messages
         }
       )
-      
+
       thinking = planning_response.dig("choices", 0, "message", "content")
       planning_tokens = extract_token_usage(planning_response)
       Rails.logger.debug("Planning complete. Tokens: #{planning_tokens}")
-      
+
       # Pass 2: Final response using the plan
       persona_content = use_persona ? File.read(PERSONA_PATH) : nil
-      
+
       execution_system_message = if persona_content
         # Combine persona with planning context
         "#{persona_content}\n\n---\n\n# Your Planning Analysis\n\n#{thinking}\n\n---\n\nNow provide your final response based on this analysis."
       else
         "Here is your planning analysis:\n\n#{thinking}\n\nNow provide your final response based on this analysis."
       end
-      
+
       execution_messages = [
         { role: "system", content: execution_system_message },
         *messages
       ]
-      
+
       Rails.logger.info("Starting execution pass...")
       execution_response = client.chat(
         parameters: {
@@ -113,18 +113,18 @@ class OpenaiChatService
           messages: execution_messages
         }
       )
-      
+
       reply = execution_response.dig("choices", 0, "message", "content")
       execution_tokens = extract_token_usage(execution_response)
       Rails.logger.debug("Execution complete. Tokens: #{execution_tokens}")
-      
+
       # Aggregate token counts
       total_tokens = {
         planning: planning_tokens,
         execution: execution_tokens,
         total: planning_tokens[:total_tokens] + execution_tokens[:total_tokens]
       }
-      
+
       {
         reply: reply,
         thinking: thinking,
@@ -148,6 +148,6 @@ class OpenaiChatService
     return messages if messages.first&.dig(:role) == "system"
 
     persona_content = File.read(PERSONA_PATH)
-    [{ role: "system", content: persona_content }] + messages
+    [ { role: "system", content: persona_content } ] + messages
   end
 end
