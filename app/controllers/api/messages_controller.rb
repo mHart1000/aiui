@@ -1,7 +1,6 @@
 module Api
   class MessagesController < ApplicationController
-    before_action :authenticate_api_user!, except: [:create_streaming]
-    before_action :authenticate_streaming_user!, only: [:create_streaming]
+    before_action :authenticate_api_user!
     include ActionController::Live
 
     def create
@@ -128,27 +127,6 @@ module Api
         response.stream.write("data: #{error_data.to_json}\n\n")
       ensure
         response.stream.close
-      end
-    end
-
-    private
-
-    def authenticate_streaming_user!
-      # EventSource can't send Authorization headers easily, so accept token as query param
-      token = params[:token] || request.headers['Authorization']&.sub('Bearer ', '')
-
-      if token.blank?
-        render json: { error: 'Missing authentication token' }, status: :unauthorized
-        return
-      end
-
-      # JWT auth - decode and authenticate
-      begin
-        # Use Devise JWT's token authentication
-        request.headers['Authorization'] = "Bearer #{token}"
-        authenticate_api_user!
-      rescue
-        render json: { error: 'Invalid token' }, status: :unauthorized
       end
     end
   end
