@@ -48,7 +48,6 @@
 <script>
 import { api } from 'boot/axios'
 import { marked } from 'marked'
-import { Notify } from 'quasar'
 
 const DEFAULT_MODEL_ID = import.meta.env.VITE_DEFAULT_MODEL_ID || null
 
@@ -161,24 +160,47 @@ export default {
       return marked.parse(text)
     },
 
-    copyToClipboard(text) {
+    async copyToClipboard(text) {
       console.log('Copy button clicked', text)
-      navigator.clipboard.writeText(text).then(() => {
-        Notify.create({
-          type: 'positive',
-          message: 'Response copied to clipboard',
-          position: 'top',
-          timeout: 2000
-        })
-      }).catch(err => {
+      
+      try {
+        // Try modern clipboard API first
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text)
+          console.log('Copied successfully')
+          this.$q.notify({
+            type: 'positive',
+            message: 'Response copied to clipboard',
+            position: 'top',
+            timeout: 2000
+          })
+        } else {
+          // Fallback for older browsers or non-HTTPS
+          const textArea = document.createElement('textarea')
+          textArea.value = text
+          textArea.style.position = 'fixed'
+          textArea.style.left = '-999999px'
+          document.body.appendChild(textArea)
+          textArea.select()
+          document.execCommand('copy')
+          document.body.removeChild(textArea)
+          
+          this.$q.notify({
+            type: 'positive',
+            message: 'Response copied to clipboard',
+            position: 'top',
+            timeout: 2000
+          })
+        }
+      } catch (err) {
         console.error('Failed to copy:', err)
-        Notify.create({
+        this.$q.notify({
           type: 'negative',
-          message: 'Failed to copy text',
+          message: `Failed to copy: ${err.message}`,
           position: 'top',
-          timeout: 2000
+          timeout: 3000
         })
-      })
+      }
     }
   }
 }
