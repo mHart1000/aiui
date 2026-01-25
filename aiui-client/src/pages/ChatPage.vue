@@ -48,16 +48,12 @@
 <script>
 import { api } from 'boot/axios'
 import { marked } from 'marked'
-import { useQuasar } from 'quasar'
+import { Notify } from 'quasar'
 
 const DEFAULT_MODEL_ID = import.meta.env.VITE_DEFAULT_MODEL_ID || null
 
 export default {
   name: 'ChatPage',
-  setup() {
-    const $q = useQuasar()
-    return { $q }
-  },
   data: () => ({
     input: '',
     messages: [],
@@ -166,8 +162,9 @@ export default {
     },
 
     copyToClipboard(text) {
+      console.log('Copy button clicked', text)
       navigator.clipboard.writeText(text).then(() => {
-        this.$q.notify({
+        Notify.create({
           type: 'positive',
           message: 'Response copied to clipboard',
           position: 'top',
@@ -175,7 +172,7 @@ export default {
         })
       }).catch(err => {
         console.error('Failed to copy:', err)
-        this.$q.notify({
+        Notify.create({
           type: 'negative',
           message: 'Failed to copy text',
           position: 'top',
