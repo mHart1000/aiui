@@ -13,6 +13,19 @@
       <div v-for="(msg, i) in messages" :key="i" class="q-mb-md">
         <div :class="msg.role" class="bubble q-pa-sm q-rounded-borders">
           <div v-html="formatMessage(msg.content)" />
+          <div class="message-footer" v-if="msg.role === 'assistant'">
+            <q-btn
+              flat
+              dense
+              round
+              size="sm"
+              icon="content_copy"
+              class="copy-btn"
+              @click="copyToClipboard(msg.content)"
+            >
+              <q-tooltip>Copy response</q-tooltip>
+            </q-btn>
+          </div>
         </div>
       </div>
     </div>
@@ -35,11 +48,16 @@
 <script>
 import { api } from 'boot/axios'
 import { marked } from 'marked'
+import { useQuasar } from 'quasar'
 
 const DEFAULT_MODEL_ID = import.meta.env.VITE_DEFAULT_MODEL_ID || null
 
 export default {
   name: 'ChatPage',
+  setup() {
+    const $q = useQuasar()
+    return { $q }
+  },
   data: () => ({
     input: '',
     messages: [],
@@ -145,6 +163,25 @@ export default {
 
     formatMessage(text) {
       return marked.parse(text)
+    },
+
+    copyToClipboard(text) {
+      navigator.clipboard.writeText(text).then(() => {
+        this.$q.notify({
+          type: 'positive',
+          message: 'Response copied to clipboard',
+          position: 'top',
+          timeout: 2000
+        })
+      }).catch(err => {
+        console.error('Failed to copy:', err)
+        this.$q.notify({
+          type: 'negative',
+          message: 'Failed to copy text',
+          position: 'top',
+          timeout: 2000
+        })
+      })
     }
   }
 }
@@ -160,6 +197,20 @@ export default {
   max-width: 60%;
   line-height: 1.5;
   border-radius: 5px;
+  position: relative;
+}
+.message-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+  padding-top: 4px;
+}
+.copy-btn {
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+.copy-btn:hover {
+  opacity: 1;
 }
 .user {
   background: var(--bubble-user);
