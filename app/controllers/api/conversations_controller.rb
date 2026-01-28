@@ -16,7 +16,12 @@ module Api
         title: conversation.title,
         model_code: conversation.model_code,
         messages: conversation.messages.order(:created_at).map { |m|
-          { role: m.role, content: m.content }
+          {
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            thinking: m.thinking
+          }
         }
       }
     end

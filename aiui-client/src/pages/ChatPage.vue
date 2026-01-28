@@ -10,20 +10,20 @@
       style="max-width: 380px"
     />
     <div ref="chatWindow" class="chat-window q-pa-md">
-      <div v-for="(msg, i) in messages" :key="i" class="q-mb-md">
+      <div v-for="(msg, i) in messages" :key="msg._localId || msg.id || i" class="q-mb-md">
         <!-- Thinking section (only for assistant messages with thinking) -->
         <q-expansion-item
           v-if="msg.role === 'assistant' && msg.thinking"
           icon="psychology"
           label="View thinking"
-          :default-opened="msg.isStreaming"
+          v-model="expandedThinking[msg._localId || msg.id]"
           header-class="thinking-header"
           class="q-mb-sm"
         >
           <q-card class="thinking-content">
             <q-card-section>
               <div v-html="formatMessage(msg.thinking)"></div>
-              <q-spinner v-if="msg.isStreaming" color="primary" size="20px" class="q-mt-sm" />
+              <q-spinner v-if="msg.isStreaming && streamingChat.thinkingText.value" color="primary" size="20px" class="q-mt-sm" />
             </q-card-section>
           </q-card>
         </q-expansion-item>
@@ -31,7 +31,7 @@
         <!-- Main message bubble -->
         <div :class="msg.role" class="bubble q-pa-sm q-rounded-borders">
           <div v-html="formatMessage(msg.content)" />
-          <q-spinner v-if="msg.isStreaming && !msg.thinking" color="primary" size="20px" class="q-mt-sm" />
+          <q-spinner v-if="msg.isStreaming && streamingChat.responseText.value" color="primary" size="20px" class="q-mt-sm" />
         </div>
       </div>
     </div>
@@ -79,7 +79,9 @@ export default {
     conversationId: null,
     models: [],
     modelCode: null,
-    currentStreamingIndex: null
+    currentStreamingIndex: null,
+    expandedThinking: {}, // Track expansion state by message ID
+    messageIdCounter: 0 // Generate stable IDs for new messages
   }),
   async mounted() {
     const modelsRes = await api.get('/api/models')
@@ -107,7 +109,12 @@ export default {
     'streamingChat.thinkingText.value': {
       handler(newThinking) {
         if (this.currentStreamingIndex !== null) {
-          this.messages[this.currentStreamingIndex].thinking = newThinking
+          const msg = this.messages[this.currentStreamingIndex]
+          msg.thinking = newThinking
+          // Auto-expand thinking when it first appears
+          if (newThinking && !this.expandedThinking[msg._localId]) {
+            this.expandedThinking[msg._localId] = true
+          }
           this.scrollToBottom()
         }
       }
@@ -115,8 +122,21 @@ export default {
     'streamingChat.responseText.value': {
       handler(newResponse) {
         if (this.currentStreamingIndex !== null) {
-          this.messages[this.currentStreamingIndex].content = newResponse
+          const msg = this.messages[this.currentStreamingIndex]
+          msg.content = newResponse
+          // Auto-collapse thinking when response starts
+          if (newResponse && this.expandedThinking[msg._localId]) {
+            this.expandedThinking[msg._localId] = false
+          }
           this.scrollToBottom()
+        }
+      }
+    },
+    // Mark streaming complete
+    'streamingChat.isStreaming.value': {
+      handler(isStreaming) {
+        if (!isStreaming && this.currentStreamingIndex !== null) {
+          this.messages[this.currentStreamingIndex].isStreaming = false
         }
       }
     }
@@ -143,7 +163,12 @@ export default {
     async loadConversation() {
       try {
         const res = await api.get(`/api/conversations/${this.conversationId}`)
-        this.messages = res.data.messages
+        // Map loaded messages to include isStreaming: false and stable IDs
+        this.messages = res.data.messages.map(msg => ({
+          ...msg,
+          _localId: msg.id || `local-${this.messageIdCounter++}`,
+          isStreaming: false
+        }))
         this.modelCode = res.data.model_code || DEFAULT_MODEL_ID
         this.scrollToBottom()
       } catch (err) {
@@ -165,17 +190,23 @@ export default {
         }
 
         // Add user message immediately (optimistic UI)
-        this.messages.push({ role: 'user', content: text })
+        this.messages.push({ 
+          role: 'user', 
+          content: text,
+          _localId: `local-${this.messageIdCounter++}`
+        })
         this.input = ''
         this.scrollToBottom()
 
         // Add placeholder for assistant message with streaming state
         this.currentStreamingIndex = this.messages.length
+        const assistantLocalId = `local-${this.messageIdCounter++}`
         this.messages.push({
           role: 'assistant',
           content: '',
           thinking: '',
-          isStreaming: true
+          isStreaming: true,
+          _localId: assistantLocalId
         })
 
         // Get JWT token from localStorage
@@ -189,8 +220,10 @@ export default {
           model
         )
 
-        // Mark streaming complete
-        this.messages[this.currentStreamingIndex].isStreaming = false
+        // Mark streaming complete (also handled by watcher, but ensure it's set)
+        if (this.currentStreamingIndex !== null) {
+          this.messages[this.currentStreamingIndex].isStreaming = false
+        }
 
         // Handle any errors from streaming
         if (this.streamingChat.error.value) {
@@ -250,6 +283,7 @@ export default {
 p {
   margin: 0 !important;
   margin-bottom: 0 !important;
+}
 .thinking-header {
   background-color: #f5f5f5;
   border-left: 3px solid #2196F3;
@@ -262,12 +296,11 @@ p {
   font-size: 0.85em;
   color: #666;
 }
+.thinking-content code {
   background-color: #f6f8fa !important;
 }
 .assistant {
-  /* ai bubble should blend into the background
-  background: var(--bubble-ai);
-  border: 1px solid var(--border); */
+  /* ai bubble should blend into the background */
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
   margin: 40px auto;
 }
