@@ -2,10 +2,10 @@ import { ref } from 'vue'
 
 /**
  * Composable for handling streaming chat responses with two-pass reasoning.
- * 
- * Manages SSE (Server-Sent Events) streaming from the Rails backend,
+ *
+ * Manages SSE (Server-Sent Events) streaming from the backend,
  * accumulating both thinking and response phases in real-time.
- * 
+ *
  * @returns {Object} Reactive state and methods for streaming chat
  */
 export function useStreamingChat() {
@@ -19,15 +19,15 @@ export function useStreamingChat() {
   let currentReader = null
   let streamTimeoutId = null
 
-  const STREAM_TIMEOUT_MS = 120000 // 2 minutes max for entire stream
+  const STREAM_TIMEOUT_MS = 120000 // 2 minutes
 
   /**
    * Send a message and stream the response.
-   * 
-   * @param {number} conversationId - The conversation ID
-   * @param {string} content - The message content to send
-   * @param {string} token - JWT authentication token
-   * @param {string} modelCode - Optional model code override
+   *
+   * @param {number} conversationId
+   * @param {string} content
+   * @param {string} token
+   * @param {string} modelCode
    * @returns {Promise<void>}
    */
   async function sendMessage(conversationId, content, token, modelCode = null) {
@@ -40,10 +40,8 @@ export function useStreamingChat() {
     error.value = null
     isStreaming.value = true
 
-    // Setup abort controller for this stream
     currentAbortController = new AbortController()
 
-    // Setup timeout watchdog
     streamTimeoutId = setTimeout(() => {
       cleanup()
       error.value = 'Stream timeout - response took too long'
@@ -71,7 +69,6 @@ export function useStreamingChat() {
         throw new Error(`HTTP error! status: ${response.status}`)
       }
 
-      // Check if ReadableStream is supported
       if (!response.body) {
         throw new Error('Streaming not supported in this browser')
       }
@@ -82,18 +79,18 @@ export function useStreamingChat() {
 
       while (true) {
         const { done, value } = await currentReader.read()
-        
+
         if (done) {
           break
         }
 
         // Decode chunk and add to buffer
         buffer += decoder.decode(value, { stream: true })
-        
+
         // Process complete SSE messages (format: "data: {...}\n\n")
         const lines = buffer.split('\n\n')
         buffer = lines.pop() // Keep incomplete message in buffer
-        
+
         for (const line of lines) {
           // SSE comments (heartbeat) start with ":"
           if (line.startsWith(':')) {
@@ -104,27 +101,26 @@ export function useStreamingChat() {
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.substring(6))
-              
+
               switch (data.type) {
                 case 'thinking':
                   thinkingText.value += data.content
                   break
-                
+
                 case 'response':
                   responseText.value += data.content
                   break
-                
+
                 case 'done':
                   isStreaming.value = false
                   clearTimeout(streamTimeoutId)
                   break
-                
+
                 case 'error':
                   throw new Error(data.content)
               }
             } catch (parseError) {
               console.warn('Failed to parse SSE event:', line, parseError)
-              // Continue processing other events
             }
           }
         }
@@ -144,10 +140,10 @@ export function useStreamingChat() {
       } else {
         error.value = err.message
       }
-      
+
       isStreaming.value = false
       clearTimeout(streamTimeoutId)
-      
+
       // Re-throw if not a user-initiated abort
       if (err.name !== 'AbortError') {
         console.error('Streaming error:', err)
@@ -166,12 +162,12 @@ export function useStreamingChat() {
       })
       currentReader = null
     }
-    
+
     if (currentAbortController) {
       currentAbortController.abort()
       currentAbortController = null
     }
-    
+
     if (streamTimeoutId) {
       clearTimeout(streamTimeoutId)
       streamTimeoutId = null
@@ -184,7 +180,7 @@ export function useStreamingChat() {
     responseText,
     isStreaming,
     error,
-    
+
     // Methods
     sendMessage,
     cleanup

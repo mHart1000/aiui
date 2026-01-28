@@ -10,20 +10,19 @@
       style="max-width: 380px"
     />
     <div ref="chatWindow" class="chat-window q-pa-md">
-      <div v-for="(msg, i) in messages" :key="msg._localId || msg.id || i" class="q-mb-md">
+      <div v-for="(msg, i) in displayMessages" :key="msg.id || i" class="q-mb-md">
         <!-- Thinking section (only for assistant messages with thinking) -->
         <q-expansion-item
-          v-if="msg.role === 'assistant' && msg.thinking"
+          v-if="msg.role === 'assistant' && (msg.thinking || isActivelyStreaming(i))"
           icon="psychology"
-          label="View thinking"
-          v-model="expandedThinking[msg._localId || msg.id]"
+          v-model="expandedThinking[i]"
           header-class="thinking-header"
           class="q-mb-sm"
         >
           <q-card class="thinking-content">
             <q-card-section>
-              <div v-html="formatMessage(msg.thinking)"></div>
-              <q-spinner v-if="msg.isStreaming && streamingChat.thinkingText.value" color="primary" size="20px" class="q-mt-sm" />
+              <div v-html="formatMessage(msg.thinking || '')"></div>
+              <q-spinner v-if="isActivelyStreaming(i) && streamingChat.thinkingText.value" color="primary" size="20px" class="q-mt-sm" />
             </q-card-section>
           </q-card>
         </q-expansion-item>
@@ -31,7 +30,7 @@
         <!-- Main message bubble -->
         <div :class="msg.role" class="bubble q-pa-sm q-rounded-borders">
           <div v-html="formatMessage(msg.content)" />
-          <q-spinner v-if="msg.isStreaming && streamingChat.responseText.value" color="primary" size="20px" class="q-mt-sm" />
+          <q-spinner v-if="isActivelyStreaming(i)" color="primary" size="20px" class="q-mt-sm" />
         </div>
       </div>
     </div>
@@ -55,7 +54,7 @@
 import { api } from 'boot/axios'
 import { marked } from 'marked'
 import { useStreamingChat } from 'src/composables/useStreamingChat'
-import { onBeforeUnmount } from 'vue'
+import { onBeforeUnmount} from 'vue'
 
 const DEFAULT_MODEL_ID = import.meta.env.VITE_DEFAULT_MODEL_ID || null
 
@@ -63,8 +62,7 @@ export default {
   name: 'ChatPage',
   setup() {
     const streamingChat = useStreamingChat()
-    
-    // Cleanup streaming on component unmount
+
     onBeforeUnmount(() => {
       streamingChat.cleanup()
     })
@@ -79,9 +77,8 @@ export default {
     conversationId: null,
     models: [],
     modelCode: null,
-    currentStreamingIndex: null,
-    expandedThinking: {}, // Track expansion state by message ID
-    messageIdCounter: 0 // Generate stable IDs for new messages
+    streamingMessageIndex: null,
+    expandedThinking: {}
   }),
   async mounted() {
     const modelsRes = await api.get('/api/models')
@@ -105,40 +102,12 @@ export default {
         }
       }
     },
-    // Watch streaming composable refs and update message in real-time
-    'streamingChat.thinkingText.value': {
-      handler(newThinking) {
-        if (this.currentStreamingIndex !== null) {
-          const msg = this.messages[this.currentStreamingIndex]
-          msg.thinking = newThinking
-          // Auto-expand thinking when it first appears
-          if (newThinking && !this.expandedThinking[msg._localId]) {
-            this.expandedThinking[msg._localId] = true
-          }
-          this.scrollToBottom()
-        }
-      }
-    },
-    'streamingChat.responseText.value': {
-      handler(newResponse) {
-        if (this.currentStreamingIndex !== null) {
-          const msg = this.messages[this.currentStreamingIndex]
-          msg.content = newResponse
-          // Auto-collapse thinking when response starts
-          if (newResponse && this.expandedThinking[msg._localId]) {
-            this.expandedThinking[msg._localId] = false
-          }
-          this.scrollToBottom()
-        }
-      }
-    },
-    // Mark streaming complete
-    'streamingChat.isStreaming.value': {
-      handler(isStreaming) {
-        if (!isStreaming && this.currentStreamingIndex !== null) {
-          this.messages[this.currentStreamingIndex].isStreaming = false
-        }
-      }
+    // Auto-scroll when messages change
+    messages: {
+      handler() {
+        this.$nextTick(() => this.scrollToBottom())
+      },
+      deep: true
     }
   },
   computed: {
@@ -147,6 +116,29 @@ export default {
         label: String(m.id),
         value: String(m.id)
       }))
+    },
+    displayMessages() {
+      return this.messages.map((msg, index) => {
+        if (index === this.streamingMessageIndex && this.streamingChat.isStreaming.value) {
+          const thinking = this.streamingChat.thinkingText.value
+          const content = this.streamingChat.responseText.value
+
+          if (thinking && !this.expandedThinking[index]) {
+            this.expandedThinking[index] = true
+          }
+
+          if (content && this.expandedThinking[index]) {
+            this.expandedThinking[index] = false
+          }
+
+          return {
+            ...msg,
+            thinking,
+            content
+          }
+        }
+        return msg
+      })
     }
   },
   methods: {
@@ -163,14 +155,8 @@ export default {
     async loadConversation() {
       try {
         const res = await api.get(`/api/conversations/${this.conversationId}`)
-        // Map loaded messages to include isStreaming: false and stable IDs
-        this.messages = res.data.messages.map(msg => ({
-          ...msg,
-          _localId: msg.id || `local-${this.messageIdCounter++}`,
-          isStreaming: false
-        }))
+        this.messages = res.data.messages
         this.modelCode = res.data.model_code || DEFAULT_MODEL_ID
-        this.scrollToBottom()
       } catch (err) {
         console.error('Error loading conversation', err)
       }
@@ -190,29 +176,23 @@ export default {
         }
 
         // Add user message immediately (optimistic UI)
-        this.messages.push({ 
-          role: 'user', 
-          content: text,
-          _localId: `local-${this.messageIdCounter++}`
+        this.messages.push({
+          role: 'user',
+          content: text
         })
         this.input = ''
-        this.scrollToBottom()
 
-        // Add placeholder for assistant message with streaming state
-        this.currentStreamingIndex = this.messages.length
-        const assistantLocalId = `local-${this.messageIdCounter++}`
+        // Add placeholder for incoming stream
+        this.streamingMessageIndex = this.messages.length
         this.messages.push({
           role: 'assistant',
           content: '',
-          thinking: '',
-          isStreaming: true,
-          _localId: assistantLocalId
+          thinking: ''
         })
 
-        // Get JWT token from localStorage
         const token = localStorage.getItem('jwt')
 
-        // Use streaming composable (watchers will update message in real-time)
+        // Stream the response (composable handles state, computed merges into display)
         await this.streamingChat.sendMessage(
           this.conversationId,
           text,
@@ -220,18 +200,18 @@ export default {
           model
         )
 
-        // Mark streaming complete (also handled by watcher, but ensure it's set)
-        if (this.currentStreamingIndex !== null) {
-          this.messages[this.currentStreamingIndex].isStreaming = false
-        }
+        // Update placeholder message with final content from composable
+        const streamedMessage = this.messages[this.streamingMessageIndex]
+        streamedMessage.thinking = this.streamingChat.thinkingText.value
+        streamedMessage.content = this.streamingChat.responseText.value
 
         // Handle any errors from streaming
         if (this.streamingChat.error.value) {
-          this.messages[this.currentStreamingIndex].content = `Error: ${this.streamingChat.error.value}`
+          streamedMessage.content = `Error: ${this.streamingChat.error.value}`
         }
 
         // Clear streaming index
-        this.currentStreamingIndex = null
+        this.streamingMessageIndex = null
 
         if (isNew && this.$route.params.id !== String(this.conversationId)) {
           this.$router.replace(`/chat/${this.conversationId}`)
@@ -243,16 +223,14 @@ export default {
           content: 'Error contacting API.'
         })
       }
-
-      this.scrollToBottom()
     },
     scrollToBottom() {
-      this.$nextTick(() => {
-        const el = this.$refs.chatWindow
-        if (el) el.scrollTop = el.scrollHeight
-      })
+      const el = this.$refs.chatWindow
+      if (el) el.scrollTop = el.scrollHeight
     },
-
+    isActivelyStreaming(index) {
+      return index === this.streamingMessageIndex && this.streamingChat.isStreaming.value
+    },
     formatMessage(text) {
       return marked.parse(text)
     }
@@ -291,16 +269,16 @@ p {
   opacity: 0.8;
 }
 .thinking-content {
-  background-color: #fafafa;
+  background-color: #201d12;
   font-family: monospace;
   font-size: 0.85em;
-  color: #666;
+  color: #c7c7c7;
+  border-radius: 3px;
 }
 .thinking-content code {
-  background-color: #f6f8fa !important;
+  background-color: #2a271a !important;
 }
 .assistant {
-  /* ai bubble should blend into the background */
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
   margin: 40px auto;
 }
