@@ -1,5 +1,5 @@
 <template>
-  <q-page class="column justify-end">
+  <q-page class="column" :class="justify-center">
     <q-select
       v-model="modelCode"
       :options="modelOptions"
@@ -9,9 +9,17 @@
       class="q-ma-md"
       style="max-width: 380px"
     />
-    <div ref="chatWindow" class="chat-window q-pa-md">
+
+    <div v-if="!hasMessages" class="new-chat-welcome column items-center q-pa-xl">
+      <q-icon name="chat" size="80px" color="primary" class="q-mb-md" />
+      <h4 class="text-h4 q-mt-none q-mb-md">Start a New Conversation</h4>
+      <p class="text-subtitle1 text-grey-7 text-center" style="max-width: 500px">
+        Ask me anything. I'm here to help.
+      </p>
+    </div>
+
+    <div v-else ref="chatWindow" class="chat-window q-pa-md">
       <div v-for="(msg, i) in displayMessages" :key="msg.id || i" class="q-mb-md">
-        <!-- Thinking section (only for assistant messages with thinking) -->
         <q-expansion-item
           v-if="msg.role === 'assistant' && (msg.thinking || isActivelyStreaming(i))"
           icon="psychology"
@@ -27,7 +35,6 @@
           </q-card>
         </q-expansion-item>
 
-        <!-- Main message bubble -->
         <div :class="msg.role" class="bubble q-pa-sm q-rounded-borders">
           <div v-html="formatMessage(msg.content)" />
           <q-spinner v-if="isActivelyStreaming(i)" color="primary" size="20px" class="q-mt-sm" />
@@ -35,17 +42,21 @@
       </div>
     </div>
 
-    <div class="input-bar q-pa-md row items-end">
+    <div
+      class="input-bar q-pa-md row items-end"
+      :class="{ 'input-centered': !hasMessages }"
+    >
       <q-input
         filled
         autogrow
         v-model="input"
         placeholder="Send a message..."
         class="col"
+        :style="!hasMessages ? 'max-width: 700px' : ''"
         @keyup.enter.exact="sendMessage"
       />
       <q-btn icon="send" color="primary" round flat @click="sendMessage" />
-      <q-btn icon="add" color="secondary" round flat @click="newChat" />
+      <q-btn v-if="hasMessages" icon="add" color="secondary" round flat @click="newChat" />
     </div>
   </q-page>
 </template>
@@ -111,6 +122,9 @@ export default {
     }
   },
   computed: {
+    hasMessages() {
+      return this.messages.length > 0
+    },
     modelOptions() {
       return this.models.map(m => ({
         label: String(m.id),
@@ -284,6 +298,13 @@ p {
 }
 .input-bar {
   border-top: 1px solid var(--border);
+}
+.input-centered {
+  border-top: none;
+  justify-content: center;
+}
+.new-chat-welcome {
+  text-align: center;
 }
 .assistant pre {
   background: var(--bubble-ai);
