@@ -42,17 +42,15 @@
       </div>
     </div>
 
-    <div
-      class="input-bar q-pa-md row items-end"
-      :class="{ 'input-centered': !hasMessages }"
-    >
+    <div class="input-bar q-pa-md row items-end input-centered">
       <q-input
         filled
         autogrow
         v-model="input"
         placeholder="Send a message..."
-        class="col"
-        :style="!hasMessages ? 'max-width: 700px' : ''"
+        class="col message-input"
+        type="textarea"
+        :input-style="{ minHeight: '90px' }"
         @keyup.enter.exact="sendMessage"
       />
       <q-btn icon="send" color="primary" round flat @click="sendMessage" />
@@ -302,6 +300,18 @@ p {
 .input-centered {
   border-top: none;
   justify-content: center;
+}
+.message-input {
+  max-width: 700px;
+}
+.message-input :deep(.q-field__control) {
+  border-radius: 15px;
+}
+.message-input :deep(.q-field__control:after) {
+  display: none;
+}
+.message-input :deep(.q-field__control:before) {
+  display: none;
 }
 .new-chat-welcome {
   text-align: center;
