@@ -10,6 +10,17 @@
       style="max-width: 380px"
     />
 
+    <q-banner v-if="streamingChat.error.value" class="bg-negative text-white q-mx-md">
+      <template v-slot:avatar>
+        <q-icon name="error" color="white" />
+      </template>
+      <div class="text-body2">{{ streamingChat.error.value }}</div>
+      <template v-slot:action>
+        <q-btn flat dense label="Retry" @click="handleRetry" color="white" />
+        <q-btn flat dense label="Dismiss" @click="streamingChat.dismissError()" color="white" />
+      </template>
+    </q-banner>
+
     <div v-if="!hasMessages" class="new-chat-welcome column items-center q-pa-xl">
       <q-icon name="chat" size="80px" color="primary" class="q-mb-md" />
       <h4 class="text-h4 q-mt-none q-mb-md">Start a New Conversation</h4>
@@ -29,15 +40,26 @@
         >
           <q-card class="thinking-content">
             <q-card-section>
-              <div v-html="formatMessage(msg.thinking || '')"></div>
+              <div v-if="!msg.thinking && isActivelyStreaming(i) && streamingChat.loadingPhase.value === 'connecting'" class="text-caption text-grey-6">
+                <q-spinner color="grey-6" size="16px" class="q-mr-sm" />
+                Connecting to AI...
+              </div>
+              <div v-else v-html="formatMessage(msg.thinking || '')"></div>
               <q-spinner v-if="isActivelyStreaming(i) && streamingChat.thinkingText.value" color="primary" size="20px" class="q-mt-sm" />
             </q-card-section>
           </q-card>
         </q-expansion-item>
 
         <div :class="msg.role" class="bubble q-pa-sm q-rounded-borders">
-          <div v-html="formatMessage(msg.content)" />
-          <q-spinner v-if="isActivelyStreaming(i)" color="primary" size="20px" class="q-mt-sm" />
+          <div v-if="!msg.content && isActivelyStreaming(i) && streamingChat.loadingPhase.value === 'connecting'" class="loading-placeholder">
+            <div class="typing-indicator">
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+            </div>
+          </div>
+          <div v-else v-html="formatMessage(msg.content)" />
+          <q-spinner v-if="isActivelyStreaming(i) && msg.content" color="primary" size="20px" class="q-mt-sm" />
         </div>
       </div>
     </div>
@@ -154,6 +176,22 @@ export default {
     }
   },
   methods: {
+    handleRetry() {
+      this.streamingChat.retryLastMessage()
+    },
+    getLoadingText() {
+      const phase = this.streamingChat.loadingPhase.value
+      switch (phase) {
+        case 'connecting':
+          return 'Connecting...'
+        case 'thinking':
+          return 'Analyzing your request...'
+        case 'responding':
+          return 'Generating response...'
+        default:
+          return 'Processing...'
+      }
+    },
     newChat() {
       if (this.$route.params.id) {
         this.$router.push('/chat')
@@ -217,12 +255,11 @@ export default {
         streamedMessage.thinking = this.streamingChat.thinkingText.value
         streamedMessage.content = this.streamingChat.responseText.value
 
-        // Handle any errors from streaming
         if (this.streamingChat.error.value) {
-          streamedMessage.content = `Error: ${this.streamingChat.error.value}`
+          // Remove the failed placeholder message
+          this.messages.splice(this.streamingMessageIndex, 1)
         }
 
-        // Clear streaming index
         this.streamingMessageIndex = null
 
         if (isNew && this.$route.params.id !== String(this.conversationId)) {
@@ -328,5 +365,44 @@ p {
   background: #f6f8fa;
   padding: 2px 4px;
   border-radius: 4px;
+}
+.loading-placeholder {
+  min-height: 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+}
+.typing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.typing-indicator .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #1976d2;
+  opacity: 0.4;
+  animation: pulse 1.4s infinite ease-in-out;
+}
+.typing-indicator .dot:nth-child(1) {
+  animation-delay: 0s;
+}
+.typing-indicator .dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.typing-indicator .dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+@keyframes pulse {
+  0%, 60%, 100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
 }
 </style>
