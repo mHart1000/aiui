@@ -46,6 +46,16 @@ body {
 .user p {
     margin-bottom: 0 !important;
 }
+
+.assistant h1,
+.assistant h2,
+.assistant h3,
+.assistant h4,
+.assistant h5,
+.assistant h6 {
+    all: revert;
+}
+
 .bg-panel {
     background-color: var(--bg-panel) !important;
 }
