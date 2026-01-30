@@ -18,7 +18,7 @@
 
 /* Dark mode */
 .body--dark {
-  background: #1d1c16 !important;
+  background: #22211c !important;
   --q-dark: #171717;
 
   --bg: #0D0E11;
@@ -58,4 +58,8 @@ body {
 
 .bg-panel {
     background-color: var(--bg-panel) !important;
+}
+
+.q-list--dark, .q-item--dark {
+    color: #dedede;
 }
