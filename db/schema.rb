@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.2].define(version: 2025_12_08_044044) do
+ActiveRecord::Schema[7.2].define(version: 2026_01_21_000002) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -29,6 +29,10 @@ ActiveRecord::Schema[7.2].define(version: 2025_12_08_044044) do
     t.text "content", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.text "thinking"
+    t.integer "prompt_tokens"
+    t.integer "completion_tokens"
+    t.integer "total_tokens"
     t.index ["conversation_id"], name: "index_messages_on_conversation_id"
   end
 
