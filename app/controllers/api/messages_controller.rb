@@ -65,9 +65,9 @@ module Api
     end
 
     def create_streaming
-      response.headers['Content-Type'] = 'text/event-stream'
-      response.headers['Cache-Control'] = 'no-cache'
-      response.headers['X-Accel-Buffering'] = 'no'  # Disable nginx buffering
+      response.headers["Content-Type"] = "text/event-stream"
+      response.headers["Cache-Control"] = "no-cache"
+      response.headers["X-Accel-Buffering"] = "no"  # Disable nginx buffering
 
       begin
         conversation = current_api_user.conversations.find(params[:conversation_id])
@@ -123,7 +123,7 @@ module Api
       rescue => e
         Rails.logger.error("Streaming error: #{e.message}")
         Rails.logger.error(e.backtrace.join("\n"))
-        error_data = { type: 'error', content: e.message }
+        error_data = { type: "error", content: e.message }
         response.stream.write("data: #{error_data.to_json}\n\n")
       ensure
         response.stream.close
