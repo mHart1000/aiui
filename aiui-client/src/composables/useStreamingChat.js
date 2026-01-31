@@ -13,8 +13,9 @@ export function useStreamingChat() {
   const responseText = ref('')
   const isStreaming = ref(false)
   const error = ref(null)
+  const loadingPhase = ref('idle') // 'idle' | 'connecting' | 'thinking' | 'responding' | 'done'
+  const lastRequest = ref(null) // Store for retry
 
-  // Track current stream for cancellation
   let currentAbortController = null
   let currentReader = null
   let streamTimeoutId = null
@@ -31,6 +32,9 @@ export function useStreamingChat() {
    * @returns {Promise<void>}
    */
   async function sendMessage(conversationId, content, token, modelCode = null) {
+    // Store request for potential retry
+    lastRequest.value = { conversationId, content, token, modelCode }
+
     // Cancel any existing stream
     cleanup()
 
@@ -39,6 +43,7 @@ export function useStreamingChat() {
     responseText.value = ''
     error.value = null
     isStreaming.value = true
+    loadingPhase.value = 'connecting'
 
     currentAbortController = new AbortController()
 
@@ -92,27 +97,32 @@ export function useStreamingChat() {
         buffer = lines.pop() // Keep incomplete message in buffer
 
         for (const line of lines) {
-          // SSE comments (heartbeat) start with ":"
           if (line.startsWith(':')) {
             continue
           }
 
-          // SSE data events start with "data: "
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.substring(6))
 
               switch (data.type) {
                 case 'thinking':
+                  if (loadingPhase.value === 'connecting') {
+                    loadingPhase.value = 'thinking'
+                  }
                   thinkingText.value += data.content
                   break
 
                 case 'response':
+                  if (loadingPhase.value !== 'responding') {
+                    loadingPhase.value = 'responding'
+                  }
                   responseText.value += data.content
                   break
 
                 case 'done':
                   isStreaming.value = false
+                  loadingPhase.value = 'done'
                   clearTimeout(streamTimeoutId)
                   break
 
@@ -128,33 +138,48 @@ export function useStreamingChat() {
 
       // Stream completed successfully
       isStreaming.value = false
+      loadingPhase.value = 'done'
       clearTimeout(streamTimeoutId)
 
     } catch (err) {
-      // Handle different error types
       if (err.name === 'AbortError') {
-        // Stream was intentionally cancelled
         console.log('Stream cancelled')
+        loadingPhase.value = 'idle'
       } else if (err.name === 'NetworkError' || err.message.includes('network')) {
         error.value = 'Connection lost. Please check your network and try again.'
+        loadingPhase.value = 'idle'
+      } else if (err.message.includes('timeout')) {
+        error.value = 'Request timed out. The server took too long to respond.'
+        loadingPhase.value = 'idle'
+      } else if (err.message.includes('HTTP error! status:')) {
+        const status = err.message.match(/status: (\d+)/)?.[1]
+        error.value = `Server error (${status}). Please try again.`
+        loadingPhase.value = 'idle'
       } else {
         error.value = err.message
+        loadingPhase.value = 'idle'
       }
 
       isStreaming.value = false
       clearTimeout(streamTimeoutId)
 
-      // Re-throw if not a user-initiated abort
       if (err.name !== 'AbortError') {
         console.error('Streaming error:', err)
       }
     }
   }
 
-  /**
-   * Cleanup function to cancel active streams and clear timeouts.
-   * Should be called on component unmount or before starting a new stream.
-   */
+  async function retryLastMessage() {
+    if (lastRequest.value) {
+      const { conversationId, content, token, modelCode } = lastRequest.value
+      await sendMessage(conversationId, content, token, modelCode)
+    }
+  }
+
+  function dismissError() {
+    error.value = null
+  }
+
   function cleanup() {
     if (currentReader) {
       currentReader.cancel().catch(err => {
@@ -180,9 +205,12 @@ export function useStreamingChat() {
     responseText,
     isStreaming,
     error,
+    loadingPhase,
 
     // Methods
     sendMessage,
+    retryLastMessage,
+    dismissError,
     cleanup
   }
 }
