@@ -52,6 +52,20 @@
         </q-expansion-item>
 
         <div :class="msg.role" class="bubble q-pa-sm q-rounded-borders">
+          <div v-html="formatMessage(msg.content)" />
+          <div class="message-footer" v-if="msg.role === 'assistant'">
+            <q-btn
+              flat
+              dense
+              round
+              size="sm"
+              icon="content_copy"
+              class="copy-btn"
+              @click="copyToClipboard(msg.content)"
+            >
+              <q-tooltip>Copy response</q-tooltip>
+            </q-btn>
+          </div>
           <div v-if="!msg.content && isActivelyStreaming(i) && streamingChat.loadingPhase.value === 'connecting'" class="loading-placeholder">
             <div class="typing-indicator">
               <span class="dot"></span>
@@ -283,6 +297,49 @@ export default {
     },
     formatMessage(text) {
       return marked.parse(text)
+    },
+
+    async copyToClipboard(text) {
+      console.log('Copy button clicked', text)
+      
+      try {
+        // Try modern clipboard API first
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text)
+          console.log('Copied successfully')
+          this.$q.notify({
+            type: 'positive',
+            message: 'Response copied to clipboard',
+            position: 'top',
+            timeout: 2000
+          })
+        } else {
+          // Fallback for older browsers or non-HTTPS
+          const textArea = document.createElement('textarea')
+          textArea.value = text
+          textArea.style.position = 'fixed'
+          textArea.style.left = '-999999px'
+          document.body.appendChild(textArea)
+          textArea.select()
+          document.execCommand('copy')
+          document.body.removeChild(textArea)
+          
+          this.$q.notify({
+            type: 'positive',
+            message: 'Response copied to clipboard',
+            position: 'top',
+            timeout: 2000
+          })
+        }
+      } catch (err) {
+        console.error('Failed to copy:', err)
+        this.$q.notify({
+          type: 'negative',
+          message: `Failed to copy: ${err.message}`,
+          position: 'top',
+          timeout: 3000
+        })
+      }
     }
   }
 }
@@ -298,6 +355,20 @@ export default {
   max-width: 60%;
   line-height: 1.5;
   border-radius: 5px;
+  position: relative;
+}
+.message-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+  padding-top: 4px;
+}
+.copy-btn {
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+.copy-btn:hover {
+  opacity: 1;
 }
 .user {
   background: var(--bubble-user);
