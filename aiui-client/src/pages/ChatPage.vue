@@ -44,6 +44,7 @@
                 <q-spinner color="grey-6" size="16px" class="q-mr-sm" />
                 Connecting to AI...
               </div>
+               <pre v-else-if="isActivelyStreaming(i)" class="thinking-raw">{{ msg.thinking }}</pre>
               <div v-else v-html="formatMessage(msg.thinking || '')"></div>
               <q-spinner v-if="isActivelyStreaming(i) && streamingChat.thinkingText.value" color="primary" size="20px" class="q-mt-sm" />
             </q-card-section>
@@ -326,6 +327,13 @@ p {
 }
 .thinking-content code {
   background-color: #2a271a !important;
+}
+.thinking-raw {
+  white-space: pre-wrap;
+  font-family: monospace;
+  font-size: 0.85em;
+  color: #c7c7c7;
+  margin: 0;
 }
 .assistant {
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
