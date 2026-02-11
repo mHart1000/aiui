@@ -8,7 +8,7 @@ module Api
       safe_model_code = params[:model_code] if AI_MODELS.map { |m| m["id"] }.include?(params[:model_code])
       safe_model_code ||= conversation.model_code
       conversation.update!(model_code: safe_model_code) if conversation.model_code != safe_model_code
-      conversation.entitle(params[:content]) if conversation.messages.empty?
+      conversation.entitle_async(params[:content]) if conversation.messages.empty?
 
       user_message = conversation.messages.create!(
         role: "user",
@@ -74,7 +74,7 @@ module Api
         safe_model_code = params[:model_code] if AI_MODELS.map { |m| m["id"] }.include?(params[:model_code])
         safe_model_code ||= conversation.model_code
         conversation.update!(model_code: safe_model_code) if conversation.model_code != safe_model_code
-        conversation.entitle(params[:content]) if conversation.messages.empty?
+        conversation.entitle_async(params[:content]) if conversation.messages.empty?
 
         user_message = conversation.messages.create!(
           role: "user",
