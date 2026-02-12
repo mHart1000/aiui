@@ -99,7 +99,8 @@ class OpenaiChatService
         { reply: reply, tokens: tokens }
       end
     rescue => e
-      { error: e.message }
+      Rails.logger.error("OpenAI service error: #{e.class} - #{e.message}")
+      raise e
     end
   end
 
@@ -209,7 +210,8 @@ class OpenaiChatService
         }
       end
     rescue => e
-      { error: e.message }
+      Rails.logger.error("OpenAI service error: #{e.class} - #{e.message}")
+      raise e
     end
   end
 
