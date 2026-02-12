@@ -44,17 +44,17 @@ export default {
       isRecording: false,
       partialText: '',
 
-      _model: null,
-      _recognizer: null,
-      _mediaStream: null,
-      _audioContext: null,
-      _sourceNode: null,
+      model: null,
+      recognizer: null,
+      mediaStream: null,
+      audioContext: null,
+      sourceNode: null,
 
-      _workletNode: null,
-      _silenceGainNode: null,
-      _workletReady: false,
+      workletNode: null,
+      silenceGainNode: null,
+      workletReady: false,
 
-      _baseTextAtStart: ''
+      baseTextAtStart: ''
     }
   },
   beforeUnmount () {
@@ -79,15 +79,15 @@ export default {
 
       this.isLoading = true
       this.partialText = ''
-      this._baseTextAtStart = this.modelValue || ''
+      this.baseTextAtStart = this.modelValue || ''
       this.$emit('status', { state: 'loading_model' })
 
       try {
-        await this._ensureModel()
-        this._setupRecognizer()
+        await this.ensureModel()
+        this.setupRecognizer()
 
         this.$emit('status', { state: 'requesting_mic' })
-        this._mediaStream = await navigator.mediaDevices.getUserMedia({
+        this.mediaStream = await navigator.mediaDevices.getUserMedia({
           video: false,
           audio: {
             echoCancellation: true,
@@ -98,41 +98,45 @@ export default {
         })
 
         this.$emit('status', { state: 'starting_audio' })
-        this._audioContext = new AudioContext({ sampleRate: this.sampleRate })
-        this._sourceNode = this._audioContext.createMediaStreamSource(this._mediaStream)
+        this.audioContext = new AudioContext({ sampleRate: this.sampleRate })
+        this.sourceNode = this.audioContext.createMediaStreamSource(this.mediaStream)
 
-        await this._ensureWorklet()
+        await this.ensureWorklet()
 
-        this._workletNode = new AudioWorkletNode(this._audioContext, 'vosk-audio-worklet', {
+        this.workletNode = new AudioWorkletNode(this.audioContext, 'vosk-audio-worklet', {
           numberOfInputs: 1,
           numberOfOutputs: 1,
           channelCount: 1
         })
 
-        this._workletNode.port.onmessage = (event) => {
-          if (!this._recognizer) return
+        this.workletNode.port.onmessage = (event) => {
+          if (!this.recognizer) return
 
           const chunk = event.data
           if (!chunk || !chunk.length) return
 
           try {
-            const audioBuffer = this._audioContext.createBuffer(1, chunk.length, this._audioContext.sampleRate)
+            const audioBuffer = this.audioContext.createBuffer(1, chunk.length, this.audioContext.sampleRate)
             audioBuffer.copyToChannel(chunk, 0)
-            this._recognizer.acceptWaveform(audioBuffer)
+            this.recognizer.acceptWaveform(audioBuffer)
           } catch (e) {
             this.$emit('error', e)
+            this.stop()
           }
         }
 
-        this._silenceGainNode = this._audioContext.createGain()
-        this._silenceGainNode.gain.value = 0
+        this.silenceGainNode = this.audioContext.createGain()
+        this.silenceGainNode.gain.value = 0
 
-        this._sourceNode.connect(this._workletNode)
-        this._workletNode.connect(this._silenceGainNode)
-        this._silenceGainNode.connect(this._audioContext.destination)
+        this.sourceNode.connect(this.workletNode)
+        this.workletNode.connect(this.silenceGainNode)
+        this.silenceGainNode.connect(this.audioContext.destination)
 
         this.isRecording = true
         this.$emit('status', { state: 'recording' })
+      } catch (e) {
+        this.stop()
+        this.$emit('error', e)
       } finally {
         this.isLoading = false
       }
@@ -145,62 +149,72 @@ export default {
       this.$emit('status', { state: 'stopped' })
 
       try {
-        if (this._workletNode) {
-          this._workletNode.port.onmessage = null
-          this._workletNode.disconnect()
+        if (this.workletNode) {
+          this.workletNode.port.onmessage = null
+          this.workletNode.disconnect()
         }
-      } catch (e) {}
+      } catch {
+        // Ignore disconnection errors
+      }
 
       try {
-        if (this._sourceNode) this._sourceNode.disconnect()
-      } catch (e) {}
+        if (this.sourceNode) this.sourceNode.disconnect()
+      } catch {
+        // Ignore disconnection errors
+      }
 
       try {
-        if (this._silenceGainNode) this._silenceGainNode.disconnect()
-      } catch (e) {}
+        if (this.silenceGainNode) this.silenceGainNode.disconnect()
+      } catch {
+        // Ignore disconnection errors
+      }
 
       try {
-        if (this._audioContext) this._audioContext.close()
-      } catch (e) {}
+        if (this.audioContext) this.audioContext.close()
+      } catch {
+        // Ignore close errors
+      }
 
       try {
-        if (this._mediaStream) {
-          this._mediaStream.getTracks().forEach(t => t.stop())
+        if (this.mediaStream) {
+          this.mediaStream.getTracks().forEach(t => t.stop())
         }
-      } catch (e) {}
+      } catch {
+        // Ignore stop errors
+      }
 
-      this._workletNode = null
-      this._silenceGainNode = null
-      this._sourceNode = null
-      this._audioContext = null
-      this._mediaStream = null
-      this._recognizer = null
+      this.workletNode = null
+      this.silenceGainNode = null
+      this.sourceNode = null
+      this.audioContext = null
+      this.mediaStream = null
+      this.recognizer = null
     },
 
-    async _ensureWorklet () {
-      if (this._workletReady) return
-      if (!this._audioContext) throw new Error('AudioContext not initialized')
+    async ensureWorklet () {
+      if (this.workletReady) return
+      if (!this.audioContext) throw new Error('AudioContext not initialized')
 
-      await this._audioContext.audioWorklet.addModule('/vosk-audio-worklet.js')
-      this._workletReady = true
+      await this.audioContext.audioWorklet.addModule('/vosk-audio-worklet.js')
+      this.workletReady = true
     },
 
-    async _ensureModel () {
-      if (this._model) return
+    async ensureModel () {
+      if (this.model) return
       this.$emit('status', { state: 'downloading_model', url: this.modelUrl })
-      this._model = await Vosk.createModel(this.modelUrl)
+      this.model = await Vosk.createModel(this.modelUrl)
     },
 
-    _setupRecognizer () {
-      if (!this._model) throw new Error('Vosk model not loaded')
+    setupRecognizer () {
+      if (!this.model) throw new Error('Vosk model not loaded')
 
-      const recognizer = new this._model.KaldiRecognizer()
+      const recognizer = new this.model.KaldiRecognizer()
 
       recognizer.on('partialresult', (message) => {
         const partial = message && message.result && message.result.partial
         this.partialText = partial || ''
 
-        const next = (this._baseTextAtStart + ' ' + (this.partialText || '')).replace(/\s+/g, ' ').trim()
+        const next = (this.baseTextAtStart + ' ' + (this.partialText || '')).replace(/\s+/g, ' ').trim()
         this.$emit('update:modelValue', next)
       })
 
@@ -208,13 +222,13 @@ export default {
         const text = message && message.result && message.result.text
         if (!text) return
 
-        const merged = (this._baseTextAtStart + ' ' + text).replace(/\s+/g, ' ').trim()
-        this._baseTextAtStart = merged
+        const merged = (this.baseTextAtStart + ' ' + text).replace(/\s+/g, ' ').trim()
+        this.baseTextAtStart = merged
         this.partialText = ''
         this.$emit('update:modelValue', merged)
       })
 
-      this._recognizer = recognizer
+      this.recognizer = recognizer
     }
   }
 }
@@ -236,4 +250,3 @@ export default {
   font-style: italic;
 }
 </style>
-
