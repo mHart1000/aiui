@@ -19,7 +19,7 @@
 </template>
 
 <script>
-import Vosk from 'vosk-browser'
+import * as Vosk from 'vosk-browser'
 
 export default {
   name: 'VoskSpeechToText',
@@ -208,7 +208,7 @@ export default {
     setupRecognizer () {
       if (!this.model) throw new Error('Vosk model not loaded')
 
-      const recognizer = new this.model.KaldiRecognizer()
+      const recognizer = new this.model.KaldiRecognizer(this.sampleRate)
 
       recognizer.on('partialresult', (message) => {
         const partial = message && message.result && message.result.partial
