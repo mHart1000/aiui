@@ -83,12 +83,13 @@
       <VoskSpeechToText
         v-model="input"
         :model-url="voskModelUrl"
+        :show-new-chat="hasMessages"
         @error="handleSttError"
         @status="handleSttStatus"
+        @send-message="sendMessage"
+        @new-chat="newChat"
         class="col message-input"
       />
-      <q-btn icon="send" color="primary" round flat @click="sendMessage" />
-      <q-btn v-if="hasMessages" icon="add" color="secondary" round flat @click="newChat" />
     </div>
   </q-page>
 </template>

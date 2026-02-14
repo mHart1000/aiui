@@ -1,33 +1,63 @@
 <template>
   <div class="stt-input">
-    <q-input
-      filled
-      autogrow
-      :model-value="modelValue"
-      @update:model-value="$emit('update:modelValue', $event)"
-      placeholder="Send a message..."
-      type="textarea"
-      :input-style="{ minHeight: '90px' }"
-    />
+    <div class="input-wrapper">
+      <q-input
+        filled
+        autogrow
+        :model-value="modelValue"
+        @update:model-value="$emit('update:modelValue', $event)"
+        placeholder="Send a message..."
+        type="textarea"
+        :input-style="{ minHeight: '90px', paddingBottom: '45px' }"
+      />
 
-    <div class="controls">
-      <q-btn
-        round
-        flat
-        :icon="isRecording ? 'stop' : 'mic'"
-        :color="isRecording ? 'negative' : 'primary'"
-        :loading="isLoading"
-        @click="toggle"
-        :disable="isLoading"
-      >
-        <q-tooltip>
-          {{ isRecording ? 'Stop recording' : isLoading ? 'Initializing...' : 'Start recording' }}
-        </q-tooltip>
-      </q-btn>
+      <div class="button-overlay">
+        <div class="left-buttons">
+          <q-btn
+            v-if="showNewChat"
+            icon="add"
+            color="secondary"
+            round
+            flat
+            size="sm"
+            @click="$emit('new-chat')"
+          >
+            <q-tooltip>New chat</q-tooltip>
+          </q-btn>
+        </div>
 
-      <span v-if="partialText" class="partial">
+        <div class="right-buttons">
+          <q-btn
+            round
+            flat
+            size="sm"
+            :icon="isRecording ? 'stop' : 'mic'"
+            :color="isRecording ? 'negative' : 'primary'"
+            :loading="isLoading"
+            @click="toggle"
+            :disable="isLoading"
+          >
+            <q-tooltip>
+              {{ isRecording ? 'Stop recording' : isLoading ? 'Initializing...' : 'Start recording' }}
+            </q-tooltip>
+          </q-btn>
+
+          <q-btn
+            icon="send"
+            color="primary"
+            round
+            flat
+            size="sm"
+            @click="$emit('send-message')"
+          >
+            <q-tooltip>Send message</q-tooltip>
+          </q-btn>
+        </div>
+      </div>
+
+      <div v-if="partialText" class="partial-text">
         {{ partialText }}
-      </span>
+      </div>
     </div>
   </div>
 </template>
@@ -37,6 +67,7 @@ import * as Vosk from 'vosk-browser'
 
 export default {
   name: 'VoskSpeechToText',
+
   props: {
     modelValue: {
       type: String,
@@ -49,9 +80,13 @@ export default {
     sampleRate: {
       type: Number,
       default: 16000
+    },
+    showNewChat: {
+      type: Boolean,
+      default: false
     }
   },
-  emits: ['update:modelValue', 'error', 'status'],
+  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat'],
   data () {
     return {
       isLoading: false,
@@ -260,14 +295,32 @@ export default {
 </script>
 
 <style scoped>
-.controls {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 8px;
+.input-wrapper {
+  position: relative;
 }
-.partial {
+
+.button-overlay {
+  position: absolute;
+  bottom: 8px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  pointer-events: none;
+}
+
+.left-buttons,
+.right-buttons {
+  display: flex;
+  gap: 4px;
+  pointer-events: auto;
+}
+
+.partial-text {
+  margin-top: 8px;
   opacity: 0.8;
   font-style: italic;
+  font-size: 0.9em;
 }
 </style>
