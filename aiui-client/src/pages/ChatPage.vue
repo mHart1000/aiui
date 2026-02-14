@@ -79,6 +79,15 @@
       </div>
     </div>
 
+    <div class="input-bar q-pa-md row items-end">
+      <div class="col">
+        <VoskSpeechToText
+          v-model="input"
+          :model-url="voskModelUrl"
+          @error="handleSttError"
+          @status="handleSttStatus"
+        />
+      </div>
     <div class="input-bar q-pa-md row items-end input-centered">
       <q-input
         filled
@@ -99,13 +108,17 @@
 <script>
 import { api } from 'boot/axios'
 import { marked } from 'marked'
+import VoskSpeechToText from 'components/VoskSpeechToText.vue'
 import { useStreamingChat } from 'src/composables/useStreamingChat'
 import { onBeforeUnmount} from 'vue'
 
 const DEFAULT_MODEL_ID = import.meta.env.VITE_DEFAULT_MODEL_ID || null
+const DEFAULT_VOSK_MODEL_URL = import.meta.env.VITE_VOSK_MODEL_URL || '/vosk-models/vosk-model-small-en-us-0.15.zip'
 
 export default {
   name: 'ChatPage',
+  components: {
+    VoskSpeechToText
   setup() {
     const streamingChat = useStreamingChat()
 
@@ -123,6 +136,7 @@ export default {
     conversationId: null,
     models: [],
     modelCode: null,
+    voskModelUrl: DEFAULT_VOSK_MODEL_URL
     streamingMessageIndex: null,
     expandedThinking: {}
   }),
@@ -191,6 +205,16 @@ export default {
     }
   },
   methods: {
+    handleSttError(error) {
+      console.error('Speech recognition error:', error)
+      this.$q?.notify?.({
+        type: 'negative',
+        message: `Mic error: ${error.message || error}`,
+        timeout: 3000
+      })
+    },
+    handleSttStatus(status) {
+      console.log('Speech status:', status)
     handleRetry() {
       this.streamingChat.retryLastMessage()
     },
