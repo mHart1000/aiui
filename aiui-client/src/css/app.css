@@ -18,11 +18,11 @@
 
 /* Dark mode */
 .body--dark {
-  background:#1e1e1e !important;
+  background: #22211c !important;
   --q-dark: #171717;
 
   --bg: #0D0E11;
-  --bg-panel: #16181D;
+  --bg-panel: #262926;
 
   --text: #ECECEC;
   --text-subtle: #A0A0A0;
@@ -46,6 +46,20 @@ body {
 .user p {
     margin-bottom: 0 !important;
 }
+
+.assistant h1,
+.assistant h2,
+.assistant h3,
+.assistant h4,
+.assistant h5,
+.assistant h6 {
+    all: revert;
+}
+
 .bg-panel {
     background-color: var(--bg-panel) !important;
+}
+
+.q-list--dark, .q-item--dark {
+    color: #dedede;
 }
