@@ -52,7 +52,6 @@
         </q-expansion-item>
 
         <div :class="msg.role" class="bubble q-pa-sm q-rounded-borders">
-          <div v-html="formatMessage(msg.content)" />
           <div class="message-footer" v-if="msg.role === 'assistant'">
             <q-btn
               flat
@@ -424,6 +423,7 @@ p {
 .assistant {
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
   margin: 40px auto;
+  max-width: 900px;
 }
 .input-bar {
   border-top: 1px solid var(--border);
@@ -433,10 +433,13 @@ p {
   justify-content: center;
 }
 .message-input {
-  max-width: 700px;
+  max-width: 900px;
 }
 .message-input :deep(.q-field__control) {
   border-radius: 15px;
+}
+.message-input :deep(.q-field__control textarea) {
+  font-size: 16px;
 }
 .message-input :deep(.q-field__control:after) {
   display: none;

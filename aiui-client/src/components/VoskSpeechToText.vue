@@ -8,7 +8,7 @@
         @update:model-value="$emit('update:modelValue', $event)"
         placeholder="Send a message..."
         type="textarea"
-        :input-style="{ minHeight: '90px', paddingBottom: '45px' }"
+        :input-style="{ minHeight: '120px', paddingBottom: '45px' }"
       />
 
       <div class="button-overlay">
@@ -19,7 +19,6 @@
             color="secondary"
             round
             flat
-            size="sm"
             @click="$emit('new-chat')"
           >
             <q-tooltip>New chat</q-tooltip>
@@ -30,7 +29,6 @@
           <q-btn
             round
             flat
-            size="sm"
             :icon="isRecording ? 'stop' : 'mic'"
             :color="isRecording ? 'negative' : 'primary'"
             :loading="isLoading"
@@ -47,7 +45,6 @@
             color="primary"
             round
             flat
-            size="sm"
             @click="$emit('send-message')"
           >
             <q-tooltip>Send message</q-tooltip>
@@ -297,6 +294,7 @@ export default {
 <style scoped>
 .input-wrapper {
   position: relative;
+  margin-bottom: 16px;
 }
 
 .button-overlay {
