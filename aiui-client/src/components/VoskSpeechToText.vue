@@ -20,7 +20,9 @@
         @click="toggle"
         :disable="isLoading"
       >
-        <q-tooltip>{{ isRecording ? 'Stop recording' : 'Start recording' }}</q-tooltip>
+        <q-tooltip>
+          {{ isRecording ? 'Stop recording' : isLoading ? 'Initializing...' : 'Start recording' }}
+        </q-tooltip>
       </q-btn>
 
       <span v-if="partialText" class="partial">
@@ -68,6 +70,12 @@ export default {
 
       baseTextAtStart: ''
     }
+  },
+  mounted () {
+    // Preload vosk model in background
+    this.ensureModel().catch(err => {
+      console.warn('Failed to preload Vosk model:', err)
+    })
   },
   beforeUnmount () {
     this.stop()
