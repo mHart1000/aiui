@@ -79,25 +79,13 @@
       </div>
     </div>
 
-    <div class="input-bar q-pa-md row items-end">
-      <div class="col">
-        <VoskSpeechToText
-          v-model="input"
-          :model-url="voskModelUrl"
-          @error="handleSttError"
-          @status="handleSttStatus"
-        />
-      </div>
     <div class="input-bar q-pa-md row items-end input-centered">
-      <q-input
-        filled
-        autogrow
+      <VoskSpeechToText
         v-model="input"
-        placeholder="Send a message..."
+        :model-url="voskModelUrl"
+        @error="handleSttError"
+        @status="handleSttStatus"
         class="col message-input"
-        type="textarea"
-        :input-style="{ minHeight: '90px' }"
-        @keyup.enter.exact="sendMessage"
       />
       <q-btn icon="send" color="primary" round flat @click="sendMessage" />
       <q-btn v-if="hasMessages" icon="add" color="secondary" round flat @click="newChat" />
@@ -119,6 +107,7 @@ export default {
   name: 'ChatPage',
   components: {
     VoskSpeechToText
+  },
   setup() {
     const streamingChat = useStreamingChat()
 
@@ -136,7 +125,7 @@ export default {
     conversationId: null,
     models: [],
     modelCode: null,
-    voskModelUrl: DEFAULT_VOSK_MODEL_URL
+    voskModelUrl: DEFAULT_VOSK_MODEL_URL,
     streamingMessageIndex: null,
     expandedThinking: {}
   }),
@@ -215,6 +204,7 @@ export default {
     },
     handleSttStatus(status) {
       console.log('Speech status:', status)
+    },
     handleRetry() {
       this.streamingChat.retryLastMessage()
     },
@@ -325,7 +315,7 @@ export default {
 
     async copyToClipboard(text) {
       console.log('Copy button clicked', text)
-      
+
       try {
         // Try modern clipboard API first
         if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -347,7 +337,7 @@ export default {
           textArea.select()
           document.execCommand('copy')
           document.body.removeChild(textArea)
-          
+
           this.$q.notify({
             type: 'positive',
             message: 'Response copied to clipboard',

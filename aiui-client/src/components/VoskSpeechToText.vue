@@ -1,9 +1,13 @@
 <template>
   <div class="stt-input">
-    <textarea
-      :value="modelValue"
-      @input="$emit('update:modelValue', $event.target.value)"
-      rows="4"
+    <q-input
+      filled
+      autogrow
+      :model-value="modelValue"
+      @update:model-value="$emit('update:modelValue', $event)"
+      placeholder="Send a message..."
+      type="textarea"
+      :input-style="{ minHeight: '90px' }"
     />
 
     <div class="controls">
@@ -83,6 +87,11 @@ export default {
       this.$emit('status', { state: 'loading_model' })
 
       try {
+        // Check for microphone support
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error('Microphone access not available. Please use HTTPS or localhost.')
+        }
+
         await this.ensureModel()
         this.setupRecognizer()
 
@@ -235,10 +244,6 @@ export default {
 </script>
 
 <style scoped>
-.stt-input textarea {
-  width: 100%;
-  box-sizing: border-box;
-}
 .controls {
   display: flex;
   align-items: center;
