@@ -2,10 +2,12 @@
   <div class="stt-input">
     <div class="input-wrapper">
       <q-input
+        ref="inputField"
         filled
         autogrow
         :model-value="modelValue"
         @update:model-value="$emit('update:modelValue', $event)"
+        @keydown.enter.exact.prevent="handleSend"
         placeholder="Send a message..."
         type="textarea"
         :input-style="{ minHeight: '120px', paddingBottom: '45px' }"
@@ -45,7 +47,7 @@
             color="primary"
             round
             flat
-            @click="$emit('send-message')"
+            @click="handleSend"
           >
             <q-tooltip>Send message</q-tooltip>
           </q-btn>
@@ -113,17 +115,28 @@ export default {
     this.stop()
   },
   methods: {
+    handleSend () {
+      if (this.isRecording) {
+        this.stop()
+      }
+      this.$emit('send-message')
+    },
+
     async toggle () {
       if (this.isRecording) {
         this.stop()
-        return
+      } else {
+        try {
+          await this.start()
+        } catch (e) {
+          this.$emit('error', e)
+        }
       }
 
-      try {
-        await this.start()
-      } catch (e) {
-        this.$emit('error', e)
-      }
+      // Refocus input so enter works
+      this.$nextTick(() => {
+        this.$refs.inputField?.focus()
+      })
     },
 
     async start () {
@@ -246,6 +259,7 @@ export default {
       this.audioContext = null
       this.mediaStream = null
       this.recognizer = null
+      this.workletReady = false
     },
 
     async ensureWorklet () {

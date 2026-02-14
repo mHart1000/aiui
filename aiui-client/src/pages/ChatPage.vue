@@ -157,6 +157,20 @@ export default {
         this.$nextTick(() => this.scrollToBottom())
       },
       deep: true
+    },
+    'streamingChat.thinkingText.value'(newThinking) {
+      if (this.streamingMessageIndex !== null) {
+        if (newThinking && !this.expandedThinking[this.streamingMessageIndex]) {
+          this.expandedThinking[this.streamingMessageIndex] = true
+        }
+      }
+    },
+    'streamingChat.responseText.value'(newResponse) {
+      if (this.streamingMessageIndex !== null) {
+        if (newResponse && this.expandedThinking[this.streamingMessageIndex]) {
+          this.expandedThinking[this.streamingMessageIndex] = false
+        }
+      }
     }
   },
   computed: {
@@ -172,21 +186,10 @@ export default {
     displayMessages() {
       return this.messages.map((msg, index) => {
         if (index === this.streamingMessageIndex && this.streamingChat.isStreaming.value) {
-          const thinking = this.streamingChat.thinkingText.value
-          const content = this.streamingChat.responseText.value
-
-          if (thinking && !this.expandedThinking[index]) {
-            this.expandedThinking[index] = true
-          }
-
-          if (content && this.expandedThinking[index]) {
-            this.expandedThinking[index] = false
-          }
-
           return {
             ...msg,
-            thinking,
-            content
+            thinking: this.streamingChat.thinkingText.value,
+            content: this.streamingChat.responseText.value
           }
         }
         return msg
