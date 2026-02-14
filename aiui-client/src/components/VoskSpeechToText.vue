@@ -102,7 +102,9 @@ export default {
       silenceGainNode: null,
       workletReady: false,
 
-      baseTextAtStart: ''
+      baseTextAtStart: '',
+      inactivityTimer: null,
+      INACTIVITY_TIMEOUT: 15000 // 15 seconds
     }
   },
   mounted () {
@@ -203,6 +205,8 @@ export default {
         this.silenceGainNode.connect(this.audioContext.destination)
 
         this.isRecording = true
+        this.startInactivityTimer()
+        this.playBeep('start') // Start beep
         this.$emit('status', { state: 'recording' })
       } catch (e) {
         this.stop()
@@ -260,6 +264,84 @@ export default {
       this.mediaStream = null
       this.recognizer = null
       this.workletReady = false
+
+      if (this.inactivityTimer) {
+        clearTimeout(this.inactivityTimer)
+        this.inactivityTimer = null
+      }
+    },
+
+    startInactivityTimer () {
+      if (this.inactivityTimer) {
+        clearTimeout(this.inactivityTimer)
+      }
+      this.inactivityTimer = setTimeout(() => {
+        if (this.isRecording) {
+          this.playBeep('stop')
+          this.stop()
+        }
+      }, this.INACTIVITY_TIMEOUT)
+    },
+
+    playBeep (mode = 'start') {
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+        const now = audioCtx.currentTime
+
+        // Oscillators for warmth and movement
+        const osc1 = audioCtx.createOscillator()
+        const osc2 = audioCtx.createOscillator()
+        const gainNode = audioCtx.createGain()
+        const filter = audioCtx.createBiquadFilter()
+        filter.type = 'lowpass'
+        filter.Q.value = 6 // More resonance for hum
+
+        // Connect: osc -> gain -> filter -> output
+        osc1.connect(gainNode)
+        osc2.connect(gainNode)
+        gainNode.connect(filter)
+        filter.connect(audioCtx.destination)
+
+        // Waveform for warmth
+        osc1.type = 'triangle'
+        osc2.type = 'triangle'
+        osc2.detune.value = 18 // Slight detune for hum/chorus
+
+        // Slightly higher, humming pitch and filter sweep
+        if (mode === 'start') {
+          // Powering on: rising pitch, opening filter
+          osc1.frequency.setValueAtTime(100, now)
+          osc1.frequency.linearRampToValueAtTime(150, now + 0.08)
+          osc2.frequency.setValueAtTime(130, now)
+          osc2.frequency.linearRampToValueAtTime(200, now + 0.08)
+          filter.frequency.setValueAtTime(250, now)
+          filter.frequency.linearRampToValueAtTime(1050, now + 0.08)
+        } else {
+          // Powering off: falling pitch, closing filter
+          osc1.frequency.setValueAtTime(150, now)
+          osc1.frequency.linearRampToValueAtTime(90, now + 0.2)
+          osc2.frequency.setValueAtTime(200, now)
+          osc2.frequency.linearRampToValueAtTime(130, now + 0.2)
+          filter.frequency.setValueAtTime(1050, now)
+          filter.frequency.linearRampToValueAtTime(190, now + 0.2)
+        }
+
+        // Envelope for smoothness
+        gainNode.gain.setValueAtTime(0, now)
+        gainNode.gain.linearRampToValueAtTime(0.19, now + 0.04) // Attack
+        gainNode.gain.linearRampToValueAtTime(0.11, now + 0.16) // Sustain
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + (mode === 'start' ? 0.22 : 0.28)) // Release
+
+        const duration = mode === 'start' ? 0.22 : 0.28
+        osc1.start(now)
+        osc1.stop(now + duration)
+        osc2.start(now)
+        osc2.stop(now + duration)
+
+        setTimeout(() => audioCtx.close(), duration * 1000 + 100)
+      } catch (e) {
+        console.warn('Could not play beep:', e)
+      }
     },
 
     async ensureWorklet () {
@@ -287,6 +369,11 @@ export default {
 
         const next = (this.baseTextAtStart + ' ' + (this.partialText || '')).replace(/\s+/g, ' ').trim()
         this.$emit('update:modelValue', next)
+
+        // Reset inactivity timer on speech detection
+        if (partial && this.isRecording) {
+          this.startInactivityTimer()
+        }
       })
 
       recognizer.on('result', (message) => {
@@ -297,6 +384,11 @@ export default {
         this.baseTextAtStart = merged
         this.partialText = ''
         this.$emit('update:modelValue', merged)
+
+        // Reset inactivity timer on speech detection
+        if (this.isRecording) {
+          this.startInactivityTimer()
+        }
       })
 
       this.recognizer = recognizer
