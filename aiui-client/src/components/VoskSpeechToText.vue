@@ -11,9 +11,17 @@
     />
 
     <div class="controls">
-      <button type="button" @click="toggle" :disabled="isLoading">
-        {{ isRecording ? 'Stop' : (isLoading ? 'Loading…' : 'Mic') }}
-      </button>
+      <q-btn
+        round
+        flat
+        :icon="isRecording ? 'stop' : 'mic'"
+        :color="isRecording ? 'negative' : 'primary'"
+        :loading="isLoading"
+        @click="toggle"
+        :disable="isLoading"
+      >
+        <q-tooltip>{{ isRecording ? 'Stop recording' : 'Start recording' }}</q-tooltip>
+      </q-btn>
 
       <span v-if="partialText" class="partial">
         {{ partialText }}
