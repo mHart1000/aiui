@@ -367,9 +367,6 @@ export default {
         const partial = message && message.result && message.result.partial
         this.partialText = partial || ''
 
-        const next = (this.baseTextAtStart + ' ' + (this.partialText || '')).replace(/\s+/g, ' ').trim()
-        this.$emit('update:modelValue', next)
-
         // Reset inactivity timer on speech detection
         if (partial && this.isRecording) {
           this.startInactivityTimer()
@@ -380,8 +377,8 @@ export default {
         const text = message && message.result && message.result.text
         if (!text) return
 
-        const merged = (this.baseTextAtStart + ' ' + text).replace(/\s+/g, ' ').trim()
-        this.baseTextAtStart = merged
+        const current = (this.modelValue || '').trim()
+        const merged = (current + ' ' + text).replace(/\s+/g, ' ').trim()
         this.partialText = ''
         this.$emit('update:modelValue', merged)
 
