@@ -5,8 +5,8 @@
         ref="inputField"
         filled
         autogrow
-        :model-value="modelValue"
-        @update:model-value="$emit('update:modelValue', $event)"
+        :model-value="displayValue"
+        @update:model-value="handleInput"
         @keydown.enter.exact.prevent="handleSend"
         placeholder="Send a message..."
         type="textarea"
@@ -53,10 +53,6 @@
           </q-btn>
         </div>
       </div>
-
-      <div v-if="partialText" class="partial-text">
-        {{ partialText }}
-      </div>
     </div>
   </div>
 </template>
@@ -91,6 +87,7 @@ export default {
       isLoading: false,
       isRecording: false,
       partialText: '',
+      previewValue: null,
 
       model: null,
       recognizer: null,
@@ -105,6 +102,11 @@ export default {
       baseTextAtStart: '',
       inactivityTimer: null,
       INACTIVITY_TIMEOUT: 15000 // 15 seconds
+    }
+  },
+  computed: {
+    displayValue () {
+      return this.previewValue ?? this.modelValue
     }
   },
   mounted () {
@@ -122,6 +124,11 @@ export default {
         this.stop()
       }
       this.$emit('send-message')
+    },
+
+    handleInput (value) {
+      this.previewValue = null
+      this.$emit('update:modelValue', value)
     },
 
     async toggle () {
@@ -146,6 +153,7 @@ export default {
 
       this.isLoading = true
       this.partialText = ''
+      this.previewValue = null
       this.baseTextAtStart = this.modelValue || ''
       this.$emit('status', { state: 'loading_model' })
 
@@ -220,6 +228,7 @@ export default {
       this.isLoading = false
       this.isRecording = false
       this.partialText = ''
+      this.previewValue = null
       this.$emit('status', { state: 'stopped' })
 
       try {
@@ -367,6 +376,12 @@ export default {
         const partial = message && message.result && message.result.partial
         this.partialText = partial || ''
 
+        const base = this.modelValue || ''
+        let insert = partial || ''
+        const needsSpace = base && insert && !base.endsWith(' ')
+        if (needsSpace) insert = ' ' + insert
+        this.previewValue = base + insert
+
         // Reset inactivity timer on speech detection
         if (partial && this.isRecording) {
           this.startInactivityTimer()
@@ -377,10 +392,34 @@ export default {
         const text = message && message.result && message.result.text
         if (!text) return
 
-        const current = (this.modelValue || '').trim()
-        const merged = (current + ' ' + text).replace(/\s+/g, ' ').trim()
+        const current = this.modelValue || ''
+        const inputEl = this.$refs.inputField?.getNativeElement?.()
+
+        const start = typeof inputEl?.selectionStart === 'number' ? inputEl.selectionStart : current.length
+        const end = typeof inputEl?.selectionEnd === 'number' ? inputEl.selectionEnd : current.length
+
+        const before = current.slice(0, start)
+        const after = current.slice(end)
+
+        let insert = text
+        const needsLeadingSpace = before && !before.endsWith(' ') && !insert.startsWith(' ')
+        const needsTrailingSpace = after && !after.startsWith(' ') && !insert.endsWith(' ')
+        if (needsLeadingSpace) insert = ' ' + insert
+        if (needsTrailingSpace) insert = insert + ' '
+
+        const merged = before + insert + after
         this.partialText = ''
+        this.previewValue = null
         this.$emit('update:modelValue', merged)
+
+        // Restore cursor after inserted text
+        if (inputEl && inputEl.setSelectionRange) {
+          const cursorPos = start + insert.length
+          this.$nextTick(() => {
+            inputEl.setSelectionRange(cursorPos, cursorPos)
+            inputEl.focus()
+          })
+        }
 
         // Reset inactivity timer on speech detection
         if (this.isRecording) {
@@ -418,10 +457,4 @@ export default {
   pointer-events: auto;
 }
 
-.partial-text {
-  margin-top: 8px;
-  opacity: 0.8;
-  font-style: italic;
-  font-size: 0.9em;
-}
 </style>
