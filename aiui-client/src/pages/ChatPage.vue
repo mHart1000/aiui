@@ -1,5 +1,5 @@
 <template>
-  <q-page class="column" :class="justify-center">
+  <q-page class="column">
     <q-select
       v-model="modelCode"
       :options="modelOptions"
