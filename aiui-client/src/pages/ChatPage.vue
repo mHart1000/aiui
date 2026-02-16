@@ -1,5 +1,5 @@
 <template>
-  <q-page class="column" :class="justify-center">
+  <q-page class="column">
     <q-select
       v-model="modelCode"
       :options="modelOptions"
@@ -52,7 +52,6 @@
         </q-expansion-item>
 
         <div :class="msg.role" class="bubble q-pa-sm q-rounded-borders">
-          <div v-html="formatMessage(msg.content)" />
           <div class="message-footer" v-if="msg.role === 'assistant'">
             <q-btn
               flat
@@ -79,28 +78,17 @@
       </div>
     </div>
 
-    <div class="input-bar q-pa-md row items-end">
-      <div class="col">
-        <VoskSpeechToText
-          v-model="input"
-          :model-url="voskModelUrl"
-          @error="handleSttError"
-          @status="handleSttStatus"
-        />
-      </div>
     <div class="input-bar q-pa-md row items-end input-centered">
-      <q-input
-        filled
-        autogrow
+      <VoskSpeechToText
         v-model="input"
-        placeholder="Send a message..."
+        :model-url="voskModelUrl"
+        :show-new-chat="hasMessages"
+        @error="handleSttError"
+        @status="handleSttStatus"
+        @send-message="sendMessage"
+        @new-chat="newChat"
         class="col message-input"
-        type="textarea"
-        :input-style="{ minHeight: '90px' }"
-        @keyup.enter.exact="sendMessage"
       />
-      <q-btn icon="send" color="primary" round flat @click="sendMessage" />
-      <q-btn v-if="hasMessages" icon="add" color="secondary" round flat @click="newChat" />
     </div>
   </q-page>
 </template>
@@ -119,6 +107,7 @@ export default {
   name: 'ChatPage',
   components: {
     VoskSpeechToText
+  },
   setup() {
     const streamingChat = useStreamingChat()
 
@@ -136,7 +125,7 @@ export default {
     conversationId: null,
     models: [],
     modelCode: null,
-    voskModelUrl: DEFAULT_VOSK_MODEL_URL
+    voskModelUrl: DEFAULT_VOSK_MODEL_URL,
     streamingMessageIndex: null,
     expandedThinking: {}
   }),
@@ -168,6 +157,20 @@ export default {
         this.$nextTick(() => this.scrollToBottom())
       },
       deep: true
+    },
+    'streamingChat.thinkingText.value'(newThinking) {
+      if (this.streamingMessageIndex !== null) {
+        if (newThinking && !this.expandedThinking[this.streamingMessageIndex]) {
+          this.expandedThinking[this.streamingMessageIndex] = true
+        }
+      }
+    },
+    'streamingChat.responseText.value'(newResponse) {
+      if (this.streamingMessageIndex !== null) {
+        if (newResponse && this.expandedThinking[this.streamingMessageIndex]) {
+          this.expandedThinking[this.streamingMessageIndex] = false
+        }
+      }
     }
   },
   computed: {
@@ -183,21 +186,10 @@ export default {
     displayMessages() {
       return this.messages.map((msg, index) => {
         if (index === this.streamingMessageIndex && this.streamingChat.isStreaming.value) {
-          const thinking = this.streamingChat.thinkingText.value
-          const content = this.streamingChat.responseText.value
-
-          if (thinking && !this.expandedThinking[index]) {
-            this.expandedThinking[index] = true
-          }
-
-          if (content && this.expandedThinking[index]) {
-            this.expandedThinking[index] = false
-          }
-
           return {
             ...msg,
-            thinking,
-            content
+            thinking: this.streamingChat.thinkingText.value,
+            content: this.streamingChat.responseText.value
           }
         }
         return msg
@@ -215,6 +207,7 @@ export default {
     },
     handleSttStatus(status) {
       console.log('Speech status:', status)
+    },
     handleRetry() {
       this.streamingChat.retryLastMessage()
     },
@@ -325,7 +318,7 @@ export default {
 
     async copyToClipboard(text) {
       console.log('Copy button clicked', text)
-      
+
       try {
         // Try modern clipboard API first
         if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -347,7 +340,7 @@ export default {
           textArea.select()
           document.execCommand('copy')
           document.body.removeChild(textArea)
-          
+
           this.$q.notify({
             type: 'positive',
             message: 'Response copied to clipboard',
@@ -433,6 +426,7 @@ p {
 .assistant {
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
   margin: 40px auto;
+  max-width: 900px;
 }
 .input-bar {
   border-top: 1px solid var(--border);
@@ -442,10 +436,13 @@ p {
   justify-content: center;
 }
 .message-input {
-  max-width: 700px;
+  max-width: 900px;
 }
 .message-input :deep(.q-field__control) {
   border-radius: 15px;
+}
+.message-input :deep(.q-field__control textarea) {
+  font-size: 16px;
 }
 .message-input :deep(.q-field__control:after) {
   display: none;
