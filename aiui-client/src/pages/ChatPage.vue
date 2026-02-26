@@ -14,7 +14,7 @@
       <template v-slot:avatar>
         <q-icon name="error" color="white" />
       </template>
-      <div class="text-body2">{{ streamingChat.error.value }}</div>
+      <div class="text-body2">{{ streamingChat.error.value?.message || streamingChat.error.value }}</div>
       <template v-slot:action>
         <q-btn flat dense label="Retry" @click="handleRetry" color="white" />
         <q-btn flat dense label="Dismiss" @click="streamingChat.dismissError()" color="white" />

@@ -120,11 +120,6 @@ module Api
           total_tokens: 0
         )
 
-      rescue => e
-        Rails.logger.error("Streaming error: #{e.message}")
-        Rails.logger.error(e.backtrace.join("\n"))
-        error_data = { type: "error", content: e.message }
-        response.stream.write("data: #{error_data.to_json}\n\n")
       ensure
         response.stream.close
       end

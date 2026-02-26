@@ -49,7 +49,7 @@ export function useStreamingChat() {
 
     streamTimeoutId = setTimeout(() => {
       cleanup()
-      error.value = 'Stream timeout - response took too long'
+      error.value = new Error('Stream timeout - response took too long')
       isStreaming.value = false
     }, STREAM_TIMEOUT_MS)
 
@@ -142,30 +142,8 @@ export function useStreamingChat() {
       clearTimeout(streamTimeoutId)
 
     } catch (err) {
-      if (err.name === 'AbortError') {
-        console.log('Stream cancelled')
-        loadingPhase.value = 'idle'
-      } else if (err.name === 'NetworkError' || err.message.includes('network')) {
-        error.value = 'Connection lost. Please check your network and try again.'
-        loadingPhase.value = 'idle'
-      } else if (err.message.includes('timeout')) {
-        error.value = 'Request timed out. The server took too long to respond.'
-        loadingPhase.value = 'idle'
-      } else if (err.message.includes('HTTP error! status:')) {
-        const status = err.message.match(/status: (\d+)/)?.[1]
-        error.value = `Server error (${status}). Please try again.`
-        loadingPhase.value = 'idle'
-      } else {
-        error.value = err.message
-        loadingPhase.value = 'idle'
-      }
-
-      isStreaming.value = false
-      clearTimeout(streamTimeoutId)
-
-      if (err.name !== 'AbortError') {
-        console.error('Streaming error:', err)
-      }
+      error.value = err
+      loadingPhase.value = 'idle'
     }
   }
 
