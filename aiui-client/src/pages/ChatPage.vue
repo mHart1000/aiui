@@ -232,60 +232,52 @@ export default {
 
       if (!text) return
 
-      try {
-        const isNew = !this.conversationId
+      const isNew = !this.conversationId
 
-        if (isNew) {
-          const convRes = await api.post('/api/conversations')
-          this.conversationId = convRes.data.id
-        }
+      if (isNew) {
+        const convRes = await api.post('/api/conversations')
+        this.conversationId = convRes.data.id
+      }
 
-        // Add user message immediately (optimistic UI)
-        this.messages.push({
-          role: 'user',
-          content: text
-        })
-        this.input = ''
+      // Add user message immediately (optimistic UI)
+      this.messages.push({
+        role: 'user',
+        content: text
+      })
+      this.input = ''
 
-        // Add placeholder for incoming stream
-        this.streamingMessageIndex = this.messages.length
-        this.messages.push({
-          role: 'assistant',
-          content: '',
-          thinking: ''
-        })
+      // Add placeholder for incoming stream
+      this.streamingMessageIndex = this.messages.length
+      this.messages.push({
+        role: 'assistant',
+        content: '',
+        thinking: ''
+      })
 
-        const token = localStorage.getItem('jwt')
+      const token = localStorage.getItem('jwt')
 
-        // Stream the response (composable handles state, computed merges into display)
-        await this.streamingChat.sendMessage(
-          this.conversationId,
-          text,
-          token,
-          model
-        )
+      // Stream the response (composable handles state, computed merges into display)
+      await this.streamingChat.sendMessage(
+        this.conversationId,
+        text,
+        token,
+        model
+      )
 
-        // Update placeholder message with final content from composable
-        const streamedMessage = this.messages[this.streamingMessageIndex]
-        streamedMessage.thinking = this.streamingChat.thinkingText.value
-        streamedMessage.content = this.streamingChat.responseText.value
+      // Update placeholder message with final content from composable
+      const streamedMessage = this.messages[this.streamingMessageIndex]
+      streamedMessage.thinking = this.streamingChat.thinkingText.value
+      streamedMessage.content = this.streamingChat.responseText.value
 
-        if (this.streamingChat.error.value) {
-          // Remove the failed placeholder message
-          this.messages.splice(this.streamingMessageIndex, 1)
-        }
+      if (this.streamingChat.error.value) {
+        // Remove the failed placeholder message
+        this.messages.splice(this.streamingMessageIndex, 1)
+      }
 
-        this.streamingMessageIndex = null
+      this.streamingMessageIndex = null
 
-        if (isNew && this.$route.params.id !== String(this.conversationId)) {
-          this.$router.replace(`/chat/${this.conversationId}`)
-        }
-      } catch (err) {
-        console.error(err)
-        this.messages.push({
-          role: 'assistant',
-          content: 'Error contacting API.'
-        })
+      if (isNew && this.$route.params.id !== String(this.conversationId)) {
+        this.$router.replace(`/chat/${this.conversationId}`)
       }
     },
     scrollToBottom() {
@@ -301,43 +293,33 @@ export default {
 
     async copyToClipboard(text) {
       console.log('Copy button clicked', text)
-      
-      try {
-        // Try modern clipboard API first
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          await navigator.clipboard.writeText(text)
-          console.log('Copied successfully')
-          this.$q.notify({
-            type: 'positive',
-            message: 'Response copied to clipboard',
-            position: 'top',
-            timeout: 2000
-          })
-        } else {
-          // Fallback for older browsers or non-HTTPS
-          const textArea = document.createElement('textarea')
-          textArea.value = text
-          textArea.style.position = 'fixed'
-          textArea.style.left = '-999999px'
-          document.body.appendChild(textArea)
-          textArea.select()
-          document.execCommand('copy')
-          document.body.removeChild(textArea)
-          
-          this.$q.notify({
-            type: 'positive',
-            message: 'Response copied to clipboard',
-            position: 'top',
-            timeout: 2000
-          })
-        }
-      } catch (err) {
-        console.error('Failed to copy:', err)
+
+      // Try modern clipboard API first
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text)
+        console.log('Copied successfully')
         this.$q.notify({
-          type: 'negative',
-          message: `Failed to copy: ${err.message}`,
+          type: 'positive',
+          message: 'Response copied to clipboard',
           position: 'top',
-          timeout: 3000
+          timeout: 2000
+        })
+      } else {
+        // Fallback for older browsers or non-HTTPS
+        const textArea = document.createElement('textarea')
+        textArea.value = text
+        textArea.style.position = 'fixed'
+        textArea.style.left = '-999999px'
+        document.body.appendChild(textArea)
+        textArea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textArea)
+
+        this.$q.notify({
+          type: 'positive',
+          message: 'Response copied to clipboard',
+          position: 'top',
+          timeout: 2000
         })
       }
     }
