@@ -30,4 +30,9 @@ yarn-error.log*
 *.sln
 
 # local .env files
+.env
 .env.local*
+!.env.example
+
+# Vosk speech recognition models (large files - download separately)
+/public/vosk-models/

@@ -1,5 +1,5 @@
 <template>
-  <q-page class="column" :class="justify-center">
+  <q-page class="column">
     <q-select
       v-model="modelCode"
       :options="modelOptions"
@@ -52,7 +52,6 @@
         </q-expansion-item>
 
         <div :class="msg.role" class="bubble q-pa-sm q-rounded-borders">
-          <div v-html="formatMessage(msg.content)" />
           <div class="message-footer" v-if="msg.role === 'assistant'">
             <q-btn
               flat
@@ -80,18 +79,16 @@
     </div>
 
     <div class="input-bar q-pa-md row items-end input-centered">
-      <q-input
-        filled
-        autogrow
+      <VoskSpeechToText
         v-model="input"
-        placeholder="Send a message..."
+        :model-url="voskModelUrl"
+        :show-new-chat="hasMessages"
+        @error="handleSttError"
+        @status="handleSttStatus"
+        @send-message="sendMessage"
+        @new-chat="newChat"
         class="col message-input"
-        type="textarea"
-        :input-style="{ minHeight: '90px' }"
-        @keyup.enter.exact="sendMessage"
       />
-      <q-btn icon="send" color="primary" round flat @click="sendMessage" />
-      <q-btn v-if="hasMessages" icon="add" color="secondary" round flat @click="newChat" />
     </div>
   </q-page>
 </template>
@@ -99,13 +96,18 @@
 <script>
 import { api } from 'boot/axios'
 import { marked } from 'marked'
+import VoskSpeechToText from 'components/VoskSpeechToText.vue'
 import { useStreamingChat } from 'src/composables/useStreamingChat'
 import { onBeforeUnmount} from 'vue'
 
 const DEFAULT_MODEL_ID = import.meta.env.VITE_DEFAULT_MODEL_ID || null
+const DEFAULT_VOSK_MODEL_URL = import.meta.env.VITE_VOSK_MODEL_URL || '/vosk-models/vosk-model-small-en-us-0.15.zip'
 
 export default {
   name: 'ChatPage',
+  components: {
+    VoskSpeechToText
+  },
   setup() {
     const streamingChat = useStreamingChat()
 
@@ -123,6 +125,7 @@ export default {
     conversationId: null,
     models: [],
     modelCode: null,
+    voskModelUrl: DEFAULT_VOSK_MODEL_URL,
     streamingMessageIndex: null,
     expandedThinking: {}
   }),
@@ -154,6 +157,20 @@ export default {
         this.$nextTick(() => this.scrollToBottom())
       },
       deep: true
+    },
+    'streamingChat.thinkingText.value'(newThinking) {
+      if (this.streamingMessageIndex !== null) {
+        if (newThinking && !this.expandedThinking[this.streamingMessageIndex]) {
+          this.expandedThinking[this.streamingMessageIndex] = true
+        }
+      }
+    },
+    'streamingChat.responseText.value'(newResponse) {
+      if (this.streamingMessageIndex !== null) {
+        if (newResponse && this.expandedThinking[this.streamingMessageIndex]) {
+          this.expandedThinking[this.streamingMessageIndex] = false
+        }
+      }
     }
   },
   computed: {
@@ -169,21 +186,10 @@ export default {
     displayMessages() {
       return this.messages.map((msg, index) => {
         if (index === this.streamingMessageIndex && this.streamingChat.isStreaming.value) {
-          const thinking = this.streamingChat.thinkingText.value
-          const content = this.streamingChat.responseText.value
-
-          if (thinking && !this.expandedThinking[index]) {
-            this.expandedThinking[index] = true
-          }
-
-          if (content && this.expandedThinking[index]) {
-            this.expandedThinking[index] = false
-          }
-
           return {
             ...msg,
-            thinking,
-            content
+            thinking: this.streamingChat.thinkingText.value,
+            content: this.streamingChat.responseText.value
           }
         }
         return msg
@@ -191,6 +197,17 @@ export default {
     }
   },
   methods: {
+    handleSttError(error) {
+      console.error('Speech recognition error:', error)
+      this.$q?.notify?.({
+        type: 'negative',
+        message: `Mic error: ${error.message || error}`,
+        timeout: 3000
+      })
+    },
+    handleSttStatus(status) {
+      console.log('Speech status:', status)
+    },
     handleRetry() {
       this.streamingChat.retryLastMessage()
     },
@@ -391,6 +408,7 @@ p {
 .assistant {
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
   margin: 40px auto;
+  max-width: 900px;
 }
 .input-bar {
   border-top: 1px solid var(--border);
@@ -400,10 +418,13 @@ p {
   justify-content: center;
 }
 .message-input {
-  max-width: 700px;
+  max-width: 900px;
 }
 .message-input :deep(.q-field__control) {
   border-radius: 15px;
+}
+.message-input :deep(.q-field__control textarea) {
+  font-size: 16px;
 }
 .message-input :deep(.q-field__control:after) {
   display: none;
