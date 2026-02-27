@@ -65,151 +65,143 @@ class OpenaiChatService
   def self.single_pass_call(client:, messages:, model_id:, use_persona:, stream: false)
     messages_to_send = use_persona ? prepend_persona(messages) : messages
 
-    begin
-      if stream && block_given?
-        # Streaming mode
-        response_chunks = []
-        client.chat(
-          parameters: {
-            model: model_id,
-            messages: messages_to_send,
-            stream: proc do |chunk, _bytesize|
-              content = chunk.dig("choices", 0, "delta", "content")
-              if content
-                response_chunks << content
-                yield content, :response
-              end
+    if stream && block_given?
+      # Streaming mode
+      response_chunks = []
+      client.chat(
+        parameters: {
+          model: model_id,
+          messages: messages_to_send,
+          stream: proc do |chunk, _bytesize|
+            content = chunk.dig("choices", 0, "delta", "content")
+            if content
+              response_chunks << content
+              yield content, :response
             end
-          }
-        )
-        # Note: Token usage not available in streaming mode until the end
-        nil  # Streaming doesn't return a value
-      else
-        # Non-streaming mode
-        response = client.chat(
-          parameters: {
-            model: model_id,
-            messages: messages_to_send
-          }
-        )
+          end
+        }
+      )
+      # Note: Token usage not available in streaming mode until the end
+      nil  # Streaming doesn't return a value
+    else
+      # Non-streaming mode
+      response = client.chat(
+        parameters: {
+          model: model_id,
+          messages: messages_to_send
+        }
+      )
 
-        reply = response.dig("choices", 0, "message", "content")
-        tokens = extract_token_usage(response)
+      reply = response.dig("choices", 0, "message", "content")
+      tokens = extract_token_usage(response)
 
-        { reply: reply, tokens: tokens }
-      end
-    rescue => e
-      { error: e.message }
+      { reply: reply, tokens: tokens }
     end
   end
 
   def self.two_pass_call(client:, messages:, model_id:, use_persona:, stream: false)
-    begin
-      # Pass 1: Planning
-      planning_messages = [
-        { role: "system", content: PLANNING_PROMPT },
-        *messages
-      ]
+    # Pass 1: Planning
+    planning_messages = [
+      { role: "system", content: PLANNING_PROMPT },
+      *messages
+    ]
 
-      Rails.logger.info("Starting planning pass...")
+    Rails.logger.info("Starting planning pass...")
 
-      thinking = ""
-      planning_tokens = nil
+    thinking = ""
+    planning_tokens = nil
 
-      if stream && block_given?
-        # Stream the thinking as it's generated
-        client.chat(
-          parameters: {
-            model: model_id,
-            messages: planning_messages,
-            stream: proc do |chunk, _bytesize|
-              content = chunk.dig("choices", 0, "delta", "content")
-              if content
-                thinking += content
-                yield content, :thinking
-              end
+    if stream && block_given?
+      # Stream the thinking as it's generated
+      client.chat(
+        parameters: {
+          model: model_id,
+          messages: planning_messages,
+          stream: proc do |chunk, _bytesize|
+            content = chunk.dig("choices", 0, "delta", "content")
+            if content
+              thinking += content
+              yield content, :thinking
             end
-          }
-        )
-      else
-        # Non-streaming planning
-        planning_response = client.chat(
-          parameters: {
-            model: model_id,
-            messages: planning_messages
-          }
-        )
-        thinking = planning_response.dig("choices", 0, "message", "content")
-        planning_tokens = extract_token_usage(planning_response)
-      end
+          end
+        }
+      )
+    else
+      # Non-streaming planning
+      planning_response = client.chat(
+        parameters: {
+          model: model_id,
+          messages: planning_messages
+        }
+      )
+      thinking = planning_response.dig("choices", 0, "message", "content")
+      planning_tokens = extract_token_usage(planning_response)
+    end
 
-      Rails.logger.debug("Planning complete. Length: #{thinking.length}")
+    Rails.logger.debug("Planning complete. Length: #{thinking.length}")
 
-      # Pass 2: Final response using the plan
-      persona_content = use_persona ? File.read(PERSONA_PATH) : nil
+    # Pass 2: Final response using the plan
+    persona_content = use_persona ? File.read(PERSONA_PATH) : nil
 
-      execution_system_message = if persona_content
-        # Combine persona with planning context
-        "#{persona_content}\n\n---\n\n# Your Planning Analysis\n\n#{thinking}\n\n---\n\nNow provide your final response based on this analysis."
-      else
-        "Here is your planning analysis:\n\n#{thinking}\n\nNow provide your final response based on this analysis."
-      end
+    execution_system_message = if persona_content
+      # Combine persona with planning context
+      "#{persona_content}\n\n---\n\n# Your Planning Analysis\n\n#{thinking}\n\n---\n\nNow provide your final response based on this analysis."
+    else
+      "Here is your planning analysis:\n\n#{thinking}\n\nNow provide your final response based on this analysis."
+    end
 
-      execution_messages = [
-        { role: "system", content: execution_system_message },
-        *messages
-      ]
+    execution_messages = [
+      { role: "system", content: execution_system_message },
+      *messages
+    ]
 
-      Rails.logger.info("Starting execution pass...")
+    Rails.logger.info("Starting execution pass...")
 
-      reply = ""
-      execution_tokens = nil
+    reply = ""
+    execution_tokens = nil
 
-      if stream && block_given?
-        # Stream the response as it's generated
-        client.chat(
-          parameters: {
-            model: model_id,
-            messages: execution_messages,
-            stream: proc do |chunk, _bytesize|
-              content = chunk.dig("choices", 0, "delta", "content")
-              if content
-                reply += content
-                yield content, :response
-              end
+    if stream && block_given?
+      # Stream the response as it's generated
+      client.chat(
+        parameters: {
+          model: model_id,
+          messages: execution_messages,
+          stream: proc do |chunk, _bytesize|
+            content = chunk.dig("choices", 0, "delta", "content")
+            if content
+              reply += content
+              yield content, :response
             end
-          }
-        )
-        # Return accumulated data for storage
-        { reply: reply, thinking: thinking }
-      else
-        # Non-streaming execution
-        execution_response = client.chat(
-          parameters: {
-            model: model_id,
-            messages: execution_messages
-          }
-        )
-
-        reply = execution_response.dig("choices", 0, "message", "content")
-        execution_tokens = extract_token_usage(execution_response)
-        Rails.logger.debug("Execution complete. Tokens: #{execution_tokens}")
-
-        # Aggregate token counts
-        total_tokens = {
-          planning: planning_tokens,
-          execution: execution_tokens,
-          total: planning_tokens[:total_tokens] + execution_tokens[:total_tokens]
+          end
         }
-
-        {
-          reply: reply,
-          thinking: thinking,
-          tokens: total_tokens
+      )
+      # Return accumulated data for storage
+      { reply: reply, thinking: thinking }
+    else
+      # Non-streaming execution
+      execution_response = client.chat(
+        parameters: {
+          model: model_id,
+          messages: execution_messages
         }
-      end
-    rescue => e
-      { error: e.message }
+      )
+
+      reply = execution_response.dig("choices", 0, "message", "content")
+      execution_tokens = extract_token_usage(execution_response)
+      Rails.logger.debug("Execution complete. Tokens: #{execution_tokens}")
+
+      # Aggregate token counts
+      total_tokens = {
+        planning: planning_tokens,
+        execution: execution_tokens,
+        total: planning_tokens[:total_tokens] + execution_tokens[:total_tokens]
+      }
+
+      {
+        reply: reply,
+        thinking: thinking,
+        tokens: total_tokens
+      }
     end
   end
 

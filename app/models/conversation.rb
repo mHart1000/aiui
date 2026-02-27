@@ -15,15 +15,20 @@ class Conversation < ApplicationRecord
   def entitle(content)
     return if title.present? && !placeholder_title?
 
-    result = OpenaiChatService.call(
-      messages: [
-        { role: "system", content: "Generate a short 3-6 word chat title in the style of an article title, based on the following user message. No punctuation." },
-        { role: "user", content: content }
-      ],
-      model: "gpt-4o-mini"
-    )
+    begin
+      result = OpenaiChatService.call(
+        messages: [
+          { role: "system", content: "Generate a short 3-6 word chat title in the style of an article title, based on the following user message. No punctuation." },
+          { role: "user", content: content }
+        ],
+        model: "gpt-4o-mini"
+      )
 
-    chosen_title = result[:reply].presence || content[0..40]
-    update!(title: chosen_title.strip)
+      chosen_title = result[:reply].presence || content[0..40]
+      update!(title: chosen_title.strip)
+    rescue => e
+      Rails.logger.warn("Failed to generate title: #{e.message}")
+      update!(title: content[0..40])
+    end
   end
 end
