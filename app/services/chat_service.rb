@@ -50,9 +50,9 @@ class ChatService
 
   def select_adapter(model_id)
     if model_id.downcase.start_with?("gemini")
-      # AiAdapters::GeminiAdapter.new(model: model_id) # Future implementation
+      AiAdapters::GeminiAdapter.new(model: model_id)
     elsif model_id.downcase.include?("llama") || model_id.downcase.include?("local")
-      # AiAdapters::LlamaAdapter.new(model: model_id) # Future implementation
+      AiAdapters::LlamaAdapter.new(model: model_id)
     else
       AiAdapters::OpenaiAdapter.new(model: model_id)
     end

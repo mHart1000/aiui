@@ -2,7 +2,7 @@ module AiAdapters
   class OpenaiAdapter < BaseAdapter
     def chat(messages:, stream: false, &block)
       client = OpenAI::Client.new(access_token: ENV["OPENAI_API_KEY"])
-      
+
       if stream
         client.chat(
           parameters: {
@@ -21,7 +21,7 @@ module AiAdapters
             messages: messages
           }
         )
-        
+
         {
           content: response.dig("choices", 0, "message", "content"),
           tokens: extract_token_usage(response)

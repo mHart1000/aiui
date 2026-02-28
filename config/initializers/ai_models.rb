@@ -1,4 +1,11 @@
 AI_MODELS = [
+ { "id"=>"local-llama", "object"=>"model", "created"=>1700000000, "owned_by"=>"local" },
+ { "id"=>"gemini-3.0-pro", "object"=>"model", "created"=>1764600000, "owned_by"=>"google" },
+ { "id"=>"gemini-3.0-flash", "object"=>"model", "created"=>1764600001, "owned_by"=>"google" },
+ { "id"=>"gemini-2.0-pro", "object"=>"model", "created"=>1733000000, "owned_by"=>"google" },
+ { "id"=>"gemini-2.0-flash", "object"=>"model", "created"=>1733000001, "owned_by"=>"google" },
+ { "id"=>"gemini-1.5-pro", "object"=>"model", "created"=>1700000000, "owned_by"=>"google" },
+ { "id"=>"gemini-1.5-flash", "object"=>"model", "created"=>1700000001, "owned_by"=>"google" },
  { "id"=>"gpt-4-0613", "object"=>"model", "created"=>1686588896, "owned_by"=>"openai" },
  { "id"=>"gpt-4", "object"=>"model", "created"=>1687882411, "owned_by"=>"openai" },
  { "id"=>"gpt-3.5-turbo", "object"=>"model", "created"=>1677610602, "owned_by"=>"openai" },
