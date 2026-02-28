@@ -16,7 +16,7 @@ module AiAdapters
 
         {
           role: msg[:role] == "user" ? "user" : "model",
-          parts: [{ text: msg[:content] }]
+          parts: [ { text: msg[:content] } ]
         }
       end.compact
 

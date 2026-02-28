@@ -17,7 +17,9 @@
   "dependencies": {
     "@quasar/extras": "^1.16.4",
     "axios": "^1.13.2",
+    "highlight.js": "^11.11.1",
     "marked": "^17.0.0",
+    "marked-highlight": "^2.2.3",
     "quasar": "^2.16.0",
     "vosk-browser": "^0.0.8",
     "vue": "^3.5.22",
