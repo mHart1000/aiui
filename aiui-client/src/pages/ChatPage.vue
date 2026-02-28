@@ -45,13 +45,22 @@
                 Connecting to AI...
               </div>
                <pre v-else-if="isActivelyStreaming(i)" class="thinking-raw">{{ msg.thinking }}</pre>
-              <div v-else v-html="formatMessage(msg.thinking || '')"></div>
+              <div v-else v-html="formatMessage(msg.thinking || '')" @click="handleMessageContentClick"></div>
               <q-spinner v-if="isActivelyStreaming(i) && streamingChat.thinkingText.value" color="primary" size="20px" class="q-mt-sm" />
             </q-card-section>
           </q-card>
         </q-expansion-item>
 
         <div :class="msg.role" class="bubble q-pa-sm q-rounded-borders">
+          <div v-if="!msg.content && isActivelyStreaming(i) && streamingChat.loadingPhase.value === 'connecting'" class="loading-placeholder">
+            <div class="typing-indicator">
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+            </div>
+          </div>
+          <div v-else v-html="formatMessage(msg.content)" @click="handleMessageContentClick" />
+          <q-spinner v-if="isActivelyStreaming(i) && msg.content" color="primary" size="20px" class="q-mt-sm" />
           <div class="message-footer" v-if="msg.role === 'assistant'">
             <q-btn
               flat
@@ -65,15 +74,6 @@
               <q-tooltip>Copy response</q-tooltip>
             </q-btn>
           </div>
-          <div v-if="!msg.content && isActivelyStreaming(i) && streamingChat.loadingPhase.value === 'connecting'" class="loading-placeholder">
-            <div class="typing-indicator">
-              <span class="dot"></span>
-              <span class="dot"></span>
-              <span class="dot"></span>
-            </div>
-          </div>
-          <div v-else v-html="formatMessage(msg.content)" />
-          <q-spinner v-if="isActivelyStreaming(i) && msg.content" color="primary" size="20px" class="q-mt-sm" />
         </div>
       </div>
     </div>
@@ -95,8 +95,25 @@
 
 <script>
 import { api } from 'boot/axios'
-import { marked } from 'marked'
+import { Marked } from 'marked'
+import hljs from 'highlight.js'
+import 'highlight.js/styles/base16/ashes.css' // highlightjs.org/examples
 import VoskSpeechToText from 'components/VoskSpeechToText.vue'
+
+const marked = new Marked({
+  renderer: {
+    code(token) {
+      const rawLanguage = (token.lang || '').trim().toLowerCase()
+      const language = hljs.getLanguage(rawLanguage) ? rawLanguage : 'plaintext'
+      const label = rawLanguage || 'text'
+      const code = token.text || ''
+      const highlighted = hljs.highlight(code, { language }).value
+      const encodedCode = encodeURIComponent(code)
+
+      return `<div class="code-block-wrap"><div class="code-block-header"><span class="code-lang-label">${label}</span><button class="code-copy-btn" type="button" data-code="${encodedCode}" aria-label="Copy code" title="Copy code"><span class="material-icons notranslate" aria-hidden="true">content_copy</span></button></div><pre><code class="hljs language-${language}">${highlighted}</code></pre></div>`
+    }
+  }
+})
 import { useStreamingChat } from 'src/composables/useStreamingChat'
 import { onBeforeUnmount} from 'vue'
 
@@ -308,21 +325,10 @@ export default {
       return marked.parse(text)
     },
 
-    async copyToClipboard(text) {
-      console.log('Copy button clicked', text)
-
-      // Try modern clipboard API first
+    async copyTextWithFallback(text, successMessage) {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(text)
-        console.log('Copied successfully')
-        this.$q.notify({
-          type: 'positive',
-          message: 'Response copied to clipboard',
-          position: 'top',
-          timeout: 2000
-        })
       } else {
-        // Fallback for older browsers or non-HTTPS
         const textArea = document.createElement('textarea')
         textArea.value = text
         textArea.style.position = 'fixed'
@@ -331,14 +337,41 @@ export default {
         textArea.select()
         document.execCommand('copy')
         document.body.removeChild(textArea)
-
-        this.$q.notify({
-          type: 'positive',
-          message: 'Response copied to clipboard',
-          position: 'top',
-          timeout: 2000
-        })
       }
+
+      this.$q.notify({
+        type: 'positive',
+        message: successMessage,
+        position: 'top',
+        timeout: 2000
+      })
+    },
+
+    async handleMessageContentClick(event) {
+      const button = event.target.closest('.code-copy-btn')
+
+      if (!button) return
+
+      const encodedCode = button.getAttribute('data-code')
+      const code = decodeURIComponent(encodedCode || '')
+
+      await this.copyTextWithFallback(code, 'Code copied to clipboard')
+
+      const originalHtml = button.innerHTML
+      button.innerHTML = '<span class="material-icons notranslate" aria-hidden="true">check</span>'
+      button.disabled = true
+
+      setTimeout(() => {
+        button.innerHTML = originalHtml
+        button.disabled = false
+      }, 1200)
+    },
+
+    async copyToClipboard(text) {
+      console.log('Copy button clicked', text)
+
+      await this.copyTextWithFallback(text, 'Response copied to clipboard')
+      console.log('Copied successfully')
     }
   }
 }
@@ -358,7 +391,7 @@ export default {
 }
 .message-footer {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   margin-top: 8px;
   padding-top: 4px;
 }
@@ -435,6 +468,40 @@ p {
 .new-chat-welcome {
   text-align: center;
 }
+.assistant :deep(.code-block-wrap) {
+  margin: 10px 0;
+}
+.assistant :deep(.code-block-header) {
+  align-items: center;
+  display: flex;
+  font-family: monospace;
+  font-size: 0.75em;
+  justify-content: space-between;
+  margin-bottom: -8px;
+  padding: 0 5px;
+}
+.assistant :deep(.code-lang-label) {
+  opacity: 0.75;
+  text-transform: lowercase;
+}
+.assistant :deep(.code-copy-btn) {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  line-height: 1;
+  opacity: 0.8;
+  padding: 0;
+}
+.assistant :deep(.code-copy-btn .material-icons) {
+  font-size: 1em;
+}
+.assistant :deep(.code-copy-btn:disabled) {
+  cursor: default;
+  opacity: 0.6;
+}
 .assistant pre {
   background: var(--bubble-ai);
   padding: 8px 10px;
@@ -442,6 +509,22 @@ p {
   overflow-x: auto;
   font-family: monospace;
   font-size: 0.9em;
+}
+.assistant :deep(.code-block-wrap pre) {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) var(--bubble-ai);
+}
+.assistant :deep(.code-block-wrap pre::-webkit-scrollbar) {
+  height: 10px;
+  width: 10px;
+}
+.assistant :deep(.code-block-wrap pre::-webkit-scrollbar-track) {
+  background: var(--bubble-ai);
+}
+.assistant :deep(.code-block-wrap pre::-webkit-scrollbar-thumb) {
+  background: var(--border);
+  border: 2px solid var(--bubble-ai);
+  border-radius: 999px;
 }
 .assistant code {
   background: #f6f8fa;
