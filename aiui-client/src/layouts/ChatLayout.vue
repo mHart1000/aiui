@@ -28,7 +28,6 @@
           </div>
           <div class="column items-center">
             <q-btn label="Sign Out" color="primary" @click="logout" />
-            <div class="text-caption text-grey">Model: GPT-5<br>Budget: $10.00</div>
             <q-btn @click="toggleDark" label="Toggle Dark" />
           </div>
         </div>
