@@ -62,3 +62,57 @@ npm run dev
 - 🎤 Offline voice-to-text (Vosk)
 - 💾 Conversation history
 - 🔒 Privacy-focused (speech processing happens locally)
+
+Got it. Let's strip the specific specs and keep it strictly to the "How-To" for any dev cloning the repo.
+
+---
+
+## Llama.cpp tunnel setup
+
+If you are hosting the LLM on a separate Windows/WSL2 machine with a GPU, follow these steps to bridge the connection to the Rails app.
+
+### 1. Start the LLM Server (Remote Machine)
+
+On the machine with the GPU (WSL2), run the `llama.cpp` server:
+
+```bash
+./build/bin/llama-server \
+  -m "./path/to/model.gguf" \
+  --host 0.0.0.0 \
+  --port 8080 \
+  -ngl 99 \
+  -c 8192
+
+```
+
+### 2. Establish SSH Tunnel (App Machine)
+
+Run this on the machine hosting the Rails app to securely bridge the WSL2 port (8080) to your local environment:
+
+```bash
+ssh -f -N -L 8080:$(ssh WINDOWS_USER@IP  "wsl hostname -I" | tr -d '[:space:]'):8080 WINDOWS_USER@IP 
+
+```
+
+*Replace `<USER>` and `<REMOTE_IP>` with your Windows credentials/IP.*
+
+### 3. Environment Configuration
+
+Point the application to the local end of the SSH tunnel. No API key is required if the tunnel is active.
+
+| Variable | Value |
+| --- | --- |
+| `LLAMA_API_URL` | `http://localhost:8080/v1` |
+
+### 4. Verification
+
+Test the connection from the app machine:
+
+```bash
+curl http://localhost:8080/v1/models
+
+```
+
+---
+
+**Would you like me to help you wrap that one-liner into a small `bin/setup_tunnel` script for the repo?**
