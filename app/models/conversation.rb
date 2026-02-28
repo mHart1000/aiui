@@ -16,7 +16,7 @@ class Conversation < ApplicationRecord
     return if title.present? && !placeholder_title?
 
     begin
-      result = OpenaiChatService.call(
+      result = ChatService.call(
         messages: [
           { role: "system", content: "Generate a short 3-6 word chat title in the style of an article title, based on the following user message. No punctuation." },
           { role: "user", content: content }

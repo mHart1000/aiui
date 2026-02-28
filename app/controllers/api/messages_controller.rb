@@ -19,7 +19,7 @@ module Api
        .order(:created_at)
        .map { |m| { role: m.role, content: m.content } }
 
-      result = OpenaiChatService.call(
+      result = ChatService.call(
         messages: messages,
         model: safe_model_code,
         use_persona: true,
@@ -89,7 +89,7 @@ module Api
         reply_accumulator = ""
 
         # Stream the response
-        result = OpenaiChatService.call(
+        result = ChatService.call(
           messages: messages,
           model: safe_model_code,
           use_persona: true,
