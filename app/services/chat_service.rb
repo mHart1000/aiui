@@ -1,5 +1,5 @@
 class ChatService
-  FALLBACK_MODEL = "gpt-4o-2024-08-06"
+  FALLBACK_MODEL = ENV.fetch("DEFAULT_MODEL")
   PERSONA_PATH = Rails.root.join("persona", "persona1.md")
 
   PLANNING_PROMPT = <<~PROMPT
@@ -51,7 +51,7 @@ class ChatService
   def select_adapter(model_id)
     if model_id.downcase.start_with?("gemini")
       AiAdapters::GeminiAdapter.new(model: model_id)
-    elsif model_id.downcase.include?("llama") || model_id.downcase.include?("local")
+    elsif model_id.downcase.include?("llama") || model_id.downcase.include?("local") || model_id.downcase.end_with?(".gguf")
       AiAdapters::LlamaAdapter.new(model: model_id)
     else
       AiAdapters::OpenaiAdapter.new(model: model_id)
