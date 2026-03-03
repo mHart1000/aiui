@@ -44,7 +44,10 @@ module Api
         thinking_accumulator = ""
         reply_accumulator = ""
 
-        # Stream the response
+        # Send a keepalive comment before the first chunk to prevent idle connection closure
+        response.stream.write(": keepalive\n\n")
+
+        # Open stream
         ChatService.call(
           messages: conversation.messages_for_ai,
           model: safe_model_code,
@@ -66,7 +69,6 @@ module Api
         # Send completion event
         response.stream.write("data: #{({ type: 'done' }).to_json}\n\n")
 
-        # Token tracking not available in streaming mode yet
         conversation.add_assistant_message(reply: reply_accumulator, thinking: thinking_accumulator, tokens: nil)
 
       ensure
