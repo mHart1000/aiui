@@ -51,6 +51,8 @@ class ChatService
   def select_adapter(model_id)
     if model_id.downcase.start_with?("gemini")
       AiAdapters::GeminiAdapter.new(model: model_id)
+    elsif model_id.downcase.start_with?("claude")
+      AiAdapters::AnthropicAdapter.new(model: model_id)
     elsif model_id.downcase.include?("llama") || model_id.downcase.include?("local") || model_id.downcase.end_with?(".gguf")
       AiAdapters::LlamaAdapter.new(model: model_id)
     else

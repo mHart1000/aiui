@@ -1,5 +1,11 @@
 AI_MODELS = [
  { "id"=>"local-llama", "object"=>"model", "created"=>1700000000, "owned_by"=>"local" },
+ { "id"=>"claude-opus-4-5", "object"=>"model", "created"=>1764600000, "owned_by"=>"anthropic" },
+ { "id"=>"claude-sonnet-4-5", "object"=>"model", "created"=>1764600001, "owned_by"=>"anthropic" },
+ { "id"=>"claude-opus-4-0", "object"=>"model", "created"=>1748995200, "owned_by"=>"anthropic" },
+ { "id"=>"claude-sonnet-4-0", "object"=>"model", "created"=>1748995200, "owned_by"=>"anthropic" },
+ { "id"=>"claude-haiku-3-5", "object"=>"model", "created"=>1729123200, "owned_by"=>"anthropic" },
+ { "id"=>"claude-sonnet-3-7", "object"=>"model", "created"=>1740441600, "owned_by"=>"anthropic" },
  { "id"=>"gemini-3.0-pro", "object"=>"model", "created"=>1764600000, "owned_by"=>"google" },
  { "id"=>"gemini-3.0-flash", "object"=>"model", "created"=>1764600001, "owned_by"=>"google" },
  { "id"=>"gemini-2.0-pro", "object"=>"model", "created"=>1733000000, "owned_by"=>"google" },
