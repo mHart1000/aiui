@@ -5,22 +5,12 @@ module Api
 
     def create
       conversation = Conversation.find(params[:conversation_id])
-      safe_model_code = params[:model_code] if AI_MODELS.map { |m| m["id"] }.include?(params[:model_code])
-      safe_model_code ||= conversation.model_code
-      conversation.update!(model_code: safe_model_code) if conversation.model_code != safe_model_code
-      conversation.entitle_async(params[:content]) if conversation.messages.empty?
-
-      user_message = conversation.messages.create!(
-        role: "user",
-        content: params[:content]
-      )
-
-      messages = conversation.messages
-       .order(:created_at)
-       .map { |m| { role: m.role, content: m.content } }
+      safe_model_code = conversation.apply_model_code(params[:model_code])
+      conversation.entitle_async(params[:content])
+      conversation.messages.create!(role: "user", content: params[:content])
 
       result = ChatService.call(
-        messages: messages,
+        messages: conversation.messages_for_ai,
         model: safe_model_code,
         use_persona: true,
         use_scaffolding: true
@@ -30,36 +20,12 @@ module Api
         conversation.messages.create!(role: "assistant", content: "Error: #{result[:error]}")
         render json: { error: result[:error] }, status: :bad_gateway
       else
-        reply = result[:reply]
-        thinking = result[:thinking]
-        tokens = result[:tokens]
-
-        # Aggregate token usage from both passes (or single pass)
-        if tokens&.dig(:planning) && tokens&.dig(:execution)
-          # Two-pass mode: sum both passes
-          total_prompt = tokens[:planning][:prompt_tokens] + tokens[:execution][:prompt_tokens]
-          total_completion = tokens[:planning][:completion_tokens] + tokens[:execution][:completion_tokens]
-          total_all = tokens[:total]
-        else
-          # Single-pass mode: use direct values
-          total_prompt = tokens&.dig(:prompt_tokens) || 0
-          total_completion = tokens&.dig(:completion_tokens) || 0
-          total_all = tokens&.dig(:total_tokens) || 0
-        end
-
-        assistant_message = conversation.messages.create!(
-          role: "assistant",
-          content: reply,
-          thinking: thinking,
-          prompt_tokens: total_prompt,
-          completion_tokens: total_completion,
-          total_tokens: total_all
-        )
+        conversation.add_assistant_message(reply: result[:reply], thinking: result[:thinking], tokens: result[:tokens])
 
         render json: {
-          reply: reply,
-          thinking: thinking,
-          tokens: tokens
+          reply: result[:reply],
+          thinking: result[:thinking],
+          tokens: result[:tokens]
         }
       end
     end
@@ -71,26 +37,16 @@ module Api
 
       begin
         conversation = current_api_user.conversations.find(params[:conversation_id])
-        safe_model_code = params[:model_code] if AI_MODELS.map { |m| m["id"] }.include?(params[:model_code])
-        safe_model_code ||= conversation.model_code
-        conversation.update!(model_code: safe_model_code) if conversation.model_code != safe_model_code
-        conversation.entitle_async(params[:content]) if conversation.messages.empty?
-
-        user_message = conversation.messages.create!(
-          role: "user",
-          content: params[:content]
-        )
-
-        messages = conversation.messages
-         .order(:created_at)
-         .map { |m| { role: m.role, content: m.content } }
+        safe_model_code = conversation.apply_model_code(params[:model_code])
+        conversation.entitle_async(params[:content])
+        conversation.messages.create!(role: "user", content: params[:content])
 
         thinking_accumulator = ""
         reply_accumulator = ""
 
         # Stream the response
-        result = ChatService.call(
-          messages: messages,
+        ChatService.call(
+          messages: conversation.messages_for_ai,
           model: safe_model_code,
           use_persona: true,
           use_scaffolding: true,
@@ -110,15 +66,8 @@ module Api
         # Send completion event
         response.stream.write("data: #{({ type: 'done' }).to_json}\n\n")
 
-        # Store the complete message
-        conversation.messages.create!(
-          role: "assistant",
-          content: reply_accumulator,
-          thinking: thinking_accumulator,
-          prompt_tokens: 0,  # Token tracking not available in streaming mode yet
-          completion_tokens: 0,
-          total_tokens: 0
-        )
+        # Token tracking not available in streaming mode yet
+        conversation.add_assistant_message(reply: reply_accumulator, thinking: thinking_accumulator, tokens: nil)
 
       ensure
         response.stream.close

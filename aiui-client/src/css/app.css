@@ -63,3 +63,9 @@ body {
 .q-list--dark, .q-item--dark {
     color: #dedede;
 }
+
+
+a {
+    color: var(--accent);
+    text-decoration: none;
+}
