@@ -77,9 +77,17 @@ class ChatService
   end
 
   def two_pass_call(&block)
+    persona_content = @use_persona ? File.read(PERSONA_PATH) : nil
+
     # Pass 1: Planning
+    planning_system_message = if persona_content
+      "#{persona_content}\n\n---\n\n#{PLANNING_PROMPT}"
+    else
+      PLANNING_PROMPT
+    end
+
     planning_messages = [
-      { role: "system", content: PLANNING_PROMPT },
+      { role: "system", content: planning_system_message },
       *@messages
     ]
 
@@ -100,8 +108,6 @@ class ChatService
     end
 
     # Pass 2: Execution
-    persona_content = @use_persona ? File.read(PERSONA_PATH) : nil
-
     execution_system_message = if persona_content
       "#{persona_content}\n\n---\n\n# Your Planning Analysis\n\n#{thinking}\n\n---\n\nNow provide your final response based on this analysis."
     else
