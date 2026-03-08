@@ -101,6 +101,7 @@ class ChatService
         thinking += content
         yield content, :thinking
       end
+      yield nil, :phase_change
     else
       response = @adapter.chat(messages: planning_messages, stream: false)
       thinking = response[:content]
