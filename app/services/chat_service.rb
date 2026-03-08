@@ -107,16 +107,17 @@ class ChatService
       planning_tokens = response[:tokens]
     end
 
-    # Pass 2: Execution
-    execution_system_message = if persona_content
-      "#{persona_content}\n\n---\n\n# Your Planning Analysis\n\n#{thinking}\n\n---\n\nNow provide your final response based on this analysis."
-    else
-      "Here is your planning analysis:\n\n#{thinking}\n\nNow provide your final response based on this analysis."
-    end
+    # Pass 2: Execution via assistant-prefill
+    # System message stays clean (just persona). Planning output goes in the
+    # assistant role as a prior turn. The model continues from its own analysis
+    # into the final response. This works reliably with local models that
+    # struggle with long multi-purpose system messages.
+    prefill = "#{thinking}\n\n---\n\nBased on this analysis, here is my response:\n\n"
 
     execution_messages = [
-      { role: "system", content: execution_system_message },
-      *@messages
+      *(persona_content ? [{ role: "system", content: persona_content }] : []),
+      *@messages,
+      { role: "assistant", content: prefill }
     ]
 
     Rails.logger.info("Starting execution pass...")
