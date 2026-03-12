@@ -58,8 +58,12 @@ module Api
             reply_accumulator += chunk
           end
 
-          # Send chunk to client
-          event_data = { type: phase.to_s, content: chunk }
+          # Send event to client
+          event_data = if phase == :phase_change
+            { type: "phase_change", phase: "responding" }
+          else
+            { type: phase.to_s, content: chunk }
+          end
           response.stream.write("data: #{event_data.to_json}\n\n")
         end
 

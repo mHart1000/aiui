@@ -46,7 +46,10 @@
               </div>
                <pre v-else-if="isActivelyStreaming(i)" class="thinking-raw">{{ msg.thinking }}</pre>
               <div v-else v-html="formatMessage(msg.thinking || '')" @click="handleMessageContentClick"></div>
-              <q-spinner v-if="isActivelyStreaming(i) && streamingChat.thinkingText.value" color="primary" size="20px" class="q-mt-sm" />
+              <q-spinner v-if="isActivelyStreaming(i) && streamingChat.loadingPhase.value === 'thinking'" color="primary" size="20px" class="q-mt-sm" />
+              <div v-else-if="isActivelyStreaming(i) && streamingChat.loadingPhase.value === 'responding'" class="text-caption text-grey-6 q-mt-sm">
+                Planning complete
+              </div>
             </q-card-section>
           </q-card>
         </q-expansion-item>
@@ -182,11 +185,13 @@ export default {
         }
       }
     },
-    'streamingChat.responseText.value'(newResponse) {
-      if (this.streamingMessageIndex !== null) {
-        if (newResponse && this.expandedThinking[this.streamingMessageIndex]) {
-          this.expandedThinking[this.streamingMessageIndex] = false
-        }
+    'streamingChat.loadingPhase.value'(newPhase) {
+      if (newPhase === 'responding' && this.streamingMessageIndex !== null) {
+        setTimeout(() => {
+          if (this.expandedThinking[this.streamingMessageIndex]) {
+            this.expandedThinking[this.streamingMessageIndex] = false
+          }
+        }, 600)
       }
     }
   },

@@ -113,6 +113,10 @@ export function useStreamingChat() {
                   thinkingText.value += data.content
                   break
 
+                case 'phase_change':
+                  loadingPhase.value = data.phase || 'responding'
+                  break
+
                 case 'response':
                   if (loadingPhase.value !== 'responding') {
                     loadingPhase.value = 'responding'
