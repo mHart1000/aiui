@@ -6,7 +6,7 @@ module AiAdapters
   class GeminiAdapter < BaseAdapter
     BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
-    def chat(messages:, stream: false, &block)
+    def chat(messages:, stream: false, max_tokens: nil, &block)
       api_key = ENV["GEMINI_API_KEY"]
       raise "GEMINI_API_KEY is not set" unless api_key
 
@@ -32,6 +32,7 @@ module AiAdapters
           temperature: 0.7
         }
       }
+      payload[:generationConfig][:max_output_tokens] = max_tokens if max_tokens
 
       if system_instruction
         payload[:systemInstruction] = {

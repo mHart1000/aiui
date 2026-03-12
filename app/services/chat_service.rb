@@ -1,6 +1,7 @@
 class ChatService
   FALLBACK_MODEL = ENV.fetch("DEFAULT_MODEL")
   PERSONA_PATH = Rails.root.join("persona", "persona1.md")
+  DEFAULT_MAX_TOKENS = 16000
 
   PLANNING_PROMPT = <<~PROMPT
     You are in two-pass reasoning mode. This is the planning phase.
@@ -15,16 +16,17 @@ class ChatService
     6. Response Strategy: If answerable, how should the response be structured?
   PROMPT
 
-  def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false, stream: false, &block)
-    new(messages: messages, model: model, use_persona: use_persona, use_scaffolding: use_scaffolding, stream: stream).call(&block)
+  def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil, &block)
+    new(messages: messages, model: model, use_persona: use_persona, use_scaffolding: use_scaffolding, stream: stream, max_tokens: max_tokens).call(&block)
   end
 
-  def initialize(messages:, model:, use_persona:, use_scaffolding:, stream:)
+  def initialize(messages:, model:, use_persona:, use_scaffolding:, stream:, max_tokens:)
     @messages = messages
     @model_id = model.presence || FALLBACK_MODEL
     @use_persona = use_persona
     @use_scaffolding = use_scaffolding
     @stream = stream
+    @max_tokens = max_tokens || DEFAULT_MAX_TOKENS
     @adapter = select_adapter(@model_id)
   end
 
@@ -65,13 +67,13 @@ class ChatService
 
     if @stream && block_given?
       response_chunks = []
-      @adapter.chat(messages: messages_to_send, stream: true) do |content|
+      @adapter.chat(messages: messages_to_send, stream: true, max_tokens: @max_tokens) do |content|
         response_chunks << content
         yield content, :response
       end
       nil
     else
-      response = @adapter.chat(messages: messages_to_send, stream: false)
+      response = @adapter.chat(messages: messages_to_send, stream: false, max_tokens: @max_tokens)
       { reply: response[:content], tokens: response[:tokens] }
     end
   end
@@ -92,13 +94,13 @@ class ChatService
     Rails.logger.info("Starting planning pass...")
 
     if @stream && block_given?
-      @adapter.chat(messages: planning_messages, stream: true) do |content|
+      @adapter.chat(messages: planning_messages, stream: true, max_tokens: @max_tokens) do |content|
         thinking += content
         yield content, :thinking
       end
       yield nil, :phase_change
     else
-      response = @adapter.chat(messages: planning_messages, stream: false)
+      response = @adapter.chat(messages: planning_messages, stream: false, max_tokens: @max_tokens)
       thinking = response[:content]
       planning_tokens = response[:tokens]
     end
@@ -120,13 +122,13 @@ class ChatService
 
     if @stream && block_given?
       reply = ""
-      @adapter.chat(messages: execution_messages, stream: true) do |content|
+      @adapter.chat(messages: execution_messages, stream: true, max_tokens: @max_tokens) do |content|
         reply += content
         yield content, :response
       end
       { reply: reply, thinking: thinking }
     else
-      response = @adapter.chat(messages: execution_messages, stream: false)
+      response = @adapter.chat(messages: execution_messages, stream: false, max_tokens: @max_tokens)
       reply = response[:content]
       execution_tokens = response[:tokens]
 
