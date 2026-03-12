@@ -116,7 +116,7 @@ class ChatService
     prefill = "#{thinking}\n\n---\n\nBased on this analysis, here is my response:\n\n"
 
     execution_messages = [
-      *(persona_content ? [{ role: "system", content: persona_content }] : []),
+      *(persona_content ? [ { role: "system", content: persona_content } ] : []),
       *@messages,
       { role: "assistant", content: prefill }
     ]
