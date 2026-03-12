@@ -6,7 +6,6 @@ module Api
     def create
       conversation = Conversation.find(params[:conversation_id])
       safe_model_code = conversation.apply_model_code(params[:model_code])
-      conversation.entitle_async(params[:content])
       conversation.messages.create!(role: "user", content: params[:content])
 
       current_api_user.reload
@@ -23,6 +22,7 @@ module Api
         render json: { error: result[:error] }, status: :bad_gateway
       else
         conversation.add_assistant_message(reply: result[:reply], thinking: result[:thinking], tokens: result[:tokens])
+        conversation.entitle_async(params[:content])
 
         render json: {
           reply: result[:reply],
@@ -40,7 +40,6 @@ module Api
       begin
         conversation = current_api_user.conversations.find(params[:conversation_id])
         safe_model_code = conversation.apply_model_code(params[:model_code])
-        conversation.entitle_async(params[:content])
         conversation.messages.create!(role: "user", content: params[:content])
 
         thinking_accumulator = ""
@@ -76,6 +75,7 @@ module Api
 
         # Token tracking not available in streaming mode yet
         conversation.add_assistant_message(reply: reply_accumulator, thinking: thinking_accumulator, tokens: nil)
+        conversation.entitle_async(params[:content])
 
       ensure
         response.stream.close

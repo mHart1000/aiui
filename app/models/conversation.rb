@@ -5,7 +5,7 @@ class Conversation < ApplicationRecord
   belongs_to :user
 
   def entitle_async(content)
-    return unless messages.empty?
+    return if title.present? && !placeholder_title?
     ConversationEntitleJob.perform_later(id, content)
   end
 
