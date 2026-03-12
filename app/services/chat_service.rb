@@ -3,7 +3,9 @@ class ChatService
   PERSONA_PATH = Rails.root.join("persona", "persona1.md")
 
   PLANNING_PROMPT = <<~PROMPT
-    Analyze the user's request and create a structured plan:
+    You are in two-pass reasoning mode. This is the planning phase.
+
+    Analyze the user's request:
 
     1. Core Intent: What is the user actually asking?
     2. Ambiguities: What details are unclear or missing?
@@ -11,8 +13,6 @@ class ChatService
     4. Assumptions: What assumptions need validation?
     5. Clarifications Needed: What questions should be asked (if any)?
     6. Response Strategy: If answerable, how should the response be structured?
-
-    If clarification is needed, state that clearly. Otherwise, provide a detailed plan.
   PROMPT
 
   def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false, stream: false, &block)
@@ -80,14 +80,9 @@ class ChatService
     persona_content = @use_persona ? File.read(PERSONA_PATH) : nil
 
     # Pass 1: Planning
-    planning_system_message = if persona_content
-      "#{persona_content}\n\n---\n\n#{PLANNING_PROMPT}"
-    else
-      PLANNING_PROMPT
-    end
-
+    # Only use planning prompt - persona during analysis can confuse the model
     planning_messages = [
-      { role: "system", content: planning_system_message },
+      { role: "system", content: PLANNING_PROMPT },
       *@messages
     ]
 

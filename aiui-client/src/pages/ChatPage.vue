@@ -1,14 +1,21 @@
 <template>
   <q-page class="column">
-    <q-select
-      v-model="modelCode"
-      :options="modelOptions"
-      label="Model"
-      emit-value
-      map-options
-      class="q-ma-md"
-      style="max-width: 380px"
-    />
+    <div class="row q-ma-md q-gutter-md items-center">
+      <q-select
+        v-model="modelCode"
+        :options="modelOptions"
+        label="Model"
+        emit-value
+        map-options
+        style="max-width: 380px"
+      />
+      <q-toggle
+        v-model="useScaffolding"
+        label="Scaffolding"
+        @update:model-value="updateScaffoldingPreference"
+        color="primary"
+      />
+    </div>
 
     <q-banner v-if="streamingChat.error.value" class="bg-negative text-white q-mx-md">
       <template v-slot:avatar>
@@ -147,7 +154,8 @@ export default {
     modelCode: null,
     voskModelUrl: DEFAULT_VOSK_MODEL_URL,
     streamingMessageIndex: null,
-    expandedThinking: {}
+    expandedThinking: {},
+    useScaffolding: true
   }),
   async mounted() {
     const modelsRes = await api.get('/api/models')
@@ -155,6 +163,9 @@ export default {
     if (!this.modelCode && this.models.length > 0) {
       this.modelCode = DEFAULT_MODEL_ID || String(this.models[0].id)
     }
+
+    const userRes = await api.get('/api/user')
+    this.useScaffolding = userRes.data.use_scaffolding
   },
   watch: {
     '$route.params.id': {
@@ -187,10 +198,9 @@ export default {
     },
     'streamingChat.loadingPhase.value'(newPhase) {
       if (newPhase === 'responding' && this.streamingMessageIndex !== null) {
+        const index = this.streamingMessageIndex
         setTimeout(() => {
-          if (this.expandedThinking[this.streamingMessageIndex]) {
-            this.expandedThinking[this.streamingMessageIndex] = false
-          }
+          this.expandedThinking[index] = false
         }, 600)
       }
     }
@@ -377,6 +387,23 @@ export default {
 
       await this.copyTextWithFallback(text, 'Response copied to clipboard')
       console.log('Copied successfully')
+    },
+
+    async updateScaffoldingPreference(value) {
+      try {
+        await api.patch('/api/user', {
+          user: { use_scaffolding: value }
+        })
+      } catch (err) {
+        console.error('Error updating scaffolding preference:', err)
+        this.useScaffolding = !value
+        this.$q.notify({
+          type: 'negative',
+          message: 'Failed to update preference',
+          position: 'top',
+          timeout: 2000
+        })
+      }
     }
   }
 }

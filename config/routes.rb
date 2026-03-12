@@ -23,5 +23,8 @@ Rails.application.routes.draw do
       post "messages/stream", to: "messages#create_streaming"
     end
     resources :models, only: [ :index ]
+
+    get "user", to: "user#show"
+    patch "user", to: "user#update"
   end
 end

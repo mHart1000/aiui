@@ -9,11 +9,13 @@ module Api
       conversation.entitle_async(params[:content])
       conversation.messages.create!(role: "user", content: params[:content])
 
+      current_api_user.reload
+      Rails.logger.info("User #{current_api_user.id} use_scaffolding: #{current_api_user.use_scaffolding}")
       result = ChatService.call(
         messages: conversation.messages_for_ai,
         model: safe_model_code,
         use_persona: true,
-        use_scaffolding: true
+        use_scaffolding: current_api_user.use_scaffolding
       )
 
       if result[:error]
@@ -44,12 +46,14 @@ module Api
         thinking_accumulator = ""
         reply_accumulator = ""
 
+        current_api_user.reload
+        Rails.logger.info("User #{current_api_user.id} use_scaffolding: #{current_api_user.use_scaffolding}")
         # Stream the response
         ChatService.call(
           messages: conversation.messages_for_ai,
           model: safe_model_code,
           use_persona: true,
-          use_scaffolding: true,
+          use_scaffolding: current_api_user.use_scaffolding,
           stream: true
         ) do |chunk, phase|
           if phase == :thinking
