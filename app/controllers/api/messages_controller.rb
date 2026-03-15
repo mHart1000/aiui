@@ -6,14 +6,15 @@ module Api
     def create
       conversation = Conversation.find(params[:conversation_id])
       safe_model_code = conversation.apply_model_code(params[:model_code])
-      conversation.entitle_async(params[:content])
       conversation.messages.create!(role: "user", content: params[:content])
 
+      current_api_user.reload
+      Rails.logger.info("User #{current_api_user.id} use_scaffolding: #{current_api_user.use_scaffolding}")
       result = ChatService.call(
         messages: conversation.messages_for_ai,
         model: safe_model_code,
         use_persona: true,
-        use_scaffolding: true
+        use_scaffolding: current_api_user.use_scaffolding
       )
 
       if result[:error]
@@ -21,6 +22,7 @@ module Api
         render json: { error: result[:error] }, status: :bad_gateway
       else
         conversation.add_assistant_message(reply: result[:reply], thinking: result[:thinking], tokens: result[:tokens])
+        conversation.entitle_async(params[:content])
 
         render json: {
           reply: result[:reply],
@@ -38,18 +40,19 @@ module Api
       begin
         conversation = current_api_user.conversations.find(params[:conversation_id])
         safe_model_code = conversation.apply_model_code(params[:model_code])
-        conversation.entitle_async(params[:content])
         conversation.messages.create!(role: "user", content: params[:content])
 
         thinking_accumulator = ""
         reply_accumulator = ""
 
+        current_api_user.reload
+        Rails.logger.info("User #{current_api_user.id} use_scaffolding: #{current_api_user.use_scaffolding}")
         # Stream the response
         ChatService.call(
           messages: conversation.messages_for_ai,
           model: safe_model_code,
           use_persona: true,
-          use_scaffolding: true,
+          use_scaffolding: current_api_user.use_scaffolding,
           stream: true
         ) do |chunk, phase|
           if phase == :thinking
@@ -72,6 +75,7 @@ module Api
 
         # Token tracking not available in streaming mode yet
         conversation.add_assistant_message(reply: reply_accumulator, thinking: thinking_accumulator, tokens: nil)
+        conversation.entitle_async(params[:content])
 
       ensure
         response.stream.close

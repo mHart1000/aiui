@@ -8,7 +8,7 @@ module AiAdapters
     API_VERSION = "2023-06-01"
     MAX_TOKENS = 16000
 
-    def chat(messages:, stream: false, &block)
+    def chat(messages:, stream: false, max_tokens: nil, &block)
       api_key = ENV["ANTHROPIC_API_KEY"]
       raise "ANTHROPIC_API_KEY is not set" unless api_key
 
@@ -17,7 +17,7 @@ module AiAdapters
 
       payload = {
         model: @model,
-        max_tokens: MAX_TOKENS,
+        max_tokens: max_tokens || MAX_TOKENS,
         messages: filtered_messages,
         stream: stream
       }

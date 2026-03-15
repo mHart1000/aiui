@@ -5,7 +5,7 @@ class Conversation < ApplicationRecord
   belongs_to :user
 
   def entitle_async(content)
-    return unless messages.empty?
+    return if title.present? && !placeholder_title?
     ConversationEntitleJob.perform_later(id, content)
   end
 
@@ -54,7 +54,10 @@ class Conversation < ApplicationRecord
           { role: "system", content: "Generate a short 3-6 word chat title in the style of an article title, based on the following user message. No punctuation." },
           { role: "user", content: content }
         ],
-        model: model_code
+        model: model_code,
+        use_persona: false,
+        use_scaffolding: false,
+        max_tokens: 20
       )
 
       chosen_title = result[:reply].presence || content[0..40]

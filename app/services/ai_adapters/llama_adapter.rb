@@ -4,7 +4,7 @@ require "uri"
 
 module AiAdapters
   class LlamaAdapter < BaseAdapter
-    def chat(messages:, stream: false, &block)
+    def chat(messages:, stream: false, max_tokens: nil, &block)
       base_url = ENV["LLAMA_API_URL"] || "http://host.docker.internal:8080/v1"
       uri = URI("#{base_url}/chat/completions")
 
@@ -15,6 +15,7 @@ module AiAdapters
         temperature: 0.7,
         stream: stream
       }
+      payload[:max_tokens] = max_tokens if max_tokens
 
       if stream
         perform_streaming_request(uri, payload, &block)
