@@ -32,6 +32,17 @@ module Api
       end
     end
 
+    def update
+      #edit user message
+      conversation = current_api_user.conversations.find(params[:conversation_id])
+      message = conversation.messages.find(params[:id])
+
+      conversation.messages.where("created_at > ?", message.created_at).destroy_all
+
+      message.update!(content: params[:content])
+      render json: { message: message }
+    end
+
     def create_streaming
       response.headers["Content-Type"] = "text/event-stream"
       response.headers["Cache-Control"] = "no-cache"
