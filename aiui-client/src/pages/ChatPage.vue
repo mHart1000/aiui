@@ -69,6 +69,35 @@
               <span class="dot"></span>
             </div>
           </div>
+          <div v-else-if="msg.role === 'user' && editingMessageIndex === i">
+            <q-input
+              v-model="editingContent"
+              type="textarea"
+              autogrow
+              outlined
+              dense
+              :disable="isSavingEdit"
+              @keydown.ctrl.enter="saveEdit"
+              @keydown.meta.enter="saveEdit"
+              @keydown.esc="cancelEdit"
+            />
+            <div class="row q-mt-sm q-gutter-sm">
+              <q-btn
+                size="sm"
+                color="primary"
+                label="Save & Regenerate"
+                :loading="isSavingEdit"
+                @click="saveEdit"
+              />
+              <q-btn
+                size="sm"
+                flat
+                label="Cancel"
+                :disable="isSavingEdit"
+                @click="cancelEdit"
+              />
+            </div>
+          </div>
           <div v-else v-html="formatMessage(msg.content)" @click="handleMessageContentClick" />
           <q-spinner v-if="isActivelyStreaming(i) && msg.content" color="primary" size="20px" class="q-mt-sm" />
           <div class="message-footer" v-if="msg.role === 'assistant'">
@@ -82,6 +111,20 @@
               @click="copyToClipboard(msg.content)"
             >
               <q-tooltip>Copy response</q-tooltip>
+            </q-btn>
+          </div>
+          <div class="message-footer" v-if="msg.role === 'user' && msg.id && !isActivelyStreaming(i) && editingMessageIndex !== i">
+            <q-btn
+              flat
+              dense
+              round
+              size="sm"
+              icon="edit"
+              class="edit-btn"
+              @click="startEdit(i, msg)"
+              :disable="streamingChat.isStreaming.value"
+            >
+              <q-tooltip>Edit message</q-tooltip>
             </q-btn>
           </div>
         </div>
@@ -155,7 +198,10 @@ export default {
     voskModelUrl: DEFAULT_VOSK_MODEL_URL,
     streamingMessageIndex: null,
     expandedThinking: {},
-    useScaffolding: true
+    useScaffolding: true,
+    editingMessageIndex: null,
+    editingContent: '',
+    isSavingEdit: false
   }),
   async mounted() {
     const modelsRes = await api.get('/api/models')
@@ -404,6 +450,84 @@ export default {
           timeout: 2000
         })
       }
+    },
+
+    startEdit(index, message) {
+      this.editingMessageIndex = index
+      this.editingContent = message.content
+    },
+
+    cancelEdit() {
+      this.editingMessageIndex = null
+      this.editingContent = ''
+    },
+
+    async saveEdit() {
+      if (!this.editingContent.trim() || this.isSavingEdit) return
+
+      const messageIndex = this.editingMessageIndex
+      const message = this.messages[messageIndex]
+
+      this.isSavingEdit = true
+
+      try {
+        await api.patch(
+          `/api/conversations/${this.conversationId}/messages/${message.id}`,
+          { content: this.editingContent }
+        )
+
+        message.content = this.editingContent
+
+        // Remove all messages after the edited one
+        this.messages = this.messages.slice(0, messageIndex + 1)
+
+        this.editingMessageIndex = null
+        this.editingContent = ''
+
+        await this.regenerateFromMessage(this.editingContent)
+
+      } catch (err) {
+        console.error('Error updating message:', err)
+        this.$q.notify({
+          type: 'negative',
+          message: 'Failed to update message',
+          position: 'top',
+          timeout: 2000
+        })
+      } finally {
+        this.isSavingEdit = false
+      }
+    },
+
+    async regenerateFromMessage(userMessageContent) {
+      // Add placeholder for incoming stream
+      this.streamingMessageIndex = this.messages.length
+      this.messages.push({
+        role: 'assistant',
+        content: '',
+        thinking: ''
+      })
+
+      const token = localStorage.getItem('jwt')
+
+      // Stream the new response
+      await this.streamingChat.sendMessage(
+        this.conversationId,
+        userMessageContent,
+        token,
+        this.modelCode
+      )
+
+      // Update placeholder with final content
+      const streamedMessage = this.messages[this.streamingMessageIndex]
+      streamedMessage.thinking = this.streamingChat.thinkingText.value
+      streamedMessage.content = this.streamingChat.responseText.value
+
+      if (this.streamingChat.error.value) {
+        this.messages.splice(this.streamingMessageIndex, 1)
+      }
+
+      this.streamingMessageIndex = null
     }
   }
 }
@@ -432,6 +556,13 @@ export default {
   transition: opacity 0.2s;
 }
 .copy-btn:hover {
+  opacity: 1;
+}
+.edit-btn {
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+.edit-btn:hover {
   opacity: 1;
 }
 .user {
