@@ -74,8 +74,8 @@
               v-model="editingContent"
               type="textarea"
               autogrow
-              outlined
               dense
+              class="edit-message"
               :disable="isSavingEdit"
               @keydown.ctrl.enter="saveEdit"
               @keydown.meta.enter="saveEdit"
@@ -569,7 +569,6 @@ export default {
   background: var(--bubble-user);
   color: var(--text-user);
   margin: 40px 5px 40px auto;
-  display: flex;
   justify-content: start;
   align-items: center;
   padding: 15px 25px;
@@ -722,6 +721,12 @@ p {
 }
 .typing-indicator .dot:nth-child(3) {
   animation-delay: 0.4s;
+}
+.edit-message {
+  background-color: #555550;
+  color: #1c1c1c !important;
+  border-radius: 5px;
+  padding: 10px;
 }
 @keyframes pulse {
   0%, 60%, 100% {
