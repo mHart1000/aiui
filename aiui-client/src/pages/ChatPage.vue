@@ -85,7 +85,7 @@
               <q-btn
                 size="sm"
                 color="primary"
-                label="Save & Regenerate"
+                label="Save"
                 :loading="isSavingEdit"
                 @click="saveEdit"
               />
