@@ -481,10 +481,10 @@ export default {
         // Remove all messages after the edited one
         this.messages = this.messages.slice(0, messageIndex + 1)
 
+        await this.regenerateFromMessage(this.editingContent)
+        
         this.editingMessageIndex = null
         this.editingContent = ''
-
-        await this.regenerateFromMessage(this.editingContent)
 
       } catch (err) {
         console.error('Error updating message:', err)
@@ -510,12 +510,13 @@ export default {
 
       const token = localStorage.getItem('jwt')
 
-      // Stream the new response
+      // Stream the new response (skip creating user message since it already exists)
       await this.streamingChat.sendMessage(
         this.conversationId,
         userMessageContent,
         token,
-        this.modelCode
+        this.modelCode,
+        { regenerating: true }
       )
 
       // Update placeholder with final content
