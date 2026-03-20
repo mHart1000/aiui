@@ -33,7 +33,7 @@ module Api
     end
 
     def update
-      #edit user message
+      # edit user message
       conversation = current_api_user.conversations.find(params[:conversation_id])
       message = conversation.messages.find(params[:id])
 
@@ -51,7 +51,7 @@ module Api
       begin
         conversation = current_api_user.conversations.find(params[:conversation_id])
         safe_model_code = conversation.apply_model_code(params[:model_code])
-        
+
         # Only create user message if not regenerating
         unless params[:regenerating]
           conversation.messages.create!(role: "user", content: params[:content])
