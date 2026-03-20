@@ -1,28 +1,8 @@
 # AIUI - AI Chat Interface
 
-AI chat UI interfacing with OpenAI, Gemini, & Llamaa.cpp. Features enhanced reasoning & memory recall with offline speech-to-text.
+Full-feature, local-first AI chat app interfacing with Llama.cpp with the option to connect to cloud models. Features enhanced reasoning & memory recall with offline speech-to-text.
 
-
-```
-
-### STT Setup
-
-```bash
-cd aiui-client
-
-# Download Vosk speech recognition model
-mkdir -p public/vosk-models
-cd public/vosk-models
-wget https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip
-# Model stays as .zip - Vosk extracts it in the browser
-
-# Start dev server (default: port 9100)
-cd ../..
-npm run dev
-# or: quasar dev
-```
-
-**From another device on LAN:**
+**To access from another device on LAN:**
 - Microphone access requires HTTPS or localhost
 - Use SSH tunnel: `ssh -L 9100:localhost:9100 user@server-ip`
 - Then access via `http://localhost:9100`
@@ -30,10 +10,12 @@ npm run dev
 ## Features
 
 - 💬 Real-time AI chat with various models
-- 🤖 Support for local models (llama.cpp)
+- 🤖 Designed for local models (llama.cpp)
+- 🏗️ Optional scaffolding
 - 🎤 Offline voice-to-text (Vosk)
 - 💾 Conversation history
-- 🔒 Privacy-focused (speech processing happens locally)
+- 🔒 Privacy-focused (when used with llama.cpp, all inference happens locally, with zero telemetry)
+- ☁️ Use of cloud models is optional
 
 
 ---
