@@ -26,5 +26,11 @@ Rails.application.routes.draw do
 
     get "user", to: "user#show"
     patch "user", to: "user#update"
+
+    resource :tts, only: [], controller: "tts" do
+      post :synthesize
+      get :voices
+      get :status
+    end
   end
 end
