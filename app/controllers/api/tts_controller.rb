@@ -4,7 +4,7 @@ module Api
   class TtsController < ApplicationController
     # POST /api/tts/synthesize
     # Synthesizes text to speech and returns audio bytes
-    # 
+    #
     # Parameters:
     #   - text: The text to synthesize (required)
     #   - voice: Voice identifier (optional, default: "af_heart")
@@ -13,7 +13,7 @@ module Api
     # Returns: audio/mpeg binary data
     def synthesize
       text = params.require(:text)
-      
+
       if text.blank?
         render json: { error: "Text cannot be empty" }, status: :bad_request
         return

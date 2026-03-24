@@ -19,7 +19,7 @@ module TtsAdapters
     # @return [String] Raw audio bytes
     def synthesize(text:, voice: nil, speed: nil)
       uri = URI("#{@base_url}/v1/audio/speech")
-      
+
       request = Net::HTTP::Post.new(uri)
       request["Content-Type"] = "application/json"
       request.body = {
@@ -45,9 +45,9 @@ module TtsAdapters
     # @return [Array<String>] Array of voice identifiers
     def voices
       uri = URI("#{@base_url}/v1/audio/voices")
-      
+
       response = Net::HTTP.get_response(uri)
-      
+
       unless response.is_a?(Net::HTTPSuccess)
         Rails.logger.warn "Failed to fetch Kokoro voices: #{response.code}"
         return default_voices
@@ -55,7 +55,7 @@ module TtsAdapters
 
       data = JSON.parse(response.body)
       voices = data["voices"]
-      
+
       if voices.is_a?(Array)
         # Extract voice_id from each voice object if structured, or use directly if strings
         voices.map { |v| v.is_a?(Hash) ? v["voice_id"] : v }.compact
