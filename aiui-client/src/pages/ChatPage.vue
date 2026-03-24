@@ -15,6 +15,21 @@
         @update:model-value="updateScaffoldingPreference"
         color="primary"
       />
+      <TtsControls
+        :is-enabled="ttsPlayer.isEnabled.value"
+        :is-playing="ttsPlayer.isPlaying.value"
+        :is-paused="ttsPlayer.isPaused.value"
+        :is-tts-available="ttsPlayer.isTtsAvailable.value"
+        :current-voice="ttsPlayer.currentVoice.value"
+        :speed="ttsPlayer.speed.value"
+        :available-voices="ttsPlayer.availableVoices.value"
+        @update:enabled="handleTtsEnabledChange"
+        @update:voice="handleTtsVoiceChange"
+        @update:speed="handleTtsSpeedChange"
+        @pause="ttsPlayer.pause()"
+        @resume="ttsPlayer.resume()"
+        @stop="ttsPlayer.stop()"
+      />
     </div>
 
     <q-banner v-if="streamingChat.error.value" class="bg-negative text-white q-mx-md">
@@ -69,6 +84,35 @@
               <span class="dot"></span>
             </div>
           </div>
+          <div v-else-if="msg.role === 'user' && editingMessageIndex === i">
+            <q-input
+              v-model="editingContent"
+              type="textarea"
+              autogrow
+              dense
+              class="edit-message"
+              :disable="isSavingEdit"
+              @keydown.ctrl.enter="saveEdit"
+              @keydown.meta.enter="saveEdit"
+              @keydown.esc="cancelEdit"
+            />
+            <div class="row q-mt-sm q-gutter-sm">
+              <q-btn
+                size="sm"
+                color="primary"
+                label="Save"
+                :loading="isSavingEdit"
+                @click="saveEdit"
+              />
+              <q-btn
+                size="sm"
+                flat
+                label="Cancel"
+                :disable="isSavingEdit"
+                @click="cancelEdit"
+              />
+            </div>
+          </div>
           <div v-else v-html="formatMessage(msg.content)" @click="handleMessageContentClick" />
           <q-spinner v-if="isActivelyStreaming(i) && msg.content" color="primary" size="20px" class="q-mt-sm" />
           <div class="message-footer" v-if="msg.role === 'assistant'">
@@ -82,6 +126,33 @@
               @click="copyToClipboard(msg.content)"
             >
               <q-tooltip>Copy response</q-tooltip>
+            </q-btn>
+            <q-btn
+              v-if="ttsPlayer.isTtsAvailable.value"
+              flat
+              dense
+              round
+              size="sm"
+              icon="volume_up"
+              class="copy-btn"
+              @click="readAloud(msg.content)"
+              :disable="!msg.content || msg.content.trim().length === 0"
+            >
+              <q-tooltip>Read aloud</q-tooltip>
+            </q-btn>
+          </div>
+          <div class="message-footer" v-if="msg.role === 'user' && msg.id && !isActivelyStreaming(i) && editingMessageIndex !== i">
+            <q-btn
+              flat
+              dense
+              round
+              size="sm"
+              icon="edit"
+              class="edit-btn"
+              @click="startEdit(i, msg)"
+              :disable="streamingChat.isStreaming.value"
+            >
+              <q-tooltip>Edit message</q-tooltip>
             </q-btn>
           </div>
         </div>
@@ -109,6 +180,7 @@ import { Marked } from 'marked'
 import hljs from 'highlight.js'
 import 'highlight.js/styles/base16/ashes.css' // highlightjs.org/examples
 import VoskSpeechToText from 'components/VoskSpeechToText.vue'
+import TtsControls from 'components/TtsControls.vue'
 
 const marked = new Marked({
   renderer: {
@@ -125,7 +197,8 @@ const marked = new Marked({
   }
 })
 import { useStreamingChat } from 'src/composables/useStreamingChat'
-import { onBeforeUnmount} from 'vue'
+import { useTtsPlayer } from 'src/composables/useTtsPlayer'
+import { onBeforeUnmount, onMounted} from 'vue'
 
 const DEFAULT_MODEL_ID = import.meta.env.VITE_DEFAULT_MODEL_ID || null
 const DEFAULT_VOSK_MODEL_URL = import.meta.env.VITE_VOSK_MODEL_URL || '/vosk-models/vosk-model-small-en-us-0.15.zip'
@@ -133,17 +206,26 @@ const DEFAULT_VOSK_MODEL_URL = import.meta.env.VITE_VOSK_MODEL_URL || '/vosk-mod
 export default {
   name: 'ChatPage',
   components: {
-    VoskSpeechToText
+    VoskSpeechToText,
+    TtsControls
   },
   setup() {
     const streamingChat = useStreamingChat()
+    const ttsPlayer = useTtsPlayer()
+
+    onMounted(async () => {
+      // Check TTS availability on mount
+      await ttsPlayer.checkAvailability()
+    })
 
     onBeforeUnmount(() => {
       streamingChat.cleanup()
+      ttsPlayer.stop()
     })
 
     return {
-      streamingChat
+      streamingChat,
+      ttsPlayer
     }
   },
   data: () => ({
@@ -155,7 +237,10 @@ export default {
     voskModelUrl: DEFAULT_VOSK_MODEL_URL,
     streamingMessageIndex: null,
     expandedThinking: {},
-    useScaffolding: true
+    useScaffolding: true,
+    editingMessageIndex: null,
+    editingContent: '',
+    isSavingEdit: false
   }),
   async mounted() {
     const modelsRes = await api.get('/api/models')
@@ -166,6 +251,11 @@ export default {
 
     const userRes = await api.get('/api/user')
     this.useScaffolding = userRes.data.use_scaffolding
+
+    // Load TTS preferences
+    this.ttsPlayer.setEnabled(userRes.data.tts_enabled || false)
+    this.ttsPlayer.setVoice(userRes.data.tts_voice || 'af_heart')
+    this.ttsPlayer.setSpeed(userRes.data.tts_speed || 1.0)
   },
   watch: {
     '$route.params.id': {
@@ -404,6 +494,132 @@ export default {
           timeout: 2000
         })
       }
+    },
+
+    async handleTtsEnabledChange(value) {
+      this.ttsPlayer.setEnabled(value)
+      await this.updateTtsPreference({ tts_enabled: value })
+    },
+
+    async handleTtsVoiceChange(value) {
+      this.ttsPlayer.setVoice(value)
+      await this.updateTtsPreference({ tts_voice: value })
+    },
+
+    async handleTtsSpeedChange(value) {
+      this.ttsPlayer.setSpeed(value)
+      await this.updateTtsPreference({ tts_speed: value })
+    },
+
+    async updateTtsPreference(prefs) {
+      try {
+        await api.patch('/api/user', {
+          user: prefs
+        })
+      } catch (err) {
+        console.error('Error updating TTS preference:', err)
+        this.$q.notify({
+          type: 'negative',
+          message: 'Failed to update TTS preference',
+          position: 'top',
+          timeout: 2000
+        })
+      }
+    },
+
+    async readAloud(text) {
+      if (!text || text.trim().length === 0) return
+
+      try {
+        await this.ttsPlayer.speak(text)
+      } catch (err) {
+        console.error('Error reading aloud:', err)
+        this.$q.notify({
+          type: 'negative',
+          message: 'Failed to read aloud',
+          position: 'top',
+          timeout: 2000
+        })
+      }
+    },
+
+    startEdit(index, message) {
+      this.editingMessageIndex = index
+      this.editingContent = message.content
+    },
+
+    cancelEdit() {
+      this.editingMessageIndex = null
+      this.editingContent = ''
+    },
+
+    async saveEdit() {
+      if (!this.editingContent.trim() || this.isSavingEdit) return
+
+      const messageIndex = this.editingMessageIndex
+      const message = this.messages[messageIndex]
+
+      this.isSavingEdit = true
+
+      try {
+        await api.patch(
+          `/api/conversations/${this.conversationId}/messages/${message.id}`,
+          { content: this.editingContent }
+        )
+
+        message.content = this.editingContent
+
+        // Remove all messages after the edited one
+        this.messages = this.messages.slice(0, messageIndex + 1)
+
+        await this.regenerateFromMessage(this.editingContent)
+
+        this.editingMessageIndex = null
+        this.editingContent = ''
+
+      } catch (err) {
+        console.error('Error updating message:', err)
+        this.$q.notify({
+          type: 'negative',
+          message: 'Failed to update message',
+          position: 'top',
+          timeout: 2000
+        })
+      } finally {
+        this.isSavingEdit = false
+      }
+    },
+
+    async regenerateFromMessage(userMessageContent) {
+      // Add placeholder for incoming stream
+      this.streamingMessageIndex = this.messages.length
+      this.messages.push({
+        role: 'assistant',
+        content: '',
+        thinking: ''
+      })
+
+      const token = localStorage.getItem('jwt')
+
+      // Stream the new response
+      await this.streamingChat.sendMessage(
+        this.conversationId,
+        userMessageContent,
+        token,
+        this.modelCode,
+        { regenerating: true }
+      )
+
+      // Update placeholder with final content
+      const streamedMessage = this.messages[this.streamingMessageIndex]
+      streamedMessage.thinking = this.streamingChat.thinkingText.value
+      streamedMessage.content = this.streamingChat.responseText.value
+
+      if (this.streamingChat.error.value) {
+        this.messages.splice(this.streamingMessageIndex, 1)
+      }
+
+      this.streamingMessageIndex = null
     }
   }
 }
@@ -434,11 +650,17 @@ export default {
 .copy-btn:hover {
   opacity: 1;
 }
+.edit-btn {
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+.edit-btn:hover {
+  opacity: 1;
+}
 .user {
   background: var(--bubble-user);
   color: var(--text-user);
   margin: 40px 5px 40px auto;
-  display: flex;
   justify-content: start;
   align-items: center;
   padding: 15px 25px;
@@ -591,6 +813,12 @@ p {
 }
 .typing-indicator .dot:nth-child(3) {
   animation-delay: 0.4s;
+}
+.edit-message {
+  background-color: #555550;
+  color: #1c1c1c !important;
+  border-radius: 5px;
+  padding: 10px;
 }
 @keyframes pulse {
   0%, 60%, 100% {
