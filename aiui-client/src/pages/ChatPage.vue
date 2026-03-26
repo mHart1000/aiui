@@ -15,6 +15,21 @@
         @update:model-value="updateScaffoldingPreference"
         color="primary"
       />
+      <TtsControls
+        :is-enabled="ttsPlayer.isEnabled.value"
+        :is-playing="ttsPlayer.isPlaying.value"
+        :is-paused="ttsPlayer.isPaused.value"
+        :is-tts-available="ttsPlayer.isTtsAvailable.value"
+        :current-voice="ttsPlayer.currentVoice.value"
+        :speed="ttsPlayer.speed.value"
+        :available-voices="ttsPlayer.availableVoices.value"
+        @update:enabled="handleTtsEnabledChange"
+        @update:voice="handleTtsVoiceChange"
+        @update:speed="handleTtsSpeedChange"
+        @pause="ttsPlayer.pause()"
+        @resume="ttsPlayer.resume()"
+        @stop="ttsPlayer.stop()"
+      />
     </div>
 
     <q-banner v-if="streamingChat.error.value" class="bg-negative text-white q-mx-md">
@@ -112,6 +127,33 @@
             >
               <q-tooltip>Copy response</q-tooltip>
             </q-btn>
+            <q-btn
+              v-if="ttsPlayer.isTtsAvailable.value"
+              flat
+              dense
+              round
+              size="sm"
+              icon="volume_up"
+              class="copy-btn"
+              @click="readAloud(msg.content)"
+              :disable="!msg.content || msg.content.trim().length === 0"
+            >
+              <q-tooltip>Read aloud</q-tooltip>
+            </q-btn>
+          </div>
+          <div class="message-footer" v-if="msg.role === 'user' && msg.id && !isActivelyStreaming(i) && editingMessageIndex !== i">
+            <q-btn
+              flat
+              dense
+              round
+              size="sm"
+              icon="edit"
+              class="edit-btn"
+              @click="startEdit(i, msg)"
+              :disable="streamingChat.isStreaming.value"
+            >
+              <q-tooltip>Edit message</q-tooltip>
+            </q-btn>
           </div>
           <div class="message-footer" v-if="msg.role === 'user' && msg.id && !isActivelyStreaming(i) && editingMessageIndex !== i">
             <q-btn
@@ -152,6 +194,7 @@ import { Marked } from 'marked'
 import hljs from 'highlight.js'
 import 'highlight.js/styles/base16/ashes.css' // highlightjs.org/examples
 import VoskSpeechToText from 'components/VoskSpeechToText.vue'
+import TtsControls from 'components/TtsControls.vue'
 
 const marked = new Marked({
   renderer: {
@@ -168,7 +211,8 @@ const marked = new Marked({
   }
 })
 import { useStreamingChat } from 'src/composables/useStreamingChat'
-import { onBeforeUnmount} from 'vue'
+import { useTtsPlayer } from 'src/composables/useTtsPlayer'
+import { onBeforeUnmount, onMounted} from 'vue'
 
 const DEFAULT_MODEL_ID = import.meta.env.VITE_DEFAULT_MODEL_ID || null
 const DEFAULT_VOSK_MODEL_URL = import.meta.env.VITE_VOSK_MODEL_URL || '/vosk-models/vosk-model-small-en-us-0.15.zip'
@@ -176,17 +220,26 @@ const DEFAULT_VOSK_MODEL_URL = import.meta.env.VITE_VOSK_MODEL_URL || '/vosk-mod
 export default {
   name: 'ChatPage',
   components: {
-    VoskSpeechToText
+    VoskSpeechToText,
+    TtsControls
   },
   setup() {
     const streamingChat = useStreamingChat()
+    const ttsPlayer = useTtsPlayer()
+
+    onMounted(async () => {
+      // Check TTS availability on mount
+      await ttsPlayer.checkAvailability()
+    })
 
     onBeforeUnmount(() => {
       streamingChat.cleanup()
+      ttsPlayer.stop()
     })
 
     return {
-      streamingChat
+      streamingChat,
+      ttsPlayer
     }
   },
   data: () => ({
@@ -212,6 +265,11 @@ export default {
 
     const userRes = await api.get('/api/user')
     this.useScaffolding = userRes.data.use_scaffolding
+
+    // Load TTS preferences
+    this.ttsPlayer.setEnabled(userRes.data.tts_enabled || false)
+    this.ttsPlayer.setVoice(userRes.data.tts_voice || 'af_heart')
+    this.ttsPlayer.setSpeed(userRes.data.tts_speed || 1.0)
   },
   watch: {
     '$route.params.id': {
@@ -452,6 +510,53 @@ export default {
       }
     },
 
+    async handleTtsEnabledChange(value) {
+      this.ttsPlayer.setEnabled(value)
+      await this.updateTtsPreference({ tts_enabled: value })
+    },
+
+    async handleTtsVoiceChange(value) {
+      this.ttsPlayer.setVoice(value)
+      await this.updateTtsPreference({ tts_voice: value })
+    },
+
+    async handleTtsSpeedChange(value) {
+      this.ttsPlayer.setSpeed(value)
+      await this.updateTtsPreference({ tts_speed: value })
+    },
+
+    async updateTtsPreference(prefs) {
+      try {
+        await api.patch('/api/user', {
+          user: prefs
+        })
+      } catch (err) {
+        console.error('Error updating TTS preference:', err)
+        this.$q.notify({
+          type: 'negative',
+          message: 'Failed to update TTS preference',
+          position: 'top',
+          timeout: 2000
+        })
+      }
+    },
+
+    async readAloud(text) {
+      if (!text || text.trim().length === 0) return
+
+      try {
+        await this.ttsPlayer.speak(text)
+      } catch (err) {
+        console.error('Error reading aloud:', err)
+        this.$q.notify({
+          type: 'negative',
+          message: 'Failed to read aloud',
+          position: 'top',
+          timeout: 2000
+        })
+      }
+    },
+
     startEdit(index, message) {
       this.editingMessageIndex = index
       this.editingContent = message.content
@@ -482,7 +587,7 @@ export default {
         this.messages = this.messages.slice(0, messageIndex + 1)
 
         await this.regenerateFromMessage(this.editingContent)
-        
+
         this.editingMessageIndex = null
         this.editingContent = ''
 
@@ -510,7 +615,7 @@ export default {
 
       const token = localStorage.getItem('jwt')
 
-      // Stream the new response (skip creating user message since it already exists)
+      // Stream the new response
       await this.streamingChat.sendMessage(
         this.conversationId,
         userMessageContent,

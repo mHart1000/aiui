@@ -63,3 +63,10 @@ Point the application to the local end of the SSH tunnel. No API key is required
 LLAMA_API_URL: http://localhost:8080/v1
 
 ```
+
+## TTS setup:
+Start Kokoro engine:
+```bash
+docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpuLLAMA_API_URL: http://localhost:8080/v1
+
+```
