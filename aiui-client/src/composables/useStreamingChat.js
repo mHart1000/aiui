@@ -29,11 +29,12 @@ export function useStreamingChat() {
    * @param {string} content
    * @param {string} token
    * @param {string} modelCode
+   * @param {Object} options - Additional options like skipUserMessage
    * @returns {Promise<void>}
    */
-  async function sendMessage(conversationId, content, token, modelCode = null) {
+  async function sendMessage(conversationId, content, token, modelCode = null, options = {}) {
     // Store request for potential retry
-    lastRequest.value = { conversationId, content, token, modelCode }
+    lastRequest.value = { conversationId, content, token, modelCode, options }
 
     // Cancel any existing stream
     cleanup()
@@ -58,6 +59,9 @@ export function useStreamingChat() {
       const requestBody = { content }
       if (modelCode) {
         requestBody.model_code = modelCode
+      }
+      if (options.regenerating) {
+        requestBody.regenerating = true
       }
 
       const response = await fetch(url, {
@@ -153,8 +157,8 @@ export function useStreamingChat() {
 
   async function retryLastMessage() {
     if (lastRequest.value) {
-      const { conversationId, content, token, modelCode } = lastRequest.value
-      await sendMessage(conversationId, content, token, modelCode)
+      const { conversationId, content, token, modelCode, options } = lastRequest.value
+      await sendMessage(conversationId, content, token, modelCode, options)
     }
   }
 

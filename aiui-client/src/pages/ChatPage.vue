@@ -155,6 +155,20 @@
               <q-tooltip>Edit message</q-tooltip>
             </q-btn>
           </div>
+          <div class="message-footer" v-if="msg.role === 'user' && msg.id && !isActivelyStreaming(i) && editingMessageIndex !== i">
+            <q-btn
+              flat
+              dense
+              round
+              size="sm"
+              icon="edit"
+              class="edit-btn"
+              @click="startEdit(i, msg)"
+              :disable="streamingChat.isStreaming.value"
+            >
+              <q-tooltip>Edit message</q-tooltip>
+            </q-btn>
+          </div>
         </div>
       </div>
     </div>

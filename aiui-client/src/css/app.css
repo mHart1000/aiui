@@ -56,6 +56,26 @@ body {
     all: revert;
 }
 
+
+.assistant h1 {
+    font-size: 1.5rem;
+}
+.assistant h2 {
+    font-size: 1.25rem;
+}
+.assistant h3 {
+    font-size: 1.125rem;
+}
+.assistant h4 {
+    font-size: 1rem;
+}
+.assistant h5 {
+    font-size: 0.875rem;
+}
+.assistant h6 {
+    font-size: 0.75rem;
+}
+
 .bg-panel {
     background-color: var(--bg-panel) !important;
 }

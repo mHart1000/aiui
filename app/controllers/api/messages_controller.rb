@@ -32,6 +32,17 @@ module Api
       end
     end
 
+    def update
+      # edit user message
+      conversation = current_api_user.conversations.find(params[:conversation_id])
+      message = conversation.messages.find(params[:id])
+
+      conversation.messages.where("created_at > ?", message.created_at).destroy_all
+
+      message.update!(content: params[:content])
+      render json: { message: message }
+    end
+
     def create_streaming
       response.headers["Content-Type"] = "text/event-stream"
       response.headers["Cache-Control"] = "no-cache"
@@ -40,7 +51,11 @@ module Api
       begin
         conversation = current_api_user.conversations.find(params[:conversation_id])
         safe_model_code = conversation.apply_model_code(params[:model_code])
-        conversation.messages.create!(role: "user", content: params[:content])
+
+        # Only create user message if not regenerating
+        unless params[:regenerating]
+          conversation.messages.create!(role: "user", content: params[:content])
+        end
 
         thinking_accumulator = ""
         reply_accumulator = ""
