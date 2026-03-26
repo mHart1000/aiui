@@ -30,7 +30,7 @@ module TtsAdapters
         response_format: "mp3"
       }.to_json
 
-      response = Net::HTTP.start(uri.hostname, uri.port, 
+      response = Net::HTTP.start(uri.hostname, uri.port,
                                   use_ssl: uri.scheme == "https",
                                   open_timeout: 5,
                                   read_timeout: 30) do |http|
