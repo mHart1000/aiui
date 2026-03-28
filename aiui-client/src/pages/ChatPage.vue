@@ -228,7 +228,6 @@ export default {
     const ttsPlayer = useTtsPlayer()
 
     onMounted(async () => {
-      // Check TTS availability on mount
       await ttsPlayer.checkAvailability()
     })
 
@@ -307,6 +306,21 @@ export default {
           this.expandedThinking[index] = false
         }, 600)
       }
+    },
+    'streamingChat.responseText.value'(newText, oldText) {
+      // Feed new text to TTS player for streaming sentence-by-sentence playback
+      if (this.ttsPlayer.isEnabled.value && newText) {
+        const newChunk = newText.slice(oldText?.length || 0)
+        if (newChunk) {
+          this.ttsPlayer.feedText(newChunk)
+        }
+      }
+    },
+    'streamingChat.isStreaming.value'(isStreaming) {
+      // When streaming ends, flush any remaining buffered text
+      if (!isStreaming && this.ttsPlayer.isEnabled.value) {
+        this.ttsPlayer.flushBuffer()
+      }
     }
   },
   computed: {
@@ -384,6 +398,11 @@ export default {
       const model = this.modelCode
 
       if (!text) return
+
+      // Stop any current TTS playback
+      if (this.ttsPlayer.isEnabled.value) {
+        this.ttsPlayer.stop()
+      }
 
       const isNew = !this.conversationId
 
