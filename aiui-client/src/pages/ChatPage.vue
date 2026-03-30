@@ -115,59 +115,49 @@
           </div>
           <div v-else v-html="formatMessage(msg.content)" @click="handleMessageContentClick" />
           <q-spinner v-if="isActivelyStreaming(i) && msg.content" color="primary" size="20px" class="q-mt-sm" />
-          <div class="message-footer" v-if="msg.role === 'assistant'">
-            <q-btn
-              flat
-              dense
-              round
-              size="sm"
-              icon="content_copy"
-              class="copy-btn"
-              @click="copyToClipboard(msg.content)"
-            >
-              <q-tooltip>Copy response</q-tooltip>
-            </q-btn>
-            <q-btn
-              v-if="ttsPlayer.isTtsAvailable.value"
-              flat
-              dense
-              round
-              size="sm"
-              icon="volume_up"
-              class="copy-btn"
-              @click="readAloud(msg.content)"
-              :disable="!msg.content || msg.content.trim().length === 0"
-            >
-              <q-tooltip>Read aloud</q-tooltip>
-            </q-btn>
-          </div>
-          <div class="message-footer" v-if="msg.role === 'user' && msg.id && !isActivelyStreaming(i) && editingMessageIndex !== i">
-            <q-btn
-              flat
-              dense
-              round
-              size="sm"
-              icon="edit"
-              class="edit-btn"
-              @click="startEdit(i, msg)"
-              :disable="streamingChat.isStreaming.value"
-            >
-              <q-tooltip>Edit message</q-tooltip>
-            </q-btn>
-          </div>
-          <div class="message-footer" v-if="msg.role === 'user' && msg.id && !isActivelyStreaming(i) && editingMessageIndex !== i">
-            <q-btn
-              flat
-              dense
-              round
-              size="sm"
-              icon="edit"
-              class="edit-btn"
-              @click="startEdit(i, msg)"
-              :disable="streamingChat.isStreaming.value"
-            >
-              <q-tooltip>Edit message</q-tooltip>
-            </q-btn>
+
+          <div class="message-footer" v-if="msg.role === 'assistant' || (msg.role === 'user' && msg.id && !isActivelyStreaming(i) && editingMessageIndex !== i)">
+            <template v-if="msg.role === 'assistant'">
+              <q-btn
+                flat
+                dense
+                round
+                size="sm"
+                icon="content_copy"
+                class="copy-btn"
+                @click="copyToClipboard(msg.content)"
+              >
+                <q-tooltip>Copy response</q-tooltip>
+              </q-btn>
+              <q-btn
+                v-if="ttsPlayer.isTtsAvailable.value"
+                flat
+                dense
+                round
+                size="sm"
+                icon="volume_up"
+                class="copy-btn"
+                @click="readAloud(msg.content)"
+                :disable="!msg.content || msg.content.trim().length === 0"
+              >
+                <q-tooltip>Read aloud</q-tooltip>
+              </q-btn>
+            </template>
+
+            <template v-else-if="msg.role === 'user'">
+              <q-btn
+                flat
+                dense
+                round
+                size="sm"
+                icon="edit"
+                class="edit-btn"
+                @click="startEdit(i, msg)"
+                :disable="streamingChat.isStreaming.value"
+              >
+                <q-tooltip>Edit message</q-tooltip>
+              </q-btn>
+            </template>
           </div>
         </div>
       </div>
@@ -265,7 +255,6 @@ export default {
     const userRes = await api.get('/api/user')
     this.useScaffolding = userRes.data.use_scaffolding
 
-    // Load TTS preferences
     this.ttsPlayer.setEnabled(userRes.data.tts_enabled || false)
     this.ttsPlayer.setVoice(userRes.data.tts_voice || 'af_heart')
     this.ttsPlayer.setSpeed(userRes.data.tts_speed || 1.0)
@@ -308,7 +297,6 @@ export default {
       }
     },
     'streamingChat.responseText.value'(newText, oldText) {
-      // Feed new text to TTS player for streaming sentence-by-sentence playback
       if (this.ttsPlayer.isEnabled.value && newText) {
         const newChunk = newText.slice(oldText?.length || 0)
         if (newChunk) {
