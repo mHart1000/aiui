@@ -45,7 +45,6 @@
 
     <div v-if="!hasMessages" class="new-chat-welcome column items-center q-pa-xl">
       <q-icon name="chat" size="80px" color="primary" class="q-mb-md" />
-      <h4 class="text-h4 q-mt-none q-mb-md">Start a New Conversation</h4>
       <p class="text-subtitle1 text-grey-7 text-center" style="max-width: 500px">
         Ask me anything. I'm here to help.
       </p>
