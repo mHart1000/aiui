@@ -45,7 +45,6 @@
 
     <div v-if="!hasMessages" class="new-chat-welcome column items-center q-pa-xl">
       <q-icon name="chat" size="80px" color="primary" class="q-mb-md" />
-      <h4 class="text-h4 q-mt-none q-mb-md">Start a New Conversation</h4>
       <p class="text-subtitle1 text-grey-7 text-center" style="max-width: 500px">
         Ask me anything. I'm here to help.
       </p>
@@ -115,59 +114,49 @@
           </div>
           <div v-else v-html="formatMessage(msg.content)" @click="handleMessageContentClick" />
           <q-spinner v-if="isActivelyStreaming(i) && msg.content" color="primary" size="20px" class="q-mt-sm" />
-          <div class="message-footer" v-if="msg.role === 'assistant'">
-            <q-btn
-              flat
-              dense
-              round
-              size="sm"
-              icon="content_copy"
-              class="copy-btn"
-              @click="copyToClipboard(msg.content)"
-            >
-              <q-tooltip>Copy response</q-tooltip>
-            </q-btn>
-            <q-btn
-              v-if="ttsPlayer.isTtsAvailable.value"
-              flat
-              dense
-              round
-              size="sm"
-              icon="volume_up"
-              class="copy-btn"
-              @click="readAloud(msg.content)"
-              :disable="!msg.content || msg.content.trim().length === 0"
-            >
-              <q-tooltip>Read aloud</q-tooltip>
-            </q-btn>
-          </div>
-          <div class="message-footer" v-if="msg.role === 'user' && msg.id && !isActivelyStreaming(i) && editingMessageIndex !== i">
-            <q-btn
-              flat
-              dense
-              round
-              size="sm"
-              icon="edit"
-              class="edit-btn"
-              @click="startEdit(i, msg)"
-              :disable="streamingChat.isStreaming.value"
-            >
-              <q-tooltip>Edit message</q-tooltip>
-            </q-btn>
-          </div>
-          <div class="message-footer" v-if="msg.role === 'user' && msg.id && !isActivelyStreaming(i) && editingMessageIndex !== i">
-            <q-btn
-              flat
-              dense
-              round
-              size="sm"
-              icon="edit"
-              class="edit-btn"
-              @click="startEdit(i, msg)"
-              :disable="streamingChat.isStreaming.value"
-            >
-              <q-tooltip>Edit message</q-tooltip>
-            </q-btn>
+
+          <div class="message-footer" v-if="msg.role === 'assistant' || (msg.role === 'user' && msg.id && !isActivelyStreaming(i) && editingMessageIndex !== i)">
+            <template v-if="msg.role === 'assistant'">
+              <q-btn
+                flat
+                dense
+                round
+                size="sm"
+                icon="content_copy"
+                class="copy-btn"
+                @click="copyToClipboard(msg.content)"
+              >
+                <q-tooltip>Copy response</q-tooltip>
+              </q-btn>
+              <q-btn
+                v-if="ttsPlayer.isTtsAvailable.value"
+                flat
+                dense
+                round
+                size="sm"
+                icon="volume_up"
+                class="copy-btn"
+                @click="readAloud(msg.content)"
+                :disable="!msg.content || msg.content.trim().length === 0"
+              >
+                <q-tooltip>Read aloud</q-tooltip>
+              </q-btn>
+            </template>
+
+            <template v-else-if="msg.role === 'user'">
+              <q-btn
+                flat
+                dense
+                round
+                size="sm"
+                icon="edit"
+                class="edit-btn"
+                @click="startEdit(i, msg)"
+                :disable="streamingChat.isStreaming.value"
+              >
+                <q-tooltip>Edit message</q-tooltip>
+              </q-btn>
+            </template>
           </div>
         </div>
       </div>
@@ -228,7 +217,6 @@ export default {
     const ttsPlayer = useTtsPlayer()
 
     onMounted(async () => {
-      // Check TTS availability on mount
       await ttsPlayer.checkAvailability()
     })
 
@@ -266,7 +254,6 @@ export default {
     const userRes = await api.get('/api/user')
     this.useScaffolding = userRes.data.use_scaffolding
 
-    // Load TTS preferences
     this.ttsPlayer.setEnabled(userRes.data.tts_enabled || false)
     this.ttsPlayer.setVoice(userRes.data.tts_voice || 'af_heart')
     this.ttsPlayer.setSpeed(userRes.data.tts_speed || 1.0)
@@ -306,6 +293,20 @@ export default {
         setTimeout(() => {
           this.expandedThinking[index] = false
         }, 600)
+      }
+    },
+    'streamingChat.responseText.value'(newText, oldText) {
+      if (this.ttsPlayer.isEnabled.value && newText) {
+        const newChunk = newText.slice(oldText?.length || 0)
+        if (newChunk) {
+          this.ttsPlayer.feedText(newChunk)
+        }
+      }
+    },
+    'streamingChat.isStreaming.value'(isStreaming) {
+      // When streaming ends, flush any remaining buffered text
+      if (!isStreaming && this.ttsPlayer.isEnabled.value) {
+        this.ttsPlayer.flushBuffer()
       }
     }
   },
@@ -384,6 +385,11 @@ export default {
       const model = this.modelCode
 
       if (!text) return
+
+      // Stop any current TTS playback
+      if (this.ttsPlayer.isEnabled.value) {
+        this.ttsPlayer.stop()
+      }
 
       const isNew = !this.conversationId
 
