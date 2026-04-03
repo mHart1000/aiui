@@ -1,6 +1,7 @@
 ENV["RAILS_ENV"] ||= "test"
 require_relative "../config/environment"
 require "rails/test_help"
+require "minitest/mock"
 
 class ActiveSupport::TestCase
   # Run tests in parallel with specified workers
@@ -8,4 +9,12 @@ class ActiveSupport::TestCase
 
   # Setup all fixtures in test/fixtures/*.yml for all tests in alphabetical order.
   fixtures :all
+
+  def with_env(vars)
+    originals = vars.keys.each_with_object({}) { |k, h| h[k] = ENV[k] }
+    vars.each { |k, v| ENV[k] = v }
+    yield
+  ensure
+    originals.each { |k, v| ENV[k] = v }
+  end
 end
