@@ -18,3 +18,11 @@ class ActiveSupport::TestCase
     originals.each { |k, v| ENV[k] = v }
   end
 end
+
+class ActionDispatch::IntegrationTest
+  def sign_in_as(user)
+    post "/api/login", params: { user: { email: user.email, password: "password123" } }, as: :json
+    token = JSON.parse(response.body)["token"]
+    { "Authorization" => "Bearer #{token}" }
+  end
+end
