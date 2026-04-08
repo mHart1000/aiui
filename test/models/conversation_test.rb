@@ -88,4 +88,71 @@ class ConversationTest < ActiveSupport::TestCase
     assert_equal older.content, result.first[:content]
     assert_equal newer.content, result.last[:content]
   end
+
+  # add_assistant_message
+  test "add_assistant_message creates a message with single-pass tokens" do
+    @conversation.save!
+    tokens = { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
+    message = @conversation.add_assistant_message(reply: "Hello!", thinking: nil, tokens: tokens)
+    assert_equal "assistant", message.role
+    assert_equal "Hello!", message.content
+    assert_equal 10, message.prompt_tokens
+    assert_equal 5, message.completion_tokens
+    assert_equal 15, message.total_tokens
+  end
+
+  test "add_assistant_message creates a message with two-pass tokens" do
+    @conversation.save!
+    tokens = {
+      planning: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+      execution: { prompt_tokens: 10, completion_tokens: 6, total_tokens: 16 },
+      total: 28
+    }
+    message = @conversation.add_assistant_message(reply: "Hello!", thinking: "my analysis", tokens: tokens)
+    assert_equal 18, message.prompt_tokens
+    assert_equal 10, message.completion_tokens
+    assert_equal 28, message.total_tokens
+    assert_equal "my analysis", message.thinking
+  end
+
+  test "add_assistant_message defaults to zero tokens when tokens is nil" do
+    @conversation.save!
+    message = @conversation.add_assistant_message(reply: "Hello!", thinking: nil, tokens: nil)
+    assert_equal 0, message.prompt_tokens
+    assert_equal 0, message.completion_tokens
+    assert_equal 0, message.total_tokens
+  end
+
+  # entitle
+  test "entitle skips when title is already a real title" do
+    @conversation.title = "Existing Title"
+    @conversation.save!
+    @conversation.entitle("some content")
+    assert_equal "Existing Title", @conversation.reload.title
+  end
+
+  test "entitle updates title from ChatService reply" do
+    @conversation.save!
+    ChatService.stub(:call, { reply: "Rails Debugging Guide" }) do
+      @conversation.entitle("How do I debug my Rails app?")
+    end
+    assert_equal "Rails Debugging Guide", @conversation.reload.title
+  end
+
+  test "entitle falls back to content when ChatService returns empty reply" do
+    @conversation.save!
+    ChatService.stub(:call, { reply: "" }) do
+      @conversation.entitle("How do I debug my Rails app?")
+    end
+    assert_equal "How do I debug my Rails app?", @conversation.reload.title
+  end
+
+  test "entitle falls back to truncated content when ChatService raises" do
+    long_content = "a" * 100
+    @conversation.save!
+    ChatService.stub(:call, ->(**_) { raise "API error" }) do
+      @conversation.entitle(long_content)
+    end
+    assert_equal "a" * 41, @conversation.reload.title
+  end
 end
