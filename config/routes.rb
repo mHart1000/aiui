@@ -19,8 +19,18 @@ Rails.application.routes.draw do
     }
 
     resources :conversations, only: [ :index, :create, :show ] do
-      resources :messages, only: [ :create ]
+      resources :messages, only: [ :create, :update ]
+      post "messages/stream", to: "messages#create_streaming"
     end
     resources :models, only: [ :index ]
+
+    get "user", to: "user#show"
+    patch "user", to: "user#update"
+
+    resource :tts, only: [], controller: "tts" do
+      post :synthesize
+      get :voices
+      get :status
+    end
   end
 end

@@ -51,10 +51,10 @@ group :development, :test do
   gem "rspec-rails"
 end
 
-gem "httparty", "~> 0.23.2"
+gem "httparty", "~> 0.24.2"
 
 gem "ruby-openai", "~> 8.3"
 
 gem "devise", "~> 4.9"
 
-gem "devise-jwt", "~> 0.12.1"
+gem "devise-jwt", "~> 0.13.0"

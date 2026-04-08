@@ -1,51 +1,248 @@
 <template>
-  <q-page class="column justify-end">
-    <q-select
-      v-model="modelCode"
-      :options="modelOptions"
-      label="Model"
-      emit-value
-      map-options
-      class="q-ma-md"
-      style="max-width: 380px"
-    />
-    <div ref="chatWindow" class="chat-window q-pa-md">
-      <div v-for="(msg, i) in messages" :key="i" class="q-mb-md">
+  <q-page class="column">
+    <div class="row q-ma-md q-gutter-md items-center">
+      <q-select
+        v-model="modelCode"
+        :options="modelOptions"
+        label="Model"
+        emit-value
+        map-options
+        style="max-width: 380px"
+      />
+      <q-toggle
+        v-model="useScaffolding"
+        label="Scaffolding"
+        @update:model-value="updateScaffoldingPreference"
+        color="primary"
+      />
+      <TtsControls
+        :is-enabled="ttsPlayer.isEnabled.value"
+        :is-playing="ttsPlayer.isPlaying.value"
+        :is-paused="ttsPlayer.isPaused.value"
+        :is-tts-available="ttsPlayer.isTtsAvailable.value"
+        :current-voice="ttsPlayer.currentVoice.value"
+        :speed="ttsPlayer.speed.value"
+        :available-voices="ttsPlayer.availableVoices.value"
+        @update:enabled="handleTtsEnabledChange"
+        @update:voice="handleTtsVoiceChange"
+        @update:speed="handleTtsSpeedChange"
+        @pause="ttsPlayer.pause()"
+        @resume="ttsPlayer.resume()"
+        @stop="ttsPlayer.stop()"
+      />
+    </div>
+
+    <q-banner v-if="streamingChat.error.value" class="bg-negative text-white q-mx-md">
+      <template v-slot:avatar>
+        <q-icon name="error" color="white" />
+      </template>
+      <div class="text-body2">{{ streamingChat.error.value?.message || streamingChat.error.value }}</div>
+      <template v-slot:action>
+        <q-btn flat dense label="Retry" @click="handleRetry" color="white" />
+        <q-btn flat dense label="Dismiss" @click="streamingChat.dismissError()" color="white" />
+      </template>
+    </q-banner>
+
+    <div v-if="!hasMessages" class="new-chat-welcome column items-center q-pa-xl">
+      <q-icon name="chat" size="80px" color="primary" class="q-mb-md" />
+      <p class="text-subtitle1 text-grey-7 text-center" style="max-width: 500px">
+        Ask me anything. I'm here to help.
+      </p>
+    </div>
+
+    <div v-else ref="chatWindow" class="chat-window q-pa-md">
+      <div v-for="(msg, i) in displayMessages" :key="msg.id || i" class="q-mb-md">
+        <q-expansion-item
+          v-if="msg.role === 'assistant' && (msg.thinking || isActivelyStreaming(i))"
+          icon="psychology"
+          v-model="expandedThinking[i]"
+          header-class="thinking-header"
+          class="q-mb-sm"
+        >
+          <q-card class="thinking-content">
+            <q-card-section>
+              <div v-if="!msg.thinking && isActivelyStreaming(i) && streamingChat.loadingPhase.value === 'connecting'" class="text-caption text-grey-6">
+                <q-spinner color="grey-6" size="16px" class="q-mr-sm" />
+                Connecting to AI...
+              </div>
+               <pre v-else-if="isActivelyStreaming(i)" class="thinking-raw">{{ msg.thinking }}</pre>
+              <div v-else v-html="formatMessage(msg.thinking || '')" @click="handleMessageContentClick"></div>
+              <q-spinner v-if="isActivelyStreaming(i) && streamingChat.loadingPhase.value === 'thinking'" color="primary" size="20px" class="q-mt-sm" />
+              <div v-else-if="isActivelyStreaming(i) && streamingChat.loadingPhase.value === 'responding'" class="text-caption text-grey-6 q-mt-sm">
+                Planning complete
+              </div>
+            </q-card-section>
+          </q-card>
+        </q-expansion-item>
+
         <div :class="msg.role" class="bubble q-pa-sm q-rounded-borders">
-          <div v-html="formatMessage(msg.content)" />
+          <div v-if="!msg.content && isActivelyStreaming(i) && streamingChat.loadingPhase.value === 'connecting'" class="loading-placeholder">
+            <div class="typing-indicator">
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+            </div>
+          </div>
+          <div v-else-if="msg.role === 'user' && editingMessageIndex === i">
+            <q-input
+              v-model="editingContent"
+              type="textarea"
+              autogrow
+              dense
+              class="edit-message"
+              :disable="isSavingEdit"
+              @keydown.ctrl.enter="saveEdit"
+              @keydown.meta.enter="saveEdit"
+              @keydown.esc="cancelEdit"
+            />
+            <div class="row q-mt-sm q-gutter-sm">
+              <q-btn
+                size="sm"
+                color="primary"
+                label="Save"
+                :loading="isSavingEdit"
+                @click="saveEdit"
+              />
+              <q-btn
+                size="sm"
+                flat
+                label="Cancel"
+                :disable="isSavingEdit"
+                @click="cancelEdit"
+              />
+            </div>
+          </div>
+          <div v-else v-html="formatMessage(msg.content)" @click="handleMessageContentClick" />
+          <q-spinner v-if="isActivelyStreaming(i) && msg.content" color="primary" size="20px" class="q-mt-sm" />
+
+          <div class="message-footer" v-if="msg.role === 'assistant' || (msg.role === 'user' && msg.id && !isActivelyStreaming(i) && editingMessageIndex !== i)">
+            <template v-if="msg.role === 'assistant'">
+              <q-btn
+                flat
+                dense
+                round
+                size="sm"
+                icon="content_copy"
+                class="copy-btn"
+                @click="copyToClipboard(msg.content)"
+              >
+                <q-tooltip>Copy response</q-tooltip>
+              </q-btn>
+              <q-btn
+                v-if="ttsPlayer.isTtsAvailable.value"
+                flat
+                dense
+                round
+                size="sm"
+                icon="volume_up"
+                class="copy-btn"
+                @click="readAloud(msg.content)"
+                :disable="!msg.content || msg.content.trim().length === 0"
+              >
+                <q-tooltip>Read aloud</q-tooltip>
+              </q-btn>
+            </template>
+
+            <template v-else-if="msg.role === 'user'">
+              <q-btn
+                flat
+                dense
+                round
+                size="sm"
+                icon="edit"
+                class="edit-btn"
+                @click="startEdit(i, msg)"
+                :disable="streamingChat.isStreaming.value"
+              >
+                <q-tooltip>Edit message</q-tooltip>
+              </q-btn>
+            </template>
+          </div>
         </div>
       </div>
     </div>
 
-    <div class="input-bar q-pa-md row items-end">
-      <q-input
-        filled
-        autogrow
+    <div class="input-bar q-pa-md row items-end input-centered">
+      <VoskSpeechToText
         v-model="input"
-        placeholder="Send a message..."
-        class="col"
-        @keyup.enter.exact="sendMessage"
+        :model-url="voskModelUrl"
+        :show-new-chat="hasMessages"
+        @error="handleSttError"
+        @status="handleSttStatus"
+        @send-message="sendMessage"
+        @new-chat="newChat"
+        class="col message-input"
       />
-      <q-btn icon="send" color="primary" round flat @click="sendMessage" />
-      <q-btn icon="add" color="secondary" round flat @click="newChat" />
     </div>
   </q-page>
 </template>
 
 <script>
 import { api } from 'boot/axios'
-import { marked } from 'marked'
+import { Marked } from 'marked'
+import hljs from 'highlight.js'
+import 'highlight.js/styles/base16/ashes.css' // highlightjs.org/examples
+import VoskSpeechToText from 'components/VoskSpeechToText.vue'
+import TtsControls from 'components/TtsControls.vue'
+
+const marked = new Marked({
+  renderer: {
+    code(token) {
+      const rawLanguage = (token.lang || '').trim().toLowerCase()
+      const language = hljs.getLanguage(rawLanguage) ? rawLanguage : 'plaintext'
+      const label = rawLanguage || 'text'
+      const code = token.text || ''
+      const highlighted = hljs.highlight(code, { language }).value
+      const encodedCode = encodeURIComponent(code)
+
+      return `<div class="code-block-wrap"><div class="code-block-header"><span class="code-lang-label">${label}</span><button class="code-copy-btn" type="button" data-code="${encodedCode}" aria-label="Copy code" title="Copy code"><span class="material-icons notranslate" aria-hidden="true">content_copy</span></button></div><pre><code class="hljs language-${language}">${highlighted}</code></pre></div>`
+    }
+  }
+})
+import { useStreamingChat } from 'src/composables/useStreamingChat'
+import { useTtsPlayer } from 'src/composables/useTtsPlayer'
+import { onBeforeUnmount, onMounted} from 'vue'
 
 const DEFAULT_MODEL_ID = import.meta.env.VITE_DEFAULT_MODEL_ID || null
+const DEFAULT_VOSK_MODEL_URL = import.meta.env.VITE_VOSK_MODEL_URL || '/vosk-models/vosk-model-small-en-us-0.15.zip'
 
 export default {
   name: 'ChatPage',
+  components: {
+    VoskSpeechToText,
+    TtsControls
+  },
+  setup() {
+    const streamingChat = useStreamingChat()
+    const ttsPlayer = useTtsPlayer()
+
+    onMounted(async () => {
+      await ttsPlayer.checkAvailability()
+    })
+
+    onBeforeUnmount(() => {
+      streamingChat.cleanup()
+      ttsPlayer.stop()
+    })
+
+    return {
+      streamingChat,
+      ttsPlayer
+    }
+  },
   data: () => ({
     input: '',
     messages: [],
     conversationId: null,
     models: [],
-    modelCode: null
+    modelCode: null,
+    voskModelUrl: DEFAULT_VOSK_MODEL_URL,
+    streamingMessageIndex: null,
+    expandedThinking: {},
+    useScaffolding: true,
+    editingMessageIndex: null,
+    editingContent: '',
+    isSavingEdit: false
   }),
   async mounted() {
     const modelsRes = await api.get('/api/models')
@@ -53,6 +250,13 @@ export default {
     if (!this.modelCode && this.models.length > 0) {
       this.modelCode = DEFAULT_MODEL_ID || String(this.models[0].id)
     }
+
+    const userRes = await api.get('/api/user')
+    this.useScaffolding = userRes.data.use_scaffolding
+
+    this.ttsPlayer.setEnabled(userRes.data.tts_enabled || false)
+    this.ttsPlayer.setVoice(userRes.data.tts_voice || 'af_heart')
+    this.ttsPlayer.setSpeed(userRes.data.tts_speed || 1.0)
   },
   watch: {
     '$route.params.id': {
@@ -68,17 +272,95 @@ export default {
           this.modelCode = DEFAULT_MODEL_ID
         }
       }
+    },
+    // Auto-scroll when messages change
+    messages: {
+      handler() {
+        this.$nextTick(() => this.scrollToBottom())
+      },
+      deep: true
+    },
+    'streamingChat.thinkingText.value'(newThinking) {
+      if (this.streamingMessageIndex !== null) {
+        if (newThinking && !this.expandedThinking[this.streamingMessageIndex]) {
+          this.expandedThinking[this.streamingMessageIndex] = true
+        }
+      }
+    },
+    'streamingChat.loadingPhase.value'(newPhase) {
+      if (newPhase === 'responding' && this.streamingMessageIndex !== null) {
+        const index = this.streamingMessageIndex
+        setTimeout(() => {
+          this.expandedThinking[index] = false
+        }, 600)
+      }
+    },
+    'streamingChat.responseText.value'(newText, oldText) {
+      if (this.ttsPlayer.isEnabled.value && newText) {
+        const newChunk = newText.slice(oldText?.length || 0)
+        if (newChunk) {
+          this.ttsPlayer.feedText(newChunk)
+        }
+      }
+    },
+    'streamingChat.isStreaming.value'(isStreaming) {
+      // When streaming ends, flush any remaining buffered text
+      if (!isStreaming && this.ttsPlayer.isEnabled.value) {
+        this.ttsPlayer.flushBuffer()
+      }
     }
   },
   computed: {
+    hasMessages() {
+      return this.messages.length > 0
+    },
     modelOptions() {
       return this.models.map(m => ({
         label: String(m.id),
         value: String(m.id)
       }))
+    },
+    displayMessages() {
+      return this.messages.map((msg, index) => {
+        if (index === this.streamingMessageIndex && this.streamingChat.isStreaming.value) {
+          return {
+            ...msg,
+            thinking: this.streamingChat.thinkingText.value,
+            content: this.streamingChat.responseText.value
+          }
+        }
+        return msg
+      })
     }
   },
   methods: {
+    handleSttError(error) {
+      console.error('Speech recognition error:', error)
+      this.$q?.notify?.({
+        type: 'negative',
+        message: `Mic error: ${error.message || error}`,
+        timeout: 3000
+      })
+    },
+    handleSttStatus(status) {
+      console.log('Speech status:', status)
+    },
+    handleRetry() {
+      this.streamingChat.retryLastMessage()
+    },
+    getLoadingText() {
+      const phase = this.streamingChat.loadingPhase.value
+      switch (phase) {
+        case 'connecting':
+          return 'Connecting...'
+        case 'thinking':
+          return 'Analyzing your request...'
+        case 'responding':
+          return 'Generating response...'
+        default:
+          return 'Processing...'
+      }
+    },
     newChat() {
       if (this.$route.params.id) {
         this.$router.push('/chat')
@@ -94,7 +376,6 @@ export default {
         const res = await api.get(`/api/conversations/${this.conversationId}`)
         this.messages = res.data.messages
         this.modelCode = res.data.model_code || DEFAULT_MODEL_ID
-        this.scrollToBottom()
       } catch (err) {
         console.error('Error loading conversation', err)
       }
@@ -105,46 +386,260 @@ export default {
 
       if (!text) return
 
-      try {
-        const isNew = !this.conversationId
-
-        if (isNew) {
-          const convRes = await api.post('/api/conversations')
-          this.conversationId = convRes.data.id
-        }
-
-        this.messages.push({ role: 'user', content: text })
-        this.input = ''
-        this.scrollToBottom()
-
-        const res = await api.post(
-          `/api/conversations/${this.conversationId}/messages`,
-          { content: text, model_code: model }
-        )
-        this.messages.push({ role: 'assistant', content: res.data.reply })
-
-        if (isNew && this.$route.params.id !== String(this.conversationId)) {
-          this.$router.replace(`/chat/${this.conversationId}`)
-        }
-      } catch (err) {
-        console.error(err)
-        this.messages.push({
-          role: 'assistant',
-          content: 'Error contacting API.'
-        })
+      // Stop any current TTS playback
+      if (this.ttsPlayer.isEnabled.value) {
+        this.ttsPlayer.stop()
       }
 
-      this.scrollToBottom()
+      const isNew = !this.conversationId
+
+      if (isNew) {
+        const convRes = await api.post('/api/conversations')
+        this.conversationId = convRes.data.id
+      }
+
+      // Add user message immediately (optimistic UI)
+      this.messages.push({
+        role: 'user',
+        content: text
+      })
+      this.input = ''
+
+      // Add placeholder for incoming stream
+      this.streamingMessageIndex = this.messages.length
+      this.messages.push({
+        role: 'assistant',
+        content: '',
+        thinking: ''
+      })
+
+      const token = localStorage.getItem('jwt')
+
+      // Stream the response (composable handles state, computed merges into display)
+      await this.streamingChat.sendMessage(
+        this.conversationId,
+        text,
+        token,
+        model
+      )
+
+      // Update placeholder message with final content from composable
+      const streamedMessage = this.messages[this.streamingMessageIndex]
+      streamedMessage.thinking = this.streamingChat.thinkingText.value
+      streamedMessage.content = this.streamingChat.responseText.value
+
+      if (this.streamingChat.error.value) {
+        // Remove the failed placeholder message
+        this.messages.splice(this.streamingMessageIndex, 1)
+      }
+
+      this.streamingMessageIndex = null
+
+      if (isNew && this.$route.params.id !== String(this.conversationId)) {
+        this.$router.replace(`/chat/${this.conversationId}`)
+      }
     },
     scrollToBottom() {
-      this.$nextTick(() => {
-        const el = this.$refs.chatWindow
-        if (el) el.scrollTop = el.scrollHeight
+      const el = this.$refs.chatWindow
+      if (el) el.scrollTop = el.scrollHeight
+    },
+    isActivelyStreaming(index) {
+      return index === this.streamingMessageIndex && this.streamingChat.isStreaming.value
+    },
+    formatMessage(text) {
+      return marked.parse(text)
+    },
+
+    async copyTextWithFallback(text, successMessage) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text)
+      } else {
+        const textArea = document.createElement('textarea')
+        textArea.value = text
+        textArea.style.position = 'fixed'
+        textArea.style.left = '-999999px'
+        document.body.appendChild(textArea)
+        textArea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textArea)
+      }
+
+      this.$q.notify({
+        type: 'positive',
+        message: successMessage,
+        position: 'top',
+        timeout: 2000
       })
     },
 
-    formatMessage(text) {
-      return marked.parse(text)
+    async handleMessageContentClick(event) {
+      const button = event.target.closest('.code-copy-btn')
+
+      if (!button) return
+
+      const encodedCode = button.getAttribute('data-code')
+      const code = decodeURIComponent(encodedCode || '')
+
+      await this.copyTextWithFallback(code, 'Code copied to clipboard')
+
+      const originalHtml = button.innerHTML
+      button.innerHTML = '<span class="material-icons notranslate" aria-hidden="true">check</span>'
+      button.disabled = true
+
+      setTimeout(() => {
+        button.innerHTML = originalHtml
+        button.disabled = false
+      }, 1200)
+    },
+
+    async copyToClipboard(text) {
+      console.log('Copy button clicked', text)
+
+      await this.copyTextWithFallback(text, 'Response copied to clipboard')
+      console.log('Copied successfully')
+    },
+
+    async updateScaffoldingPreference(value) {
+      try {
+        await api.patch('/api/user', {
+          user: { use_scaffolding: value }
+        })
+      } catch (err) {
+        console.error('Error updating scaffolding preference:', err)
+        this.useScaffolding = !value
+        this.$q.notify({
+          type: 'negative',
+          message: 'Failed to update preference',
+          position: 'top',
+          timeout: 2000
+        })
+      }
+    },
+
+    async handleTtsEnabledChange(value) {
+      this.ttsPlayer.setEnabled(value)
+      await this.updateTtsPreference({ tts_enabled: value })
+    },
+
+    async handleTtsVoiceChange(value) {
+      this.ttsPlayer.setVoice(value)
+      await this.updateTtsPreference({ tts_voice: value })
+    },
+
+    async handleTtsSpeedChange(value) {
+      this.ttsPlayer.setSpeed(value)
+      await this.updateTtsPreference({ tts_speed: value })
+    },
+
+    async updateTtsPreference(prefs) {
+      try {
+        await api.patch('/api/user', {
+          user: prefs
+        })
+      } catch (err) {
+        console.error('Error updating TTS preference:', err)
+        this.$q.notify({
+          type: 'negative',
+          message: 'Failed to update TTS preference',
+          position: 'top',
+          timeout: 2000
+        })
+      }
+    },
+
+    async readAloud(text) {
+      if (!text || text.trim().length === 0) return
+
+      try {
+        await this.ttsPlayer.speak(text)
+      } catch (err) {
+        console.error('Error reading aloud:', err)
+        this.$q.notify({
+          type: 'negative',
+          message: 'Failed to read aloud',
+          position: 'top',
+          timeout: 2000
+        })
+      }
+    },
+
+    startEdit(index, message) {
+      this.editingMessageIndex = index
+      this.editingContent = message.content
+    },
+
+    cancelEdit() {
+      this.editingMessageIndex = null
+      this.editingContent = ''
+    },
+
+    async saveEdit() {
+      if (!this.editingContent.trim() || this.isSavingEdit) return
+
+      const messageIndex = this.editingMessageIndex
+      const message = this.messages[messageIndex]
+
+      this.isSavingEdit = true
+
+      try {
+        await api.patch(
+          `/api/conversations/${this.conversationId}/messages/${message.id}`,
+          { content: this.editingContent }
+        )
+
+        message.content = this.editingContent
+
+        // Remove all messages after the edited one
+        this.messages = this.messages.slice(0, messageIndex + 1)
+
+        await this.regenerateFromMessage(this.editingContent)
+
+        this.editingMessageIndex = null
+        this.editingContent = ''
+
+      } catch (err) {
+        console.error('Error updating message:', err)
+        this.$q.notify({
+          type: 'negative',
+          message: 'Failed to update message',
+          position: 'top',
+          timeout: 2000
+        })
+      } finally {
+        this.isSavingEdit = false
+      }
+    },
+
+    async regenerateFromMessage(userMessageContent) {
+      // Add placeholder for incoming stream
+      this.streamingMessageIndex = this.messages.length
+      this.messages.push({
+        role: 'assistant',
+        content: '',
+        thinking: ''
+      })
+
+      const token = localStorage.getItem('jwt')
+
+      // Stream the new response
+      await this.streamingChat.sendMessage(
+        this.conversationId,
+        userMessageContent,
+        token,
+        this.modelCode,
+        { regenerating: true }
+      )
+
+      // Update placeholder with final content
+      const streamedMessage = this.messages[this.streamingMessageIndex]
+      streamedMessage.thinking = this.streamingChat.thinkingText.value
+      streamedMessage.content = this.streamingChat.responseText.value
+
+      if (this.streamingChat.error.value) {
+        this.messages.splice(this.streamingMessageIndex, 1)
+      }
+
+      this.streamingMessageIndex = null
     }
   }
 }
@@ -160,12 +655,32 @@ export default {
   max-width: 60%;
   line-height: 1.5;
   border-radius: 5px;
+  position: relative;
+}
+.message-footer {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 8px;
+  padding-top: 4px;
+}
+.copy-btn {
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+.copy-btn:hover {
+  opacity: 1;
+}
+.edit-btn {
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+.edit-btn:hover {
+  opacity: 1;
 }
 .user {
   background: var(--bubble-user);
   color: var(--text-user);
   margin: 40px 5px 40px auto;
-  display: flex;
   justify-content: start;
   align-items: center;
   padding: 15px 25px;
@@ -173,17 +688,93 @@ export default {
 p {
   margin: 0 !important;
   margin-bottom: 0 !important;
-  background-color: #f6f8fa !important;
+}
+.thinking-header {
+  background-color: #f5f5f5;
+  border-left: 3px solid #2196F3;
+  font-size: 0.9em;
+  opacity: 0.8;
+}
+.thinking-content {
+  background-color: #201d12;
+  font-family: monospace;
+  font-size: 0.85em;
+  color: #c7c7c7;
+  border-radius: 3px;
+}
+.thinking-content code {
+  background-color: #2a271a !important;
+}
+.thinking-raw {
+  white-space: pre-wrap;
+  font-family: monospace;
+  font-size: 0.85em;
+  color: #c7c7c7;
+  margin: 0;
 }
 .assistant {
-  /* ai bubble should blend into the background
-  background: var(--bubble-ai);
-  border: 1px solid var(--border); */
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
   margin: 40px auto;
+  max-width: 900px;
 }
 .input-bar {
   border-top: 1px solid var(--border);
+}
+.input-centered {
+  border-top: none;
+  justify-content: center;
+}
+.message-input {
+  max-width: 900px;
+}
+.message-input :deep(.q-field__control) {
+  border-radius: 15px;
+}
+.message-input :deep(.q-field__control textarea) {
+  font-size: 16px;
+}
+.message-input :deep(.q-field__control:after) {
+  display: none;
+}
+.message-input :deep(.q-field__control:before) {
+  display: none;
+}
+.new-chat-welcome {
+  text-align: center;
+}
+.assistant :deep(.code-block-wrap) {
+  margin: 10px 0;
+}
+.assistant :deep(.code-block-header) {
+  align-items: center;
+  display: flex;
+  font-family: monospace;
+  font-size: 0.75em;
+  justify-content: space-between;
+  margin-bottom: -8px;
+  padding: 0 5px;
+}
+.assistant :deep(.code-lang-label) {
+  opacity: 0.75;
+  text-transform: lowercase;
+}
+.assistant :deep(.code-copy-btn) {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  line-height: 1;
+  opacity: 0.8;
+  padding: 0;
+}
+.assistant :deep(.code-copy-btn .material-icons) {
+  font-size: 1em;
+}
+.assistant :deep(.code-copy-btn:disabled) {
+  cursor: default;
+  opacity: 0.6;
 }
 .assistant pre {
   background: var(--bubble-ai);
@@ -193,9 +784,70 @@ p {
   font-family: monospace;
   font-size: 0.9em;
 }
+.assistant :deep(.code-block-wrap pre) {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) var(--bubble-ai);
+}
+.assistant :deep(.code-block-wrap pre::-webkit-scrollbar) {
+  height: 10px;
+  width: 10px;
+}
+.assistant :deep(.code-block-wrap pre::-webkit-scrollbar-track) {
+  background: var(--bubble-ai);
+}
+.assistant :deep(.code-block-wrap pre::-webkit-scrollbar-thumb) {
+  background: var(--border);
+  border: 2px solid var(--bubble-ai);
+  border-radius: 999px;
+}
 .assistant code {
   background: #f6f8fa;
   padding: 2px 4px;
   border-radius: 4px;
+}
+.loading-placeholder {
+  min-height: 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+}
+.typing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.typing-indicator .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #1976d2;
+  opacity: 0.4;
+  animation: pulse 1.4s infinite ease-in-out;
+}
+.typing-indicator .dot:nth-child(1) {
+  animation-delay: 0s;
+}
+.typing-indicator .dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.typing-indicator .dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+.edit-message {
+  background-color: #555550;
+  color: #1c1c1c !important;
+  border-radius: 5px;
+  padding: 10px;
+}
+@keyframes pulse {
+  0%, 60%, 100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
 }
 </style>
