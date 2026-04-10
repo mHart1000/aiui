@@ -77,7 +77,7 @@ class ConversationTest < ActiveSupport::TestCase
     @conversation.save!
     @conversation.messages.create!(role: "user", content: "Hello")
     result = @conversation.messages_for_ai
-    assert_equal [{ role: "user", content: "Hello" }], result
+    assert_equal [ { role: "user", content: "Hello" } ], result
   end
 
   test "messages_for_ai returns messages ordered by created_at" do
