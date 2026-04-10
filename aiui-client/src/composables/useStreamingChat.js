@@ -20,7 +20,7 @@ export function useStreamingChat() {
   let currentReader = null
   let streamTimeoutId = null
 
-  const STREAM_TIMEOUT_MS = 120000 // 2 minutes
+  const STREAM_TIMEOUT_MS = 120000 // 2 minutes of inactivity
 
   /**
    * Send a message and stream the response.
@@ -48,11 +48,16 @@ export function useStreamingChat() {
 
     currentAbortController = new AbortController()
 
-    streamTimeoutId = setTimeout(() => {
-      cleanup()
-      error.value = new Error('Stream timeout - response took too long')
-      isStreaming.value = false
-    }, STREAM_TIMEOUT_MS)
+    function resetStreamTimeout() {
+      clearTimeout(streamTimeoutId)
+      streamTimeoutId = setTimeout(() => {
+        cleanup()
+        error.value = new Error('Stream timeout - no data received for 2 minutes')
+        isStreaming.value = false
+      }, STREAM_TIMEOUT_MS)
+    }
+
+    resetStreamTimeout()
 
     try {
       const url = `/api/conversations/${conversationId}/messages/stream`
@@ -92,6 +97,9 @@ export function useStreamingChat() {
         if (done) {
           break
         }
+
+        // Reset inactivity timeout on each chunk received
+        resetStreamTimeout()
 
         // Decode chunk and add to buffer
         buffer += decoder.decode(value, { stream: true })
