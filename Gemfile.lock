@@ -176,9 +176,7 @@ GEM
     marcel (1.1.0)
     method_source (1.1.0)
     mini_mime (1.1.5)
-    minitest (6.0.3)
-      drb (~> 2.0)
-      prism (~> 1.5)
+    minitest (5.27.0)
     msgpack (1.8.0)
     multi_xml (0.8.1)
       bigdecimal (>= 3.1, < 5)
@@ -373,8 +371,8 @@ DEPENDENCIES
   devise (~> 5.0)
   devise-jwt (~> 0.13.0)
   dotenv-rails
-  minitest
   httparty (~> 0.24.2)
+  minitest (~> 5.22)
   pg (~> 1.6)
   pry-rails
   puma (>= 5.0)
