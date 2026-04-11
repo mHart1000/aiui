@@ -9,7 +9,6 @@ module Api
       conversation.messages.create!(role: "user", content: params[:content])
 
       current_api_user.reload
-      Rails.logger.info("User #{current_api_user.id} use_scaffolding: #{current_api_user.use_scaffolding}")
       result = ChatService.call(
         messages: conversation.messages_for_ai,
         model: safe_model_code,
@@ -61,7 +60,6 @@ module Api
         reply_accumulator = ""
 
         current_api_user.reload
-        Rails.logger.info("User #{current_api_user.id} use_scaffolding: #{current_api_user.use_scaffolding}")
         # Stream the response
         ChatService.call(
           messages: conversation.messages_for_ai,
