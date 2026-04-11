@@ -5,7 +5,7 @@ ruby "3.3.5"
 # Bundle edge Rails instead: gem "rails", github: "rails/rails", branch: "main"
 gem "rails", "~> 7.2.1"
 # Use postgresql as the database for Active Record
-gem "pg", "~> 1.1"
+gem "pg", "~> 1.6"
 # Use the Puma web server [https://github.com/puma/puma]
 gem "puma", ">= 5.0"
 # Build JSON APIs with ease [https://github.com/rails/jbuilder]
@@ -52,10 +52,10 @@ group :development, :test do
   gem "binding_of_caller"
 end
 
-gem "httparty", "~> 0.23.2"
+gem "httparty", "~> 0.24.2"
 
 gem "ruby-openai", "~> 8.3"
 
-gem "devise", "~> 4.9"
+gem "devise", "~> 5.0"
 
-gem "devise-jwt", "~> 0.12.1"
+gem "devise-jwt", "~> 0.13.0"
