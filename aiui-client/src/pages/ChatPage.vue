@@ -480,7 +480,7 @@ export default {
       const encodedCode = button.getAttribute('data-code')
       const code = decodeURIComponent(encodedCode || '')
 
-      await this.copyTextWithFallback(code, 'Code copied to clipboard')
+      await this.copyTextWithFallback(code, 'Copied to clipboard')
 
       const originalHtml = button.innerHTML
       button.innerHTML = '<span class="material-icons notranslate" aria-hidden="true">check</span>'
@@ -493,10 +493,7 @@ export default {
     },
 
     async copyToClipboard(text) {
-      console.log('Copy button clicked', text)
-
       await this.copyTextWithFallback(text, 'Response copied to clipboard')
-      console.log('Copied successfully')
     },
 
     async updateScaffoldingPreference(value) {
