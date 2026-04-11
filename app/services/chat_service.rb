@@ -1,5 +1,5 @@
 class ChatService
-  FALLBACK_MODEL = ENV.fetch("DEFAULT_MODEL")
+  FALLBACK_MODEL = ENV.fetch("DEFAULT_MODEL", "local-llama")
   PERSONA_PATH = Rails.root.join("persona", "persona1.md")
   DEFAULT_MAX_TOKENS = 16000
 
