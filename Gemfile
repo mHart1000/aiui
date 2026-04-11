@@ -35,6 +35,8 @@ gem "rack-cors"
 gem "active_model_serializers", "~> 0.10.14"
 
 group :development, :test do
+  gem "minitest"
+
   # See https://guides.rubyonrails.org/debugging_rails_applications.html#debugging-with-the-debug-gem
   gem "debug", platforms: %i[ mri windows ], require: "debug/prelude"
 

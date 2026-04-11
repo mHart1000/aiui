@@ -371,6 +371,7 @@ DEPENDENCIES
   devise-jwt (~> 0.12.1)
   dotenv-rails
   httparty (~> 0.23.2)
+  minitest
   pg (~> 1.1)
   pry-rails
   puma (>= 5.0)
