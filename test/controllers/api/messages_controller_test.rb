@@ -1,6 +1,8 @@
 require "test_helper"
 
 class Api::MessagesControllerTest < ActionDispatch::IntegrationTest
+  parallelize(workers: 1)
+
   def setup
     @user = User.create!(email: "test@example.com", password: "password123")
     @headers = sign_in_as(@user)
