@@ -1,13 +1,23 @@
 require "test_helper"
 
 class Api::MessagesControllerTest < ActionDispatch::IntegrationTest
-  parallelize(workers: 1)
+  # ActionController::Live spawns a child thread to write the response body.
+  # That thread gets a separate DB connection outside the test transaction, so
+  # records written by the controller are invisible to the test when
+  # use_transactional_tests is true. Disable it here and clean up manually.
+  self.use_transactional_tests = false
 
   def setup
     @user = User.create!(email: "test@example.com", password: "password123")
     @headers = sign_in_as(@user)
     @conversation = @user.conversations.create!(title: "Test Chat")
     @conversation.messages.create!(role: "user", content: "Hello")
+  end
+
+  def teardown
+    Message.delete_all
+    Conversation.delete_all
+    User.delete_all
   end
 
   # Simulate ChatService streaming some chunks then raising ClientDisconnected.
