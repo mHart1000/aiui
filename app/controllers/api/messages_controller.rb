@@ -47,20 +47,21 @@ module Api
       response.headers["Cache-Control"] = "no-cache"
       response.headers["X-Accel-Buffering"] = "no"  # Disable nginx buffering
 
+      conversation = current_api_user.conversations.find(params[:conversation_id])
+      safe_model_code = conversation.apply_model_code(params[:model_code])
+
+      # Only create user message if not regenerating
+      unless params[:regenerating]
+        conversation.messages.create!(role: "user", content: params[:content])
+      end
+
+      thinking_accumulator = ""
+      reply_accumulator = ""
+      client_disconnected = false
+
+      current_api_user.reload
+      # Stream the response
       begin
-        conversation = current_api_user.conversations.find(params[:conversation_id])
-        safe_model_code = conversation.apply_model_code(params[:model_code])
-
-        # Only create user message if not regenerating
-        unless params[:regenerating]
-          conversation.messages.create!(role: "user", content: params[:content])
-        end
-
-        thinking_accumulator = ""
-        reply_accumulator = ""
-
-        current_api_user.reload
-        # Stream the response
         ChatService.call(
           messages: conversation.messages_for_ai,
           model: safe_model_code,
@@ -85,13 +86,18 @@ module Api
 
         # Send completion event
         response.stream.write("data: #{({ type: 'done' }).to_json}\n\n")
-
-        # Token tracking not available in streaming mode yet
-        conversation.add_assistant_message(reply: reply_accumulator, thinking: thinking_accumulator, tokens: nil)
-        conversation.entitle_async(params[:content])
-
+      rescue ActionController::Live::ClientDisconnected
+        client_disconnected = true
+        Rails.logger.warn("MessagesController: client disconnected during stream, saving accumulated content")
       ensure
+        # Close the stream before doing DB work so the client gets the response immediately
         response.stream.close
+      end
+
+      # Save whatever was accumulated, even if the client disconnected mid-stream
+      if reply_accumulator.present? || thinking_accumulator.present?
+        conversation.add_assistant_message(reply: reply_accumulator, thinking: thinking_accumulator, tokens: nil)
+        conversation.entitle_async(params[:content]) unless client_disconnected
       end
     end
   end
