@@ -43,6 +43,89 @@ class ChatServiceTest < ActiveSupport::TestCase
     end
   end
 
+  # rag injection
+  test "rag_context is prepended to first user message in single pass" do
+    captured = nil
+    service = ChatService.new(
+      messages: [ { role: "user", content: "What is my favorite food?" } ],
+      model: "gpt-4o",
+      use_persona: false,
+      use_scaffolding: false,
+      stream: false,
+      max_tokens: nil,
+      rag_context: "[Context]\nfavorite food is sushi\n[/Context]"
+    )
+    adapter = service.instance_variable_get(:@adapter)
+    adapter.stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) do
+      service.call
+    end
+
+    user_msg = captured.find { |m| m[:role] == "user" }
+    assert_includes user_msg[:content], "[Context]"
+    assert_includes user_msg[:content], "favorite food is sushi"
+    assert_includes user_msg[:content], "What is my favorite food?"
+    assert user_msg[:content].start_with?("[Context]"), "RAG block should be prepended before the original question"
+  end
+
+  test "rag_context is injected only on execution pass in two-pass mode" do
+    planning_captured = nil
+    execution_captured = nil
+    planning_response = { content: "analysis", tokens: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 } }
+    execution_response = { content: "reply", tokens: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 } }
+
+    service = ChatService.new(
+      messages: [ { role: "user", content: "original question" } ],
+      model: "gpt-4o",
+      use_persona: false,
+      use_scaffolding: true,
+      stream: false,
+      max_tokens: nil,
+      rag_context: "[Context]\nretrieved fact\n[/Context]"
+    )
+    adapter = service.instance_variable_get(:@adapter)
+
+    call_count = 0
+    adapter.stub(:chat, ->(**kwargs) {
+      if call_count == 0
+        planning_captured = kwargs[:messages]
+        call_count += 1
+        planning_response
+      else
+        execution_captured = kwargs[:messages]
+        execution_response
+      end
+    }) do
+      service.call
+    end
+
+    planning_user = planning_captured.find { |m| m[:role] == "user" }
+    refute_includes planning_user[:content], "[Context]", "planning pass should not see RAG context"
+
+    execution_user = execution_captured.find { |m| m[:role] == "user" }
+    assert_includes execution_user[:content], "[Context]"
+    assert_includes execution_user[:content], "retrieved fact"
+  end
+
+  test "nil rag_context is a no-op" do
+    captured = nil
+    service = ChatService.new(
+      messages: [ { role: "user", content: "hello" } ],
+      model: "gpt-4o",
+      use_persona: false,
+      use_scaffolding: false,
+      stream: false,
+      max_tokens: nil,
+      rag_context: nil
+    )
+    adapter = service.instance_variable_get(:@adapter)
+    adapter.stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) do
+      service.call
+    end
+
+    user_msg = captured.find { |m| m[:role] == "user" }
+    assert_equal "hello", user_msg[:content]
+  end
+
   # two pass
   test "two pass returns reply, thinking, and combined tokens" do
     planning_response = { content: "my analysis", tokens: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 } }
