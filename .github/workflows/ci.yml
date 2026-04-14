@@ -72,6 +72,7 @@ jobs:
       PGHOST: localhost
       PGUSER: postgres
       PGPASSWORD: postgres
+      DEVISE_JWT_SECRET_KEY: ci-test-secret-not-used-in-production
 
     steps:
       - name: Checkout code
