@@ -9,11 +9,13 @@ module Api
       conversation.messages.create!(role: "user", content: params[:content])
 
       current_api_user.reload
+      rag_context = fetch_rag_context(conversation, params[:content])
       result = ChatService.call(
         messages: conversation.messages_for_ai,
         model: safe_model_code,
         use_persona: true,
-        use_scaffolding: current_api_user.use_scaffolding
+        use_scaffolding: current_api_user.use_scaffolding,
+        rag_context: rag_context
       )
 
       if result[:error]
@@ -60,6 +62,7 @@ module Api
       client_disconnected = false
 
       current_api_user.reload
+      rag_context = fetch_rag_context(conversation, params[:content])
       # Stream the response
       begin
         ChatService.call(
@@ -67,7 +70,8 @@ module Api
           model: safe_model_code,
           use_persona: true,
           use_scaffolding: current_api_user.use_scaffolding,
-          stream: true
+          stream: true,
+          rag_context: rag_context
         ) do |chunk, phase|
           if phase == :thinking
             thinking_accumulator += chunk
@@ -99,6 +103,21 @@ module Api
         conversation.add_assistant_message(reply: reply_accumulator, thinking: thinking_accumulator, tokens: nil)
         conversation.entitle_async(params[:content]) unless client_disconnected
       end
+    end
+
+    private
+
+    def fetch_rag_context(conversation, query)
+      return nil unless conversation.rag_enabled
+      return nil if query.blank?
+
+      chunks = Rag::Retriever.call(user: current_api_user, query: query)
+      return nil if chunks.blank?
+
+      Rag::ContextFormatter.format(chunks)
+    rescue => e
+      Rails.logger.warn("RAG retrieval failed: #{e.class}: #{e.message}")
+      nil
     end
   end
 end

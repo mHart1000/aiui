@@ -15,6 +15,12 @@
         @update:model-value="updateScaffoldingPreference"
         color="primary"
       />
+      <q-toggle
+        v-model="ragEnabled"
+        label="Personal Context"
+        @update:model-value="updateRagEnabled"
+        color="primary"
+      />
       <TtsControls
         :is-enabled="ttsPlayer.isEnabled.value"
         :is-playing="ttsPlayer.isPlaying.value"
@@ -240,6 +246,7 @@ export default {
     streamingMessageIndex: null,
     expandedThinking: {},
     useScaffolding: true,
+    ragEnabled: false,
     editingMessageIndex: null,
     editingContent: '',
     isSavingEdit: false
@@ -376,8 +383,26 @@ export default {
         const res = await api.get(`/api/conversations/${this.conversationId}`)
         this.messages = res.data.messages
         this.modelCode = res.data.model_code || DEFAULT_MODEL_ID
+        this.ragEnabled = res.data.rag_enabled || false
       } catch (err) {
         console.error('Error loading conversation', err)
+      }
+    },
+    async updateRagEnabled(value) {
+      if (!this.conversationId) return  // toggle is remembered locally; applied on first send
+      try {
+        await api.patch(`/api/conversations/${this.conversationId}`, {
+          conversation: { rag_enabled: value }
+        })
+      } catch (err) {
+        console.error('Error updating RAG setting:', err)
+        this.ragEnabled = !value
+        this.$q.notify({
+          type: 'negative',
+          message: 'Failed to update Personal Context setting',
+          position: 'top',
+          timeout: 2000
+        })
       }
     },
     async sendMessage() {
@@ -396,6 +421,11 @@ export default {
       if (isNew) {
         const convRes = await api.post('/api/conversations')
         this.conversationId = convRes.data.id
+        if (this.ragEnabled) {
+          await api.patch(`/api/conversations/${this.conversationId}`, {
+            conversation: { rag_enabled: true }
+          })
+        }
       }
 
       // Add user message immediately (optimistic UI)

@@ -18,11 +18,12 @@ Rails.application.routes.draw do
       registrations: "api/registrations"
     }
 
-    resources :conversations, only: [ :index, :create, :show ] do
+    resources :conversations, only: [ :index, :create, :show, :update ] do
       resources :messages, only: [ :create, :update ]
       post "messages/stream", to: "messages#create_streaming"
     end
     resources :models, only: [ :index ]
+    resources :rag_documents, only: [ :index, :create, :destroy ]
 
     get "user", to: "user#show"
     patch "user", to: "user#update"

@@ -8,8 +8,15 @@
               flat
               icon="add"
               label="New Chat"
-              class="full-width q-mb-md"
+              class="full-width q-mb-sm"
               @click="$router.push('/chat')"
+            />
+            <q-btn
+              flat
+              icon="folder"
+              label="Knowledge"
+              class="full-width q-mb-md"
+              @click="knowledgeOpen = true"
             />
             <q-list dense>
               <q-item
@@ -37,17 +44,22 @@
     <q-page-container>
       <router-view />
     </q-page-container>
+
+    <RagKnowledgeDialog v-model="knowledgeOpen" />
   </q-layout>
 </template>
 
 <script>
 import { Dark } from 'quasar'
 import { api } from 'src/boot/axios'
+import RagKnowledgeDialog from 'components/RagKnowledgeDialog.vue'
 
 export default {
   name: 'ChatLayout',
+  components: { RagKnowledgeDialog },
   data: () => ({
-    conversations: []
+    conversations: [],
+    knowledgeOpen: false
   }),
   mounted() {
     this.getUserConversations()
