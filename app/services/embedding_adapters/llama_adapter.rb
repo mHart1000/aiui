@@ -9,7 +9,7 @@ module EmbeddingAdapters
     # identifier back in the response — that echoed value is what we store.
     REQUEST_MODEL_HINT = "default".freeze
 
-    MAX_RETRIES = 3
+    MAX_RETRIES = 5
     RETRYABLE_ERRORS = [
       EOFError,
       Errno::ECONNRESET,
@@ -37,7 +37,10 @@ module EmbeddingAdapters
     # an array `input`, so we call once per text. The batch interface stays in
     # place for a future server that actually supports array inputs.
     def embed_batch(texts:)
-      texts.map { |text| embed(text: text) }
+      texts.map.with_index { |text, idx|
+        Rails.logger.debug("Embedding chunk #{idx + 1}/#{texts.length} (#{text.length} chars)")
+        embed(text: text)
+      }
     end
 
     private
@@ -56,6 +59,7 @@ module EmbeddingAdapters
         response = http_post_with_retry(uri, current_input)
 
         if response.is_a?(Net::HTTPSuccess)
+          Rails.logger.debug("Embedding succeeded (#{current_input.length} chars)")
           return JSON.parse(response.body)
         end
 
@@ -100,6 +104,7 @@ module EmbeddingAdapters
           sleep(sleep_for)
           retry
         end
+        Rails.logger.error("Llama Embedding failed after #{MAX_RETRIES} retries: #{e.class}: #{e.message}")
         raise
       end
     end
