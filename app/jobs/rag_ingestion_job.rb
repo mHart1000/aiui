@@ -1,6 +1,8 @@
 class RagIngestionJob < ApplicationJob
   queue_as :default
 
+  BATCH_SIZE = 16
+
   def perform(rag_document_id, path)
     doc = RagDocument.find_by(id: rag_document_id)
     unless doc
@@ -19,20 +21,28 @@ class RagIngestionJob < ApplicationJob
       return
     end
 
+    # Preserve original chunk indexes across blank-skipping and batching.
+    indexed = chunk_texts.each_with_index.reject { |t, _| t.strip.empty? }
+
     document_model_id = nil
 
-    chunk_texts.each_with_index do |chunk_text, idx|
-      next if chunk_text.strip.empty?
-      result = EmbeddingService.embed(text: chunk_text)
-      document_model_id ||= result[:model]
-      doc.rag_chunks.create!(
-        user_id: doc.user_id,
-        source_type: doc.source_type,
-        content: chunk_text,
-        chunk_index: idx,
-        embedding: result[:vector],
-        embedding_model: result[:model]
-      )
+    indexed.each_slice(BATCH_SIZE) do |slice|
+      texts = slice.map(&:first)
+      results = EmbeddingService.embed_batch(texts: texts)
+
+      RagChunk.transaction do
+        slice.zip(results).each do |(chunk_text, idx), result|
+          document_model_id ||= result[:model]
+          doc.rag_chunks.create!(
+            user_id: doc.user_id,
+            source_type: doc.source_type,
+            content: chunk_text,
+            chunk_index: idx,
+            embedding: result[:vector],
+            embedding_model: result[:model]
+          )
+        end
+      end
     end
 
     doc.update!(status: "ready", embedding_model: document_model_id)

@@ -1,7 +1,11 @@
 module Rag
   class TextChunker
-    DEFAULT_TARGET_CHARS = 2000
-    DEFAULT_OVERLAP_CHARS = 400
+    # 1500 chars ≈ 375–500 tokens for typical English/markdown prose, which
+    # stays safely under llama.cpp's default physical batch size of 512.
+    # Dense content (code, JSON) tokenises at ~3 chars/token so 1500 chars
+    # can reach ~500 tokens — still under the limit with headroom.
+    DEFAULT_TARGET_CHARS = 1500
+    DEFAULT_OVERLAP_CHARS = 300
 
     def self.call(text, target_chars: DEFAULT_TARGET_CHARS, overlap_chars: DEFAULT_OVERLAP_CHARS)
       new(text, target_chars, overlap_chars).call

@@ -9,6 +9,10 @@ class EmbeddingService
     new.embed(text: text)
   end
 
+  def self.embed_batch(texts:)
+    new.embed_batch(texts: texts)
+  end
+
   def initialize(adapter_name: nil)
     @adapter = build_adapter(adapter_name || ENV["EMBEDDING_ADAPTER"] || DEFAULT_ADAPTER)
   end
@@ -20,6 +24,22 @@ class EmbeddingService
       raise "EmbeddingService: adapter must return { vector:, model: } with non-empty model"
     end
     result
+  end
+
+  def embed_batch(texts:)
+    raise ArgumentError, "texts cannot be empty" if texts.nil? || texts.empty?
+    raise ArgumentError, "texts cannot contain blank entries" if texts.any? { |t| t.to_s.strip.empty? }
+
+    results = @adapter.embed_batch(texts: texts)
+    unless results.is_a?(Array) && results.length == texts.length
+      raise "EmbeddingService: adapter must return an Array of #{texts.length} results"
+    end
+    results.each do |r|
+      unless r.is_a?(Hash) && r[:vector].is_a?(Array) && r[:model].is_a?(String) && !r[:model].empty?
+        raise "EmbeddingService: each batch result must be { vector:, model: } with non-empty model"
+      end
+    end
+    results
   end
 
   private
