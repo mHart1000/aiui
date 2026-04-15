@@ -1,7 +1,7 @@
 module Rag
   class ContextFormatter
-    HARD_CAP_CHARS = 8000
-    PER_CHUNK_CAP_CHARS = 1500
+    HARD_CAP_CHARS = 24000
+    PER_CHUNK_CAP_CHARS = 2000
 
     def self.format(chunks)
       return nil if chunks.blank?

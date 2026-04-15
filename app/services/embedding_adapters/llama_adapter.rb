@@ -4,9 +4,10 @@ require "uri"
 
 module EmbeddingAdapters
   class LlamaAdapter < BaseAdapter
-    # Requested when POSTing to /v1/embeddings. llama.cpp ignores this and
-    # embeds with whatever model is currently loaded, then echoes a model
-    # identifier back in the response — that echoed value is what we store.
+    # Sent as the `model` field on /v1/embeddings requests. llama.cpp ignores
+    # it and just echoes it back verbatim, so it has no effect on which model
+    # actually runs — it's only present because OpenAI-compatible clients
+    # expect the field. The real model identity comes from #resolve_model_id.
     REQUEST_MODEL_HINT = "default".freeze
 
     MAX_RETRIES = 5
@@ -21,15 +22,16 @@ module EmbeddingAdapters
     ].freeze
 
     def initialize(model: nil, base_url: nil)
-      @model_hint = model || ENV["EMBEDDING_MODEL"] || REQUEST_MODEL_HINT
+      @explicit_model = model || ENV["EMBEDDING_MODEL"].presence
       @base_url = base_url || ENV["EMBEDDING_API_URL"] || ENV["LLAMA_API_URL"] || "http://host.docker.internal:8080/v1"
+      @resolved_model_id = nil
     end
 
     def embed(text:)
       json = post_embeddings(text.to_s)
       vector = json.dig("data", 0, "embedding")
       raise "Llama Embedding Error: malformed response (no data[0].embedding)" unless vector.is_a?(Array)
-      { vector: vector, model: resolve_model_id(json) }
+      { vector: vector, model: resolve_model_id }
     end
 
     # Serial loop rather than a single array-input POST. Our local llama.cpp
@@ -109,11 +111,47 @@ module EmbeddingAdapters
       end
     end
 
-    def resolve_model_id(json)
-      # llama.cpp echoes the loaded model identifier here when known; fall
-      # back to the hint if the server returns something empty or generic.
-      reported = json["model"].to_s
-      reported.presence || ENV["EMBEDDING_MODEL"].presence || @model_hint
+    # The canonical identity of the embedding model, used as the stored
+    # `embedding_model` value on every chunk. Vectors from different models
+    # live in different spaces (and often different dimensions) so this value
+    # MUST be stable — otherwise Rag::Retriever can't isolate compatible
+    # chunks and you get silent cross-model contamination.
+    #
+    # Priority:
+    #   1. Explicit `model:` constructor argument
+    #   2. EMBEDDING_MODEL env var
+    #   3. Auto-detect from llama.cpp /v1/models endpoint (cached per adapter)
+    #
+    # Raises if none of the above yields a non-empty identifier.
+    def resolve_model_id
+      return @resolved_model_id if @resolved_model_id
+      @resolved_model_id = @explicit_model.presence || fetch_server_model_id
+      if @resolved_model_id.to_s.empty?
+        raise "Llama Embedding Error: could not determine embedding model identity. " \
+              "Set EMBEDDING_MODEL env var or ensure llama-server /v1/models returns a model id."
+      end
+      Rails.logger.info("LlamaAdapter: resolved embedding_model = #{@resolved_model_id.inspect}")
+      @resolved_model_id
+    end
+
+    # Query llama.cpp's /v1/models endpoint to discover the currently-loaded
+    # model filename. Returns nil on any failure — callers decide whether
+    # that's fatal.
+    def fetch_server_model_id
+      uri = URI("#{@base_url}/models")
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.read_timeout = 10
+      http.open_timeout = 5
+      request = Net::HTTP::Get.new(uri)
+      request["Authorization"] = "Bearer unused"
+      response = http.request(request)
+      return nil unless response.is_a?(Net::HTTPSuccess)
+
+      json = JSON.parse(response.body)
+      json.dig("data", 0, "id").to_s.presence
+    rescue => e
+      Rails.logger.warn("LlamaAdapter: /v1/models lookup failed (#{e.class}: #{e.message})")
+      nil
     end
   end
 end

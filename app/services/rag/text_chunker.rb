@@ -55,21 +55,80 @@ module Rag
       chunks << current unless current.strip.empty?
     end
 
+    # Walks back from the tail of the chunk by @overlap chars, then nudges
+    # forward to the next whitespace (up to a small budget) so the overlap
+    # starts at a word boundary rather than mid-word. Falls back to the raw
+    # position for dense text with no whitespace nearby — better to keep
+    # some overlap than lose it entirely.
     def overlap_tail(chunk)
       return "" if @overlap <= 0 || chunk.length <= @overlap
-      chunk[-@overlap..]
+      raw = chunk.length - @overlap
+      probe = raw
+      limit = [ raw + 30, chunk.length ].min
+      while probe < limit && chunk[probe] && !chunk[probe].match?(/\s/)
+        probe += 1
+      end
+      start = (probe < limit && chunk[probe].to_s.match?(/\s/)) ? probe : raw
+      chunk[start..].to_s.lstrip
     end
 
+    # Split a single oversized paragraph. Tries, in order:
+    #   1. sentence boundary (. ! ?) inside a window near the target length
+    #   2. whitespace boundary inside the same window
+    #   3. raw character split as a last resort
+    # The preferred break point is whichever is closest to @target without
+    # going over, so chunks stay close to the target size without ever
+    # cutting mid-word when the text has any reasonable structure.
     def hard_split(long_text)
-      step = @target - @overlap
-      step = @target if step <= 0
       pieces = []
-      i = 0
-      while i < long_text.length
-        pieces << long_text[i, @target]
-        i += step
+      remaining = long_text
+
+      while remaining.length > @target
+        split_at = find_split_point(remaining, @target)
+        piece = remaining[0, split_at].rstrip
+        pieces << piece unless piece.empty?
+
+        overlap_start = [ split_at - @overlap, 0 ].max
+        overlap_start = advance_to_word_boundary(remaining, overlap_start)
+        remaining = remaining[overlap_start..].to_s.lstrip
       end
+
+      pieces << remaining unless remaining.strip.empty?
       pieces
+    end
+
+    # Search backward from `target` within a small window for a good place
+    # to break. Prefer sentence punctuation over whitespace, whitespace over
+    # nothing. Returns the index AFTER the break character so callers can
+    # slice [0, split_at] and get a clean chunk.
+    def find_split_point(text, target)
+      return text.length if text.length <= target
+
+      window_size = [ target / 4, 200 ].min
+      window_start = [ target - window_size, 0 ].max
+      window = text[window_start, target - window_start]
+
+      if (m = window.rindex(/[.!?](?=\s|\z)/))
+        return window_start + m + 1
+      end
+
+      if (m = window.rindex(/\s/))
+        return window_start + m
+      end
+
+      target
+    end
+
+    # Same bounded-probe pattern as overlap_tail — nudge forward up to 30
+    # chars looking for whitespace, otherwise leave the position alone.
+    def advance_to_word_boundary(text, pos)
+      return 0 if pos <= 0
+      probe = pos
+      limit = [ pos + 30, text.length ].min
+      while probe < limit && text[probe] && !text[probe].match?(/\s/)
+        probe += 1
+      end
+      (probe < limit && text[probe].to_s.match?(/\s/)) ? probe : pos
     end
   end
 end

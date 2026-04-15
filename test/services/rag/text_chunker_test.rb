@@ -43,4 +43,46 @@ class Rag::TextChunkerTest < ActiveSupport::TestCase
     assert_operator chunks.length, :>=, 5
     chunks.each { |c| assert_operator c.length, :<=, 1000 }
   end
+
+  test "hard split prefers sentence boundaries when available" do
+    sentences = (1..20).map { |i| "This is sentence number #{i} with some extra words to pad it out." }
+    long_paragraph = sentences.join(" ")
+    chunks = Rag::TextChunker.call(long_paragraph, target_chars: 400, overlap_chars: 80)
+
+    assert_operator chunks.length, :>=, 2
+    # Each split point should be after a period — so no chunk starts with a
+    # lowercase continuation word and none ends mid-sentence (bar the last).
+    chunks[0..-2].each do |c|
+      assert_match(/[.!?]\s*\z/, c.strip, "chunk did not end on sentence boundary: #{c.inspect}")
+    end
+  end
+
+  test "hard split does not cut words in half when whitespace is available" do
+    words = (1..300).map { |i| "supercalifragilistic#{i}" }
+    long = words.join(" ")
+    chunks = Rag::TextChunker.call(long, target_chars: 500, overlap_chars: 100)
+
+    assert_operator chunks.length, :>=, 2
+    # Every chunk (except possibly the last) should end on a whole word.
+    chunks[0..-2].each do |c|
+      stripped = c.rstrip
+      last_word = stripped.split(/\s+/).last
+      assert_match(/\Asupercalifragilistic\d+\z/, last_word,
+        "chunk ended mid-word: #{stripped[-40..].inspect}")
+    end
+  end
+
+  test "preserves critical term that previously straddled a hard split" do
+    # Regression guard: "eRecord, access control..." got cut into ", access
+    # control..." because hard_split sliced on char index. After the fix, the
+    # term should survive intact in at least one chunk.
+    filler_before = "Lorem ipsum dolor sit amet consectetur adipiscing elit. " * 20
+    filler_after = "Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. " * 20
+    text = "#{filler_before}eRecord, access control, billing, and interoperability matter here. #{filler_after}"
+    chunks = Rag::TextChunker.call(text, target_chars: 800, overlap_chars: 150)
+
+    assert chunks.any? { |c| c.include?("eRecord, access control") },
+      "expected at least one chunk to contain the intact phrase; got chunk previews: " +
+      chunks.map { |c| c[0, 80].inspect }.join(", ")
+  end
 end

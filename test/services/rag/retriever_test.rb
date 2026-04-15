@@ -72,6 +72,45 @@ class Rag::RetrieverTest < ActiveSupport::TestCase
     end
   end
 
+  test "keyword search surfaces a chunk that vector search would rank lower" do
+    doc = RagDocument.create!(user: @user, source_type: "personalization", file_format: "txt", status: "ready", original_filename: "a.txt")
+
+    # Vector-near chunk with no keyword overlap with the query.
+    vector_winner = RagChunk.create!(
+      rag_document: doc, user: @user, source_type: "personalization",
+      content: "unrelated filler text", chunk_index: 0,
+      embedding: one_hot(0, noise: 0.01), embedding_model: MODEL_ID
+    )
+    # Vector-far chunk that mentions the exact keyword from the query.
+    keyword_winner = RagChunk.create!(
+      rag_document: doc, user: @user, source_type: "personalization",
+      content: "Project Phoenix is the codename for the retrieval overhaul",
+      chunk_index: 1, embedding: one_hot(500), embedding_model: MODEL_ID
+    )
+
+    EmbeddingService.stub(:embed, ->(text:) { { vector: one_hot(0), model: MODEL_ID } }) do
+      results = Rag::Retriever.call(user: @user, query: "Project Phoenix")
+      ids = results.map(&:id)
+      assert_includes ids, keyword_winner.id,
+        "hybrid search must surface keyword-only matches that dense search misses"
+      assert_includes ids, vector_winner.id
+    end
+  end
+
+  test "falls back to vector-only when keyword search returns nothing" do
+    doc = RagDocument.create!(user: @user, source_type: "personalization", file_format: "txt", status: "ready", original_filename: "a.txt")
+    near = RagChunk.create!(
+      rag_document: doc, user: @user, source_type: "personalization",
+      content: "some content", chunk_index: 0,
+      embedding: one_hot(0, noise: 0.01), embedding_model: MODEL_ID
+    )
+
+    EmbeddingService.stub(:embed, ->(text:) { { vector: one_hot(0), model: MODEL_ID } }) do
+      results = Rag::Retriever.call(user: @user, query: "zzzzzzzz nomatch")
+      assert_equal [ near.id ], results.map(&:id)
+    end
+  end
+
   private
 
   def one_hot(index, noise: 0.0)

@@ -108,13 +108,25 @@ module Api
     private
 
     def fetch_rag_context(conversation, query)
-      return nil unless conversation.rag_enabled
+      unless conversation.rag_enabled
+        Rails.logger.info("[RAG] skipped: rag_enabled is false on conversation #{conversation.id}")
+        return nil
+      end
       return nil if query.blank?
 
+      Rails.logger.info("[RAG] query: #{query.to_s[0, 200]}")
       chunks = Rag::Retriever.call(user: current_api_user, query: query)
+      Rails.logger.info("[RAG] retrieved #{chunks.length} chunks")
+      chunks.each_with_index do |c, i|
+        label = c.rag_document&.original_filename || c.rag_document&.title || "doc##{c.rag_document_id}"
+        preview = c.content.to_s.gsub(/\s+/, " ")[0, 140]
+        Rails.logger.info("[RAG]   #{i + 1}. #{label} chunk##{c.chunk_index}: #{preview}")
+      end
       return nil if chunks.blank?
 
-      Rag::ContextFormatter.format(chunks)
+      context = Rag::ContextFormatter.format(chunks)
+      Rails.logger.info("[RAG] injected context: #{context.to_s.length} chars")
+      context
     rescue => e
       Rails.logger.warn("RAG retrieval failed: #{e.class}: #{e.message}")
       nil

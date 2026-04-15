@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.2].define(version: 2026_04_13_223552) do
+ActiveRecord::Schema[7.2].define(version: 2026_04_14_170000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
   enable_extension "vector"
@@ -49,6 +49,8 @@ ActiveRecord::Schema[7.2].define(version: 2026_04_13_223552) do
     t.jsonb "metadata", default: {}, null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.virtual "content_tsv", type: :tsvector, as: "to_tsvector('english'::regconfig, content)", stored: true
+    t.index ["content_tsv"], name: "index_rag_chunks_on_content_tsv", using: :gin
     t.index ["rag_document_id"], name: "index_rag_chunks_on_rag_document_id"
     t.index ["user_id", "source_type", "embedding_model"], name: "index_rag_chunks_on_user_source_model"
     t.index ["user_id", "source_type"], name: "index_rag_chunks_on_user_id_and_source_type"
