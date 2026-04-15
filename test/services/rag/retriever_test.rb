@@ -55,9 +55,9 @@ class Rag::RetrieverTest < ActiveSupport::TestCase
   test "excludes chunks embedded by a different model" do
     doc = RagDocument.create!(user: @user, source_type: "personalization", file_format: "txt", status: "ready", original_filename: "a.txt")
     current = RagChunk.create!(rag_document: doc, user: @user, source_type: "personalization", content: "current model", chunk_index: 0, embedding: one_hot(0), embedding_model: MODEL_ID)
-    # A stale chunk from a previous embedder with a different dimension would
-    # otherwise blow up the cosine comparison at query time.
-    RagChunk.create!(rag_document: doc, user: @user, source_type: "personalization", content: "stale", chunk_index: 1, embedding: Array.new(512, 0.5), embedding_model: "old-embedder")
+    # Same dimension, different model tag — the retriever should still scope
+    # to only the currently active embedding_model and ignore this row.
+    RagChunk.create!(rag_document: doc, user: @user, source_type: "personalization", content: "stale", chunk_index: 1, embedding: one_hot(1), embedding_model: "old-embedder")
 
     EmbeddingService.stub(:embed, ->(text:) { { vector: one_hot(0), model: MODEL_ID } }) do
       results = Rag::Retriever.call(user: @user, query: "x")
@@ -113,10 +113,12 @@ class Rag::RetrieverTest < ActiveSupport::TestCase
 
   private
 
+  EMBEDDING_DIMS = 1024
+
   def one_hot(index, noise: 0.0)
-    v = Array.new(2048, 0.0)
-    v[index % 2048] = 1.0
-    v[(index + 1) % 2048] = noise if noise != 0.0
+    v = Array.new(EMBEDDING_DIMS, 0.0)
+    v[index % EMBEDDING_DIMS] = 1.0
+    v[(index + 1) % EMBEDDING_DIMS] = noise if noise != 0.0
     v
   end
 end

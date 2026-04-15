@@ -48,6 +48,10 @@ class EmbeddingService
     case name.to_s.downcase
     when "llama"
       EmbeddingAdapters::LlamaAdapter.new
+    when "openai"
+      EmbeddingAdapters::OpenaiAdapter.new
+    when "voyage"
+      EmbeddingAdapters::VoyageAdapter.new
     else
       raise ArgumentError, "Unknown embedding adapter: #{name}"
     end

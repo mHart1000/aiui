@@ -27,7 +27,7 @@ module Rag
     def call
       return [] if @query.to_s.strip.empty?
 
-      result = EmbeddingService.embed(text: @query)
+      result = EmbeddingService.embed(text: embed_query_text(@query))
       query_vector = result[:vector]
       active_model = result[:model]
 
@@ -42,6 +42,19 @@ module Rag
     end
 
     private
+
+    # Instruction-tuned embedders like Qwen3-Embedding and Harrier-OSS expect
+    # retrieval queries to be wrapped with a task instruction, while documents
+    # pass through raw. Controlled by EMBEDDING_QUERY_INSTRUCTION — if set, the
+    # query is wrapped as `Instruct: {value}\nQuery: {query}`. If unset (or
+    # serving an embedder that doesn't want wrapping), queries go through raw.
+    # Keyword search keeps using the unwrapped query so the instruction prefix
+    # never pollutes BM25 matching.
+    def embed_query_text(query)
+      instruction = ENV["EMBEDDING_QUERY_INSTRUCTION"].presence
+      return query unless instruction
+      "Instruct: #{instruction}\nQuery: #{query}"
+    end
 
     # Filter by embedding_model is non-optional: pgvector raises a runtime
     # error if you compare vectors of different dimensions. Chunks embedded
