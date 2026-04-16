@@ -17,6 +17,7 @@
           <input
             ref="fileInput"
             type="file"
+            multiple
             accept=".pdf,.txt,.md,.docx,.json"
             style="display: none"
             @change="onFileChosen"
@@ -136,20 +137,28 @@ export default {
       }
     },
     async onFileChosen(event) {
-      const file = event.target.files?.[0]
-      if (!file) return
+      const files = Array.from(event.target.files || [])
+      if (!files.length) return
       this.uploading = true
       this.error = null
+      const failures = []
       try {
-        const formData = new FormData()
-        formData.append('file', file)
-        await api.post('/api/rag_documents', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        })
+        for (const file of files) {
+          try {
+            const formData = new FormData()
+            formData.append('file', file)
+            await api.post('/api/rag_documents', formData, {
+              headers: { 'Content-Type': 'multipart/form-data' }
+            })
+          } catch (err) {
+            failures.push(`${file.name}: ${err.response?.data?.error || 'upload failed'}`)
+          }
+        }
         event.target.value = ''
+        if (failures.length) {
+          this.error = failures.join('; ')
+        }
         await this.fetchDocuments()
-      } catch (err) {
-        this.error = err.response?.data?.error || 'Upload failed'
       } finally {
         this.uploading = false
       }
