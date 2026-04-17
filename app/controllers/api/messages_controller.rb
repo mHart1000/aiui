@@ -9,11 +9,13 @@ module Api
       conversation.messages.create!(role: "user", content: params[:content])
 
       current_api_user.reload
+      rag_context = fetch_rag_context(conversation, params[:content])
       result = ChatService.call(
         messages: conversation.messages_for_ai,
         model: safe_model_code,
         use_persona: true,
-        use_scaffolding: current_api_user.use_scaffolding
+        use_scaffolding: current_api_user.use_scaffolding,
+        rag_context: rag_context
       )
 
       if result[:error]
@@ -60,6 +62,7 @@ module Api
       client_disconnected = false
 
       current_api_user.reload
+      rag_context = fetch_rag_context(conversation, params[:content])
       # Stream the response
       begin
         ChatService.call(
@@ -67,7 +70,8 @@ module Api
           model: safe_model_code,
           use_persona: true,
           use_scaffolding: current_api_user.use_scaffolding,
-          stream: true
+          stream: true,
+          rag_context: rag_context
         ) do |chunk, phase|
           if phase == :thinking
             thinking_accumulator += chunk
@@ -99,6 +103,33 @@ module Api
         conversation.add_assistant_message(reply: reply_accumulator, thinking: thinking_accumulator, tokens: nil)
         conversation.entitle_async(params[:content]) unless client_disconnected
       end
+    end
+
+    private
+
+    def fetch_rag_context(conversation, query)
+      unless conversation.rag_enabled
+        Rails.logger.info("[RAG] skipped: rag_enabled is false on conversation #{conversation.id}")
+        return nil
+      end
+      return nil if query.blank?
+
+      Rails.logger.info("[RAG] query: #{query.to_s[0, 200]}")
+      chunks = Rag::Retriever.call(user: current_api_user, query: query)
+      Rails.logger.info("[RAG] retrieved #{chunks.length} chunks")
+      chunks.each_with_index do |c, i|
+        label = c.rag_document&.original_filename || c.rag_document&.title || "doc##{c.rag_document_id}"
+        preview = c.content.to_s.gsub(/\s+/, " ")[0, 140]
+        Rails.logger.info("[RAG]   #{i + 1}. #{label} chunk##{c.chunk_index}: #{preview}")
+      end
+      return nil if chunks.blank?
+
+      context = Rag::ContextFormatter.format(chunks)
+      Rails.logger.info("[RAG] injected context: #{context.to_s.length} chars")
+      context
+    rescue => e
+      Rails.logger.warn("RAG retrieval failed: #{e.class}: #{e.message}")
+      nil
     end
   end
 end

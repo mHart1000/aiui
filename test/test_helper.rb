@@ -4,8 +4,11 @@ require "rails/test_help"
 require "minitest/mock"
 
 class ActiveSupport::TestCase
-  # Run tests in parallel with specified workers
-  parallelize(workers: :number_of_processors)
+  # Run tests serially. Parallelization has caused DRb marshal failures on CI
+  # when a worker raises an exception whose context can't be Marshal.dump'd
+  # (e.g. anything closing over a Binding). Past attempts to pin single files
+  # (see 1c57377) kept leaking as new tests were added — serial is cheap here.
+  parallelize(workers: 1)
 
   # Setup all fixtures in test/fixtures/*.yml for all tests in alphabetical order.
   fixtures :all

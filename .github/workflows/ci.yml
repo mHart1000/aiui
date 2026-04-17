@@ -55,7 +55,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -72,6 +72,7 @@ jobs:
       PGHOST: localhost
       PGUSER: postgres
       PGPASSWORD: postgres
+      DEVISE_JWT_SECRET_KEY: ci-test-secret-not-used-in-production
 
     steps:
       - name: Checkout code

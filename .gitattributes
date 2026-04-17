@@ -11,5 +11,6 @@ config/credentials.yml.enc diff=rails_credentials
 # Encrypt Copilot instructions and persona files
 .github/copilot-instructions.md filter=git-crypt diff=git-crypt
 .github/copilot/*.md filter=git-crypt diff=git-crypt
+docs/* filter=git-crypt diff=git-crypt
 persona/*.md filter=git-crypt diff=git-crypt
 CLAUDE.md filter=git-crypt diff=git-crypt

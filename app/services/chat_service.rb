@@ -16,17 +16,18 @@ class ChatService
     6. Response Strategy: If answerable, how should the response be structured?
   PROMPT
 
-  def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil, &block)
-    new(messages: messages, model: model, use_persona: use_persona, use_scaffolding: use_scaffolding, stream: stream, max_tokens: max_tokens).call(&block)
+  def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil, rag_context: nil, &block)
+    new(messages: messages, model: model, use_persona: use_persona, use_scaffolding: use_scaffolding, stream: stream, max_tokens: max_tokens, rag_context: rag_context).call(&block)
   end
 
-  def initialize(messages:, model:, use_persona:, use_scaffolding:, stream:, max_tokens:)
+  def initialize(messages:, model:, use_persona:, use_scaffolding:, stream:, max_tokens:, rag_context: nil)
     @messages = messages
     @model_id = model.presence || FALLBACK_MODEL
     @use_persona = use_persona
     @use_scaffolding = use_scaffolding
     @stream = stream
     @max_tokens = max_tokens || DEFAULT_MAX_TOKENS
+    @rag_context = rag_context.presence
     @adapter = select_adapter(@model_id)
   end
 
@@ -64,6 +65,7 @@ class ChatService
 
   def single_pass_call(&block)
     messages_to_send = @use_persona ? prepend_persona(@messages) : @messages
+    messages_to_send = inject_rag_context(messages_to_send)
 
     if @stream && block_given?
       response_chunks = []
@@ -114,7 +116,7 @@ class ChatService
 
     execution_messages = [
       *(persona_content ? [ { role: "system", content: persona_content } ] : []),
-      *@messages,
+      *inject_rag_context(@messages),
       { role: "assistant", content: prefill }
     ]
 
@@ -150,6 +152,20 @@ class ChatService
     return messages if messages.first&.dig(:role) == "system"
     persona_content = File.read(PERSONA_PATH)
     [ { role: "system", content: persona_content } ] + messages
+  end
+
+  # Inject retrieved RAG context by prepending it to the content of the first
+  # user message. We intentionally do NOT add a second system message: local
+  # models struggle with long multi-purpose system messages (see the execution
+  # pass comment above).
+  def inject_rag_context(messages)
+    return messages unless @rag_context
+    first_user_idx = messages.find_index { |m| m[:role] == "user" }
+    return messages unless first_user_idx
+
+    original = messages[first_user_idx]
+    updated = original.merge(content: "#{@rag_context}\n\n#{original[:content]}")
+    messages.each_with_index.map { |m, i| i == first_user_idx ? updated : m }
   end
 
   def dev_mode_response(&block)
