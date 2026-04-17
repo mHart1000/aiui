@@ -121,7 +121,7 @@
           <div v-else v-html="formatMessage(msg.content)" @click="handleMessageContentClick" />
           <q-spinner v-if="isActivelyStreaming(i) && msg.content" color="primary" size="20px" class="q-mt-sm" />
 
-          <div class="message-footer" v-if="msg.role === 'assistant' || (msg.role === 'user' && msg.id && !isActivelyStreaming(i) && editingMessageIndex !== i)">
+          <div class="message-footer" v-if="msg.role === 'assistant' || (msg.role === 'user' && !isActivelyStreaming(i) && editingMessageIndex !== i)">
             <template v-if="msg.role === 'assistant'">
               <q-btn
                 flat
@@ -148,7 +148,6 @@
                 <q-tooltip>Read aloud</q-tooltip>
               </q-btn>
             </template>
-
             <template v-else-if="msg.role === 'user'">
               <q-btn
                 flat
@@ -604,7 +603,12 @@ export default {
       if (!this.editingContent.trim() || this.isSavingEdit) return
 
       const messageIndex = this.editingMessageIndex
-      const message = this.messages[messageIndex]
+      let message = this.messages[messageIndex]
+
+      if (!message.id) {
+        await this.loadConversation()
+        message = this.messages[messageIndex]
+      }
 
       this.isSavingEdit = true
 
