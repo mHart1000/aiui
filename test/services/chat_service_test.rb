@@ -25,6 +25,11 @@ class ChatServiceTest < ActiveSupport::TestCase
     assert_instance_of AiAdapters::OpenaiAdapter, service.instance_variable_get(:@adapter)
   end
 
+  test "selects OpenrouterAdapter for openrouter/ prefixed models" do
+    service = ChatService.new(messages: MESSAGES, model: "openrouter/meta-llama/llama-3.3-70b-instruct", use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil)
+    assert_instance_of AiAdapters::OpenrouterAdapter, service.instance_variable_get(:@adapter)
+  end
+
   # dev mode
   test "returns echo response when AI_ENABLED is false" do
     with_env("AI_ENABLED" => "false") do
