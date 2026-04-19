@@ -11,6 +11,7 @@ module AiAdapters
 
       # Strip the "openrouter/" prefix if present
       model_name = @model.sub(/^openrouter\//, "")
+      Rails.logger.info("OpenRouter: requesting model '#{model_name}'")
 
       if stream
         params = {
