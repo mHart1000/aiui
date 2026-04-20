@@ -10,4 +10,6 @@ class User < ApplicationRecord
          jwt_revocation_strategy: Devise::JWT::RevocationStrategies::Null
 
   has_many :conversations, dependent: :destroy
+  has_many :rag_documents, dependent: :destroy
+  has_many :rag_chunks, dependent: :destroy
 end

@@ -58,6 +58,12 @@ Rails.application.configure do
   # Highlight code that enqueued background job in logs.
   config.active_job.verbose_enqueue_logs = true
 
+  # RAG ingestion embeds chunks serially through llama.cpp, which can take
+  # minutes. :async runs jobs in an in-process thread pool so the HTTP upload
+  # returns immediately and the document status flips to "failed" out-of-band
+  # instead of 500'ing the request.
+  config.active_job.queue_adapter = :async
+
   # Raises error for missing translations.
   # config.i18n.raise_on_missing_translations = true
 
