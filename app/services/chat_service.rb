@@ -52,7 +52,9 @@ class ChatService
   end
 
   def select_adapter(model_id)
-    if model_id.downcase.start_with?("gemini")
+    if model_id.downcase.start_with?("openrouter/")
+      AiAdapters::OpenrouterAdapter.new(model: model_id)
+    elsif model_id.downcase.start_with?("gemini")
       AiAdapters::GeminiAdapter.new(model: model_id)
     elsif model_id.downcase.start_with?("claude")
       AiAdapters::AnthropicAdapter.new(model: model_id)
