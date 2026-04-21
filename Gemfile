@@ -5,7 +5,7 @@ ruby "3.3.5"
 # Bundle edge Rails instead: gem "rails", github: "rails/rails", branch: "main"
 gem "rails", "~> 7.2.1"
 # Use postgresql as the database for Active Record
-gem "pg", "~> 1.1"
+gem "pg", "~> 1.6"
 # Use the Puma web server [https://github.com/puma/puma]
 gem "puma", ">= 5.0"
 # Build JSON APIs with ease [https://github.com/rails/jbuilder]
@@ -35,6 +35,8 @@ gem "rack-cors"
 gem "active_model_serializers", "~> 0.10.16"
 
 group :development, :test do
+  gem "minitest", "~> 5.22"
+
   # See https://guides.rubyonrails.org/debugging_rails_applications.html#debugging-with-the-debug-gem
   gem "debug", platforms: %i[ mri windows ], require: "debug/prelude"
 
@@ -48,13 +50,17 @@ group :development, :test do
   gem "pry-rails"
   gem "better_errors"
   gem "binding_of_caller"
-  gem "rspec-rails"
 end
 
-gem "httparty", "~> 0.23.2"
+gem "httparty", "~> 0.24.2"
 
 gem "ruby-openai", "~> 8.3"
 
-gem "devise", "~> 4.9"
+gem "devise", "~> 5.0"
 
-gem "devise-jwt", "~> 0.12.1"
+gem "devise-jwt", "~> 0.13.0"
+
+# RAG: pgvector bindings, document extraction
+gem "neighbor", "~> 0.5"
+gem "pdf-reader", "~> 2.12"
+gem "docx", "~> 0.8"
