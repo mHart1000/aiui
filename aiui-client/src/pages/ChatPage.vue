@@ -135,6 +135,17 @@
                 <q-tooltip>Copy response</q-tooltip>
               </q-btn>
               <q-btn
+                flat
+                dense
+                round
+                size="sm"
+                icon="autorenew"
+                class="copy-btn"
+                @click="regenerateMessage(displayMessages[i - 1]?.content, i)"
+              >
+                <q-tooltip>Regenerate response</q-tooltip>
+              </q-btn>
+              <q-btn
                 v-if="ttsPlayer.isTtsAvailable.value"
                 flat
                 dense
@@ -641,6 +652,11 @@ export default {
       }
     },
 
+    async regenerateMessage(message, messageIndex) {
+      if (!message) return
+      this.messages = this.messages.slice(0, messageIndex)
+      this.regenerateFromMessage(message)
+    },
     async regenerateFromMessage(userMessageContent) {
       // Add placeholder for incoming stream
       this.streamingMessageIndex = this.messages.length
