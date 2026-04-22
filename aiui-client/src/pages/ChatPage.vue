@@ -654,16 +654,11 @@ export default {
 
     async regenerateMessage(message, messageIndex) {
       if (!message) return
-        // Remove 
-        console.log('Regenerating message at index', messageIndex, 'with content:', message)
-        console.log('Current messages before regeneration:', this.messages)
-        this.messages = this.messages.slice(0, messageIndex)
-        console.log (message) 
+      this.messages = this.messages.slice(0, messageIndex)
       this.regenerateFromMessage(message)
     },
     async regenerateFromMessage(userMessageContent) {
       // Add placeholder for incoming stream
-      console.log('Regenerating from message:', userMessageContent)
       this.streamingMessageIndex = this.messages.length
       this.messages.push({
         role: 'assistant',
