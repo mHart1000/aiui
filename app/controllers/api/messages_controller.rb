@@ -52,8 +52,10 @@ module Api
       conversation = current_api_user.conversations.find(params[:conversation_id])
       safe_model_code = conversation.apply_model_code(params[:model_code])
 
-      # Only create user message if not regenerating
-      unless params[:regenerating]
+      if params[:regenerating]
+        last_msg = conversation.messages.order(:created_at).last
+        last_msg.destroy if last_msg&.role == "assistant"
+      else
         conversation.messages.create!(role: "user", content: params[:content])
       end
 
