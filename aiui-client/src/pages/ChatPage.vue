@@ -165,6 +165,17 @@
                 dense
                 round
                 size="sm"
+                icon="content_copy"
+                class="copy-btn"
+                @click="copyToClipboard(msg.content)"
+              >
+                <q-tooltip>Copy Message</q-tooltip>
+              </q-btn>
+              <q-btn
+                flat
+                dense
+                round
+                size="sm"
                 icon="edit"
                 class="edit-btn"
                 @click="startEdit(i, msg)"
@@ -532,8 +543,8 @@ export default {
       }, 1200)
     },
 
-    async copyToClipboard(text) {
-      await this.copyTextWithFallback(text, 'Response copied to clipboard')
+    async copyToClipboard(text, toastMessage = 'Copied to clipboard') {
+      await this.copyTextWithFallback(text, toastMessage)
     },
 
     async updateScaffoldingPreference(value) {
