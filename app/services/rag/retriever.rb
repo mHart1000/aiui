@@ -5,7 +5,8 @@ module Rag
 
     # Candidate pool size pulled from each arm of the hybrid search before
     # Reciprocal Rank Fusion. Larger than DEFAULT_LIMIT so RRF has room to
-    # surface chunks that rank highly in one modality but not the other.
+    # surface chunks that rank highly in one modality but not the other, and
+    # so the reranker (when enabled) has a meaningful pool to reorder.
     CANDIDATE_POOL = 40
 
     # RRF smoothing constant. k=60 is the commonly cited default from the
@@ -34,11 +35,17 @@ module Rag
       vector_hits = vector_search(query_vector, active_model)
       keyword_hits = keyword_search(active_model)
 
-      fused_ids = reciprocal_rank_fusion(vector_hits, keyword_hits).first(@limit)
+      # When the reranker is enabled we pull the full candidate pool so it has
+      # something to reorder. When it's off, we slice to @limit directly to
+      # avoid loading chunks we'd immediately discard.
+      pool_size = rerank_enabled? ? CANDIDATE_POOL : @limit
+      fused_ids = reciprocal_rank_fusion(vector_hits, keyword_hits).first(pool_size)
       return [] if fused_ids.empty?
 
       chunks_by_id = RagChunk.where(id: fused_ids).includes(:rag_document).index_by(&:id)
-      fused_ids.map { |id| chunks_by_id[id] }.compact
+      candidates = fused_ids.map { |id| chunks_by_id[id] }.compact
+
+      rerank_candidates(candidates).first(@limit)
     end
 
     private
@@ -107,6 +114,25 @@ module Rag
         end
       end
       scores.sort_by { |_id, score| -score }.map(&:first)
+    end
+
+    # Cross-encoder reranker pass. Gated by the RERANKER_ENABLED env var so
+    # the user can toggle it at will. When enabled, errors propagate — the
+    # higher-level rescue in Api::MessagesController#fetch_rag_context catches
+    # them and continues the chat without RAG context, so reranker outages
+    # surface cleanly instead of silently degrading to unreranked results.
+    def rerank_candidates(chunks)
+      return chunks if !rerank_enabled? || chunks.empty?
+
+      docs = chunks.map(&:content)
+      ranked_results = RerankerService.rerank(query: @query, documents: docs)
+      reordered = ranked_results.map { |r| chunks[r[:index]] }.compact
+      Rails.logger.info("[RAG] reranker reordered #{chunks.length} candidates")
+      reordered
+    end
+
+    def rerank_enabled?
+      ActiveModel::Type::Boolean.new.cast(ENV["RERANKER_ENABLED"])
     end
   end
 end
