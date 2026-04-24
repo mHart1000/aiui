@@ -111,7 +111,70 @@ class Rag::RetrieverTest < ActiveSupport::TestCase
     end
   end
 
+  test "reranker reorders candidates when RERANKER_ENABLED is truthy" do
+    doc = RagDocument.create!(user: @user, source_type: "personalization", file_format: "txt", status: "ready", original_filename: "a.txt")
+    first = RagChunk.create!(rag_document: doc, user: @user, source_type: "personalization", content: "first", chunk_index: 0, embedding: one_hot(0, noise: 0.01), embedding_model: MODEL_ID)
+    second = RagChunk.create!(rag_document: doc, user: @user, source_type: "personalization", content: "second", chunk_index: 1, embedding: one_hot(0, noise: 0.02), embedding_model: MODEL_ID)
+
+    # Reranker reverses the order: whatever came in second comes out first.
+    reranker_stub = ->(query:, documents:) {
+      documents.each_with_index.map { |_, i| { index: documents.length - 1 - i, score: i.to_f, model: "test-reranker" } }
+    }
+
+    with_env("RERANKER_ENABLED" => "true") do
+      EmbeddingService.stub(:embed, ->(text:) { { vector: one_hot(0), model: MODEL_ID } }) do
+        RerankerService.stub(:rerank, reranker_stub) do
+          results = Rag::Retriever.call(user: @user, query: "x")
+          # Pre-rerank order would have first before second (closer vector);
+          # after rerank the order is reversed.
+          assert_equal [ second.id, first.id ], results.map(&:id)
+        end
+      end
+    end
+  end
+
+  test "reranker is skipped when RERANKER_ENABLED is unset" do
+    doc = RagDocument.create!(user: @user, source_type: "personalization", file_format: "txt", status: "ready", original_filename: "a.txt")
+    chunk = RagChunk.create!(rag_document: doc, user: @user, source_type: "personalization", content: "c", chunk_index: 0, embedding: one_hot(0), embedding_model: MODEL_ID)
+
+    with_env("RERANKER_ENABLED" => nil) do
+      EmbeddingService.stub(:embed, ->(text:) { { vector: one_hot(0), model: MODEL_ID } }) do
+        RerankerService.stub(:rerank, ->(**_) { raise "should not be called" }) do
+          results = Rag::Retriever.call(user: @user, query: "x")
+          assert_equal [ chunk.id ], results.map(&:id)
+        end
+      end
+    end
+  end
+
+  test "reranker errors propagate so the upstream rescue can handle them" do
+    doc = RagDocument.create!(user: @user, source_type: "personalization", file_format: "txt", status: "ready", original_filename: "a.txt")
+    RagChunk.create!(rag_document: doc, user: @user, source_type: "personalization", content: "c", chunk_index: 0, embedding: one_hot(0), embedding_model: MODEL_ID)
+
+    with_env("RERANKER_ENABLED" => "true") do
+      EmbeddingService.stub(:embed, ->(text:) { { vector: one_hot(0), model: MODEL_ID } }) do
+        RerankerService.stub(:rerank, ->(**_) { raise "reranker is down" }) do
+          assert_raises(RuntimeError, /reranker is down/) do
+            Rag::Retriever.call(user: @user, query: "x")
+          end
+        end
+      end
+    end
+  end
+
   private
+
+  def with_env(vars)
+    original = {}
+    vars.each do |k, v|
+      original[k] = ENV[k]
+      ENV[k] = v
+    end
+    yield
+  ensure
+    original.each { |k, v| ENV[k] = v }
+  end
+
 
   EMBEDDING_DIMS = 1024
 
