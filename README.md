@@ -6,7 +6,7 @@ Full-feature, local-first AI chat app interfacing with Llama.cpp with the option
 
 - 💬 Real-time AI chat with various models
 - 🤖 Designed for local models (llama.cpp)
-- 🎤 Offline speech-to-text (Vosk)
+- 🎤 Offline speech-to-text (Whisper)
 - 🔊 Offline text-to-speech (Kokoro)
 - 🧮 Offline embedding
 - 🏗️ Optional scaffolding (user-toggle)
@@ -98,3 +98,24 @@ Start Kokoro engine:
 docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpuLLAMA_API_URL: http://localhost:8080/v1
 
 ```
+
+## STT setup (Whisper):
+
+STT runs server-side on the Rails host via `whisper.cpp` (CPU inference). Audio is captured in the browser via `MediaRecorder`, POSTed to `/api/stt/transcribe`, transcoded to 16 kHz mono WAV by `ffmpeg`, and transcribed by `whisper-cli`. Build/install whisper.cpp once, outside the repo:
+
+```bash
+sudo apt install cmake ffmpeg   # cmake for build, ffmpeg at runtime
+mkdir -p ~/whisper && cd ~/whisper
+git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git .
+cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
+bash ./models/download-ggml-model.sh small.en   # or base.en for speed
+```
+
+Then set in the app's `.env`:
+
+```
+WHISPER_CLI_PATH=/home/you/whisper/build/bin/whisper-cli
+WHISPER_MODEL_PATH=/home/you/whisper/models/ggml-small.en.bin
+```
+
+Model choice — `small.en` (~465 MB, ~3x real-time on modern desktop CPUs) gives accuracy significantly better than Vosk with latency still well under speech duration. Drop to `base.en` (~142 MB, ~11x real-time) for lower latency at some accuracy cost.

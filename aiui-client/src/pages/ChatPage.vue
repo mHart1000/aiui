@@ -190,9 +190,8 @@
     </div>
 
     <div class="input-bar q-pa-md row items-end input-centered">
-      <VoskSpeechToText
+      <SpeechToTextInput
         v-model="input"
-        :model-url="voskModelUrl"
         :show-new-chat="hasMessages"
         @error="handleSttError"
         @status="handleSttStatus"
@@ -209,7 +208,7 @@ import { api } from 'boot/axios'
 import { Marked } from 'marked'
 import hljs from 'highlight.js'
 import 'highlight.js/styles/base16/ashes.css' // highlightjs.org/examples
-import VoskSpeechToText from 'components/VoskSpeechToText.vue'
+import SpeechToTextInput from 'components/SpeechToTextInput.vue'
 import TtsControls from 'components/TtsControls.vue'
 
 const marked = new Marked({
@@ -231,12 +230,11 @@ import { useTtsPlayer } from 'src/composables/useTtsPlayer'
 import { onBeforeUnmount, onMounted} from 'vue'
 
 const DEFAULT_MODEL_ID = import.meta.env.VITE_DEFAULT_MODEL_ID || null
-const DEFAULT_VOSK_MODEL_URL = import.meta.env.VITE_VOSK_MODEL_URL || '/vosk-models/vosk-model-small-en-us-0.15.zip'
 
 export default {
   name: 'ChatPage',
   components: {
-    VoskSpeechToText,
+    SpeechToTextInput,
     TtsControls
   },
   setup() {
@@ -263,7 +261,6 @@ export default {
     conversationId: null,
     models: [],
     modelCode: null,
-    voskModelUrl: DEFAULT_VOSK_MODEL_URL,
     streamingMessageIndex: null,
     expandedThinking: {},
     useScaffolding: true,
