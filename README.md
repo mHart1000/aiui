@@ -101,21 +101,33 @@ docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpuLLAMA_API_URL: http://l
 
 ## STT setup (Whisper):
 
-STT runs server-side on the Rails host via `whisper.cpp` (CPU inference). Audio is captured in the browser via `MediaRecorder`, POSTed to `/api/stt/transcribe`, transcoded to 16 kHz mono WAV by `ffmpeg`, and transcribed by `whisper-cli`. Build/install whisper.cpp once, outside the repo:
+STT runs server-side via `whisper.cpp`'s persistent HTTP server (`whisper-server`). Audio is captured in the browser via `MediaRecorder` and chunked on pause (VAD), each chunk POSTed to `/api/stt/transcribe`, which forwards to `whisper-server`. Keeping the model resident in the daemon (~half-second per short chunk) is what makes the streaming-feel UX viable — shelling out to `whisper-cli` per chunk paid the model-load cost every time and was 3-5x slower.
+
+Build whisper.cpp once, outside the repo:
 
 ```bash
-sudo apt install cmake ffmpeg   # cmake for build, ffmpeg at runtime
+sudo apt install cmake ffmpeg   # cmake to build, ffmpeg used by whisper-server's --convert
 mkdir -p ~/whisper && cd ~/whisper
 git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git .
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-bash ./models/download-ggml-model.sh small.en   # or base.en for speed
+bash ./models/download-ggml-model.sh base.en   # or small.en for slightly better accuracy
 ```
 
-Then set in the app's `.env`:
+Start the server (keep it running alongside the Rails app):
+
+```bash
+~/whisper/build/bin/whisper-server \
+  -m ~/whisper/models/ggml-base.en.bin \
+  --host 127.0.0.1 --port 8878 \
+  --convert --no-gpu -nt
+```
+
+Then in the app's `.env`:
 
 ```
-WHISPER_CLI_PATH=/home/you/whisper/build/bin/whisper-cli
-WHISPER_MODEL_PATH=/home/you/whisper/models/ggml-small.en.bin
+WHISPER_SERVER_URL=http://127.0.0.1:8878
 ```
 
-Model choice — `small.en` (~465 MB, ~3x real-time on modern desktop CPUs) gives accuracy significantly better than Vosk with latency still well under speech duration. Drop to `base.en` (~142 MB, ~11x real-time) for lower latency at some accuracy cost.
+(Defaults to that URL if unset.)
+
+Model choice — `base.en` (~142 MB) is the recommended default: ~0.7 s per chunk on a desktop CPU (3700X-class), which keeps the chunk-on-pause streaming UX feeling responsive. Whisper has a fixed ~30 s encoder pass that dominates per-request cost regardless of clip length, so smaller models pay off here even though their decode is already fast. `small.en` (~465 MB) bumps that fixed cost to ~2.3 s per chunk; only worth it if real-world accuracy needs the upgrade. `--no-gpu` keeps Whisper off the GPU so it doesn't fight llama.cpp for VRAM.

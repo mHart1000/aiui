@@ -1,55 +1,61 @@
 # frozen_string_literal: true
 
-require "open3"
-require "securerandom"
-require "fileutils"
+require "net/http"
+require "json"
+require "uri"
 
 module SttAdapters
   class WhisperAdapter < BaseAdapter
-    WORK_DIR = Rails.root.join("tmp", "stt_work").freeze
+    DEFAULT_URL = "http://127.0.0.1:8878"
 
+    def initialize
+      @base_url = ENV.fetch("WHISPER_SERVER_URL", DEFAULT_URL)
+    end
+
+    # Transcribes an audio file via whisper-server.
+    # @param audio_path [String] Absolute path to an audio file (any format whisper-server can read)
+    # @return [String] Transcribed text
     def transcribe(audio_path:)
-      FileUtils.mkdir_p(WORK_DIR)
-      base = WORK_DIR.join(SecureRandom.uuid).to_s
-      wav_path = "#{base}.wav"
-      out_prefix = base
+      uri = URI("#{@base_url}/inference")
+      request = Net::HTTP::Post.new(uri)
 
-      transcode_to_wav(audio_path, wav_path)
-      run_whisper(wav_path, out_prefix)
-      File.read("#{out_prefix}.txt").strip
-    ensure
-      File.delete(wav_path) if wav_path && File.exist?(wav_path)
-      File.delete("#{out_prefix}.txt") if out_prefix && File.exist?("#{out_prefix}.txt")
+      File.open(audio_path, "rb") do |io|
+        request.set_form(
+          [
+            [ "file", io, { filename: File.basename(audio_path) } ],
+            [ "response_format", "json" ]
+          ],
+          "multipart/form-data"
+        )
+
+        response = Net::HTTP.start(uri.hostname, uri.port,
+                                   open_timeout: 5,
+                                   read_timeout: 120) do |http|
+          http.request(request)
+        end
+
+        unless response.is_a?(Net::HTTPSuccess)
+          raise "whisper-server request failed: #{response.code} #{response.message} (#{response.body&.slice(0, 200)})"
+        end
+
+        parsed = JSON.parse(response.body)
+        (parsed["text"] || "").strip
+      end
     end
 
+    # Checks if whisper-server is reachable.
+    # @return [Boolean] true if the server responds successfully
     def available?
-      cli = ENV["WHISPER_CLI_PATH"]
-      model = ENV["WHISPER_MODEL_PATH"]
-      return false if cli.blank? || model.blank?
-      File.executable?(cli) && File.readable?(model)
-    end
-
-    private
-
-    def transcode_to_wav(input, output)
-      _stdout, stderr, status = Open3.capture3(
-        "ffmpeg", "-hide_banner", "-loglevel", "error",
-        "-i", input,
-        "-ar", "16000", "-ac", "1", "-f", "wav",
-        "-y", output
-      )
-      raise "ffmpeg transcode failed: #{stderr}" unless status.success?
-    end
-
-    def run_whisper(wav_path, out_prefix)
-      _stdout, stderr, status = Open3.capture3(
-        ENV.fetch("WHISPER_CLI_PATH"),
-        "-m", ENV.fetch("WHISPER_MODEL_PATH"),
-        "-f", wav_path,
-        "-nt", "-np",
-        "-otxt", "-of", out_prefix
-      )
-      raise "whisper-cli failed: #{stderr}" unless status.success?
+      uri = URI("#{@base_url}/")
+      response = Net::HTTP.start(uri.hostname, uri.port,
+                                 open_timeout: 2,
+                                 read_timeout: 2) do |http|
+        http.head(uri.path.presence || "/")
+      end
+      response.is_a?(Net::HTTPSuccess) || response.is_a?(Net::HTTPRedirection)
+    rescue StandardError => e
+      Rails.logger.debug "whisper-server not available: #{e.message}"
+      false
     end
   end
 end

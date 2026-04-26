@@ -33,8 +33,8 @@
             flat
             :icon="micIcon"
             :color="isRecording ? 'negative' : 'primary'"
-            :loading="isTranscribing"
-            :disable="isLoading || isTranscribing"
+            :loading="showSpinner"
+            :disable="isLoading || showSpinner"
             @click="toggle"
           >
             <q-tooltip>{{ micTooltip }}</q-tooltip>
@@ -101,6 +101,14 @@ export default {
     silenceRmsThreshold: {
       type: Number,
       default: 0.01
+    },
+    chunkSilenceMs: {
+      type: Number,
+      default: 1000
+    },
+    minChunkSpeechMs: {
+      type: Number,
+      default: 250
     }
   },
   emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat'],
@@ -112,24 +120,32 @@ export default {
 
       mediaStream: null,
       mediaRecorder: null,
-      recordedChunks: [],
       recordedMimeType: null,
 
       audioContext: null,
       analyserNode: null,
       sourceNode: null,
-      silenceRafId: null,
+      silenceIntervalId: null,
 
-      inactivityTimer: null
+      inactivityTimer: null,
+
+      lastSpeechAt: 0,
+      speechOnsetAt: 0,
+      hasSpeechInCurrentChunk: false,
+      transcribePipeline: Promise.resolve(),
+      pendingTranscriptions: 0
     }
   },
   computed: {
     micIcon () {
       return this.isRecording ? 'stop' : 'mic'
     },
+    showSpinner () {
+      return this.isTranscribing && !this.isRecording
+    },
     micTooltip () {
-      if (this.isTranscribing) return 'Transcribing…'
       if (this.isRecording) return 'Stop recording'
+      if (this.showSpinner) return 'Transcribing…'
       if (this.isLoading) return 'Initializing…'
       return 'Start recording'
     }
@@ -190,21 +206,11 @@ export default {
           }
         })
 
-        this.recordedChunks = []
         this.recordedMimeType = mimeType
-        this.mediaRecorder = new MediaRecorder(this.mediaStream, { mimeType })
+        this.transcribePipeline = Promise.resolve()
+        this.pendingTranscriptions = 0
 
-        this.mediaRecorder.addEventListener('dataavailable', (event) => {
-          if (event.data && event.data.size > 0) {
-            this.recordedChunks.push(event.data)
-          }
-        })
-
-        this.mediaRecorder.addEventListener('stop', () => {
-          this.finalizeRecording()
-        })
-
-        this.mediaRecorder.start()
+        this.startChunk()
         this.setupSilenceDetection()
         this.startInactivityTimer()
 
@@ -219,69 +225,113 @@ export default {
       }
     },
 
+    startChunk () {
+      this.hasSpeechInCurrentChunk = false
+      this.speechOnsetAt = 0
+      this.lastSpeechAt = 0
+
+      const chunks = []
+      const recorder = new MediaRecorder(this.mediaStream, { mimeType: this.recordedMimeType })
+      recorder.addEventListener('dataavailable', (event) => {
+        if (event.data && event.data.size > 0) chunks.push(event.data)
+      })
+      recorder._aiuiChunks = chunks
+      recorder.start()
+      this.mediaRecorder = recorder
+    },
+
+    boundary () {
+      const recorder = this.mediaRecorder
+      const chunks = recorder._aiuiChunks
+      const mime = this.recordedMimeType
+      const speechMs = this.lastSpeechAt - this.speechOnsetAt
+      const hadSpeech = this.hasSpeechInCurrentChunk && speechMs >= this.minChunkSpeechMs
+
+      this.mediaRecorder = null
+
+      recorder.addEventListener('stop', () => {
+        if (hadSpeech && chunks.length) {
+          const blob = new Blob(chunks, { type: mime })
+          this.queueTranscription(blob, mime)
+        }
+      }, { once: true })
+
+      try { recorder.stop() } catch { /* ignore */ }
+
+      if (this.isRecording && this.mediaStream) {
+        this.startChunk()
+      }
+    },
+
+    queueTranscription (blob, mime) {
+      this.pendingTranscriptions += 1
+      this.isTranscribing = true
+
+      this.transcribePipeline = this.transcribePipeline
+        .then(() => this.postTranscribe(blob, mime))
+        .then((text) => {
+          if (text) this.insertAtCursor(text)
+        })
+        .catch((err) => {
+          this.$emit('error', err)
+        })
+        .finally(() => {
+          this.pendingTranscriptions = Math.max(0, this.pendingTranscriptions - 1)
+          if (this.pendingTranscriptions === 0) this.isTranscribing = false
+        })
+    },
+
+    async postTranscribe (blob, mime) {
+      const form = new FormData()
+      form.append('audio', blob, `recording${extForMimeType(mime)}`)
+
+      const response = await api.post('/api/stt/transcribe', form, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+
+      const text = ((response.data && response.data.text) || '').trim()
+      return text
+    },
+
     stopRecording () {
       if (!this.isRecording) return
       this.isRecording = false
       this.playBeep('stop')
       this.$emit('status', { state: 'stopped' })
 
-      try {
-        if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-          this.mediaRecorder.stop()
-        } else {
-          this.finalizeRecording()
-        }
-      } catch (e) {
-        this.$emit('error', e)
-        this.teardownCapture()
-      }
-
       if (this.inactivityTimer) {
         clearTimeout(this.inactivityTimer)
         this.inactivityTimer = null
       }
       this.stopSilenceDetection()
-    },
 
-    async finalizeRecording () {
-      const chunks = this.recordedChunks
+      const recorder = this.mediaRecorder
+      const chunks = recorder ? recorder._aiuiChunks : null
       const mime = this.recordedMimeType
-      this.teardownCapture()
+      const hadSpeech = this.hasSpeechInCurrentChunk &&
+        (this.lastSpeechAt - this.speechOnsetAt) >= this.minChunkSpeechMs
 
-      if (!chunks.length) {
-        this.$emit('error', new Error('No audio captured.'))
-        return
+      this.mediaRecorder = null
+
+      if (recorder) {
+        recorder.addEventListener('stop', () => {
+          if (hadSpeech && chunks && chunks.length) {
+            const blob = new Blob(chunks, { type: mime })
+            this.queueTranscription(blob, mime)
+          }
+        }, { once: true })
+        try {
+          if (recorder.state !== 'inactive') recorder.stop()
+        } catch { /* ignore */ }
       }
 
-      const blob = new Blob(chunks, { type: mime })
-      await this.transcribeAndInsert(blob, mime)
-    },
-
-    async transcribeAndInsert (blob, mime) {
-      this.isTranscribing = true
-      this.$emit('status', { state: 'transcribing' })
-
-      try {
-        const form = new FormData()
-        form.append('audio', blob, `recording${extForMimeType(mime)}`)
-
-        const response = await api.post('/api/stt/transcribe', form, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        })
-
-        const text = (response.data && response.data.text) || ''
-        if (!text) {
-          this.$emit('error', new Error('Empty transcription.'))
-          return
+      // Release the mic stream once all pending transcriptions settle
+      this.transcribePipeline.finally(() => {
+        if (this.mediaStream) {
+          try { this.mediaStream.getTracks().forEach(t => t.stop()) } catch { /* ignore */ }
+          this.mediaStream = null
         }
-
-        this.insertAtCursor(text)
-        this.$emit('status', { state: 'transcribed' })
-      } catch (e) {
-        this.$emit('error', e)
-      } finally {
-        this.isTranscribing = false
-      }
+      })
     },
 
     insertAtCursor (text) {
@@ -312,10 +362,13 @@ export default {
       }
     },
 
-    setupSilenceDetection () {
+    async setupSilenceDetection () {
       if (!this.mediaStream) return
       try {
         this.audioContext = new (window.AudioContext || window.webkitAudioContext)()
+        if (this.audioContext.state === 'suspended') {
+          await this.audioContext.resume()
+        }
         this.sourceNode = this.audioContext.createMediaStreamSource(this.mediaStream)
         this.analyserNode = this.audioContext.createAnalyser()
         this.analyserNode.fftSize = 2048
@@ -328,21 +381,38 @@ export default {
           let sumSquares = 0
           for (let i = 0; i < buffer.length; i++) sumSquares += buffer[i] * buffer[i]
           const rms = Math.sqrt(sumSquares / buffer.length)
+          const now = performance.now()
+
           if (rms > this.silenceRmsThreshold) {
+            if (!this.hasSpeechInCurrentChunk) {
+              this.hasSpeechInCurrentChunk = true
+              this.speechOnsetAt = now
+            }
+            this.lastSpeechAt = now
             this.startInactivityTimer()
+          } else if (
+            this.hasSpeechInCurrentChunk &&
+            this.lastSpeechAt &&
+            (now - this.lastSpeechAt) >= this.chunkSilenceMs &&
+            (this.lastSpeechAt - this.speechOnsetAt) >= this.minChunkSpeechMs &&
+            this.mediaRecorder && this.mediaRecorder.state === 'recording'
+          ) {
+            this.boundary()
           }
-          this.silenceRafId = requestAnimationFrame(tick)
         }
-        this.silenceRafId = requestAnimationFrame(tick)
+        // setInterval rather than rAF — rAF is throttled when there's no
+        // visible rendering activity (e.g. user sitting silent), which would
+        // defer boundary detection until they move/speak again.
+        this.silenceIntervalId = setInterval(tick, 100)
       } catch (e) {
         console.warn('Silence detection setup failed:', e)
       }
     },
 
     stopSilenceDetection () {
-      if (this.silenceRafId) {
-        cancelAnimationFrame(this.silenceRafId)
-        this.silenceRafId = null
+      if (this.silenceIntervalId) {
+        clearInterval(this.silenceIntervalId)
+        this.silenceIntervalId = null
       }
       try { if (this.sourceNode) this.sourceNode.disconnect() } catch { /* ignore */ }
       try { if (this.analyserNode) this.analyserNode.disconnect() } catch { /* ignore */ }
