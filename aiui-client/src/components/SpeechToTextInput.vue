@@ -104,7 +104,7 @@ export default {
     },
     chunkSilenceMs: {
       type: Number,
-      default: 1000
+      default: 100 // increase this if beginning or ends of words are getting cut off
     },
     minChunkSpeechMs: {
       type: Number,
