@@ -115,5 +115,7 @@ Start the server (keep it running alongside the Rails app):
 ~/whisper/build/bin/whisper-server \
   -m ~/whisper/models/ggml-base.en.bin \
   --host 127.0.0.1 --port 8878 \
-  --convert --no-gpu -nt
+  --convert --no-gpu -nt -sns
 ```
+
+`-sns` (suppress non-speech tokens) prevents Whisper from emitting trained-in annotations like `(clicking)`, `(wind blowing)`, or `[BLANK_AUDIO]` when chunks contain silence or non-speech sounds. The Vue component also strips parenthesized / bracketed / asterisked phrases as a backstop.
