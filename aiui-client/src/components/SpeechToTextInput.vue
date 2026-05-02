@@ -289,8 +289,18 @@ export default {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
 
-      const text = ((response.data && response.data.text) || '').trim()
-      return text
+      const raw = (response.data && response.data.text) || ''
+      // Strip Whisper non-speech annotations like "(clicking)", "[BLANK_AUDIO]",
+      // "*music*". -sns on whisper-server suppresses most of these; this is a
+      // backstop for edge cases. Whisper never emits parens/brackets/asterisks
+      // for actually-spoken content, so this is safe.
+      const cleaned = raw
+        .replace(/\([^)]*\)/g, '')
+        .replace(/\[[^\]]*\]/g, '')
+        .replace(/\*[^*]*\*/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+      return cleaned
     },
 
     stopRecording () {
