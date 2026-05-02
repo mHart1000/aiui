@@ -118,4 +118,4 @@ Start the server (keep it running alongside the Rails app):
   --convert --no-gpu -nt -sns
 ```
 
-`-sns` (suppress non-speech tokens) prevents Whisper from emitting trained-in annotations like `(clicking)`, `(wind blowing)`, or `[BLANK_AUDIO]` when chunks contain silence or non-speech sounds. The Vue component also strips parenthesized / bracketed / asterisked phrases as a backstop.
+`-sns` (suppress non-speech tokens) 
