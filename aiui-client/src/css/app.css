@@ -1,7 +1,7 @@
 /* Light mode */
 :root {
   --bg: #F8F9FB;
-  --bg-panel: #FFFFFF;
+  --bg-panel: #997c56;
 
   --text: #1A1A1A;
   --text-subtle: #616161;
@@ -11,17 +11,18 @@
   --accent: #3A86FF;
   --accent-muted: #E7F0FF;
 
-  --bubble-user: #E9F5FF;
+  --bubble-user: #5d83a3;
+  --text-user: #e9ffea;
   --bubble-ai: #F3F4F6;
 }
 
 /* Dark mode */
 .body--dark {
-  background:#1e1e1e !important;
+  background: #22211c !important;
   --q-dark: #171717;
 
   --bg: #0D0E11;
-  --bg-panel: #16181D;
+  --bg-panel: #1f1e1c;
 
   --text: #ECECEC;
   --text-subtle: #A0A0A0;
@@ -31,13 +32,60 @@
   --accent: #4C9CFF;
   --accent-muted: #1A2333;
 
-  --bubble-user: #1C2638;
+  --bubble-user: #4065a8;
+  --text-user: #ffffff;
   --bubble-ai: #22252B;
 }
 
 body {
     font-size: 18px;
 }
+.body--light {
+  background: #a5b4ce !important;
+}
 .user p {
     margin-bottom: 0 !important;
+}
+
+.assistant h1,
+.assistant h2,
+.assistant h3,
+.assistant h4,
+.assistant h5,
+.assistant h6 {
+    all: revert;
+}
+
+
+.assistant h1 {
+    font-size: 1.5rem;
+}
+.assistant h2 {
+    font-size: 1.25rem;
+}
+.assistant h3 {
+    font-size: 1.125rem;
+}
+.assistant h4 {
+    font-size: 1rem;
+}
+.assistant h5 {
+    font-size: 0.875rem;
+}
+.assistant h6 {
+    font-size: 0.75rem;
+}
+
+.bg-panel {
+    background-color: var(--bg-panel) !important;
+}
+
+.q-list--dark, .q-item--dark {
+    color: #dedede;
+}
+
+
+a {
+    color: var(--accent);
+    text-decoration: none;
 }

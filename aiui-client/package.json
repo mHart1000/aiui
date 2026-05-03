@@ -17,8 +17,11 @@
   "dependencies": {
     "@quasar/extras": "^1.16.4",
     "axios": "^1.13.2",
+    "highlight.js": "^11.11.1",
     "marked": "^17.0.0",
+    "marked-highlight": "^2.2.3",
     "quasar": "^2.16.0",
+    "vosk-browser": "^0.0.8",
     "vue": "^3.5.22",
     "vue-router": "^4.0.0"
   },
@@ -27,6 +30,7 @@
     "@quasar/app-vite": "^2.1.0",
     "@vue/eslint-config-prettier": "^10.1.0",
     "autoprefixer": "^10.4.2",
+    "baseline-browser-mapping": "^2.10.12",
     "eslint": "^9.14.0",
     "eslint-plugin-vue": "^10.4.0",
     "globals": "^16.4.0",
