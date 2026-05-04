@@ -92,7 +92,7 @@ GEM
     bigdecimal (4.1.1)
     binding_of_caller (1.0.1)
       debug_inspector (>= 1.2.0)
-    bootsnap (1.24.1)
+    bootsnap (1.24.2)
       msgpack (~> 1.2)
     brakeman (8.0.4)
       racc
@@ -119,7 +119,6 @@ GEM
     devise-jwt (0.13.0)
       devise (>= 4.0.0, < 6.0.0)
       warden-jwt_auth (~> 0.10)
-    diff-lcs (1.6.2)
     docx (0.10.0)
       nokogiri (~> 1.13, >= 1.13.0)
       rubyzip (>= 2.0, < 4)
