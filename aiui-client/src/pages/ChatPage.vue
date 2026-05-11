@@ -16,6 +16,12 @@
         color="primary"
       />
       <q-toggle
+        v-model="usePersona"
+        label="Persona"
+        @update:model-value="updatePersonaPreference"
+        color="primary"
+      />
+      <q-toggle
         v-model="ragEnabled"
         label="Personal Context"
         @update:model-value="updateRagEnabled"
@@ -264,6 +270,8 @@ export default {
     streamingMessageIndex: null,
     expandedThinking: {},
     useScaffolding: true,
+    usePersona: true,
+    personaId: 'persona1',
     ragEnabled: false,
     editingMessageIndex: null,
     editingContent: '',
@@ -278,6 +286,8 @@ export default {
 
     const userRes = await api.get('/api/user')
     this.useScaffolding = userRes.data.use_scaffolding
+    this.usePersona = userRes.data.use_persona
+    this.personaId = userRes.data.persona_id
 
     this.ttsPlayer.setEnabled(userRes.data.tts_enabled || false)
     this.ttsPlayer.setVoice(userRes.data.tts_voice || 'af_heart')
@@ -552,6 +562,23 @@ export default {
       } catch (err) {
         console.error('Error updating scaffolding preference:', err)
         this.useScaffolding = !value
+        this.$q.notify({
+          type: 'negative',
+          message: 'Failed to update preference',
+          position: 'top',
+          timeout: 2000
+        })
+      }
+    },
+
+    async updatePersonaPreference(value) {
+      try {
+        await api.patch('/api/user', {
+          user: { use_persona: value }
+        })
+      } catch (err) {
+        console.error('Error updating persona preference:', err)
+        this.usePersona = !value
         this.$q.notify({
           type: 'negative',
           message: 'Failed to update preference',

@@ -13,7 +13,8 @@ module Api
       result = ChatService.call(
         messages: conversation.messages_for_ai,
         model: safe_model_code,
-        use_persona: true,
+        use_persona: current_api_user.use_persona,
+        persona_id: current_api_user.persona_id,
         use_scaffolding: current_api_user.use_scaffolding,
         rag_context: rag_context
       )
@@ -22,7 +23,7 @@ module Api
         conversation.messages.create!(role: "assistant", content: "Error: #{result[:error]}")
         render json: { error: result[:error] }, status: :bad_gateway
       else
-        conversation.add_assistant_message(reply: result[:reply], thinking: result[:thinking], tokens: result[:tokens])
+        conversation.add_assistant_message(reply: result[:reply], thinking: result[:thinking], tokens: result[:tokens], persona_version: result[:persona_version])
         conversation.entitle_async(params[:content])
 
         render json: {
@@ -67,10 +68,11 @@ module Api
       rag_context = fetch_rag_context(conversation, params[:content])
       # Stream the response
       begin
-        ChatService.call(
+        stream_result = ChatService.call(
           messages: conversation.messages_for_ai,
           model: safe_model_code,
-          use_persona: true,
+          use_persona: current_api_user.use_persona,
+          persona_id: current_api_user.persona_id,
           use_scaffolding: current_api_user.use_scaffolding,
           stream: true,
           rag_context: rag_context
@@ -102,7 +104,7 @@ module Api
 
       # Save whatever was accumulated, even if the client disconnected mid-stream
       if reply_accumulator.present? || thinking_accumulator.present?
-        conversation.add_assistant_message(reply: reply_accumulator, thinking: thinking_accumulator, tokens: nil)
+        conversation.add_assistant_message(reply: reply_accumulator, thinking: thinking_accumulator, tokens: nil, persona_version: stream_result&.dig(:persona_version))
         conversation.entitle_async(params[:content]) unless client_disconnected
       end
     end
