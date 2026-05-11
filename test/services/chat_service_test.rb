@@ -148,4 +148,134 @@ class ChatServiceTest < ActiveSupport::TestCase
       assert_equal 28, result[:tokens][:total]
     end
   end
+
+  # persona
+  test "use_persona: false produces no system message" do
+    captured = nil
+    service = ChatService.new(messages: MESSAGES, model: "gpt-4o", use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil)
+    adapter = service.instance_variable_get(:@adapter)
+    adapter.stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) do
+      result = service.call
+      assert_nil captured.find { |m| m[:role] == "system" }
+      assert_nil result[:persona_version]
+    end
+  end
+
+  test "use_persona: true with claude model loads full variant of persona1" do
+    captured = nil
+    service = ChatService.new(messages: MESSAGES, model: "claude-sonnet-4-5", use_persona: true, use_scaffolding: false, stream: false, max_tokens: nil, persona_id: "persona1")
+    adapter = service.instance_variable_get(:@adapter)
+    adapter.stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) do
+      result = service.call
+      system_msg = captured.find { |m| m[:role] == "system" }
+      assert_not_nil system_msg
+      assert_includes system_msg[:content], "AIUI Persona", "persona1 content should be loaded"
+      assert_match(/\A[0-9a-f]{8}\z/, result[:persona_version])
+    end
+  end
+
+  test "use_persona: true with local llama model loads condensed variant when available" do
+    captured = nil
+    service = ChatService.new(messages: MESSAGES, model: "local-llama", use_persona: true, use_scaffolding: false, stream: false, max_tokens: nil, persona_id: "persona2")
+    adapter = service.instance_variable_get(:@adapter)
+    adapter.stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) do
+      service.call
+      system_msg = captured.find { |m| m[:role] == "system" }
+      assert_not_nil system_msg
+      assert_operator system_msg[:content].lines.count, :<, 35, "condensed variant should be ~25 lines"
+    end
+  end
+
+  test "use_persona: true with local llama model falls back to full when persona has no condensed variant" do
+    captured = nil
+    service = ChatService.new(messages: MESSAGES, model: "local-llama", use_persona: true, use_scaffolding: false, stream: false, max_tokens: nil, persona_id: "persona1")
+    adapter = service.instance_variable_get(:@adapter)
+    adapter.stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) do
+      service.call
+      system_msg = captured.find { |m| m[:role] == "system" }
+      assert_not_nil system_msg
+      assert_includes system_msg[:content], "AIUI Persona", "persona1 full content should load as fallback"
+    end
+  end
+
+  test "unknown persona_id falls back to default and logs a warning" do
+    captured = nil
+    service = ChatService.new(messages: MESSAGES, model: "gpt-4o", use_persona: true, use_scaffolding: false, stream: false, max_tokens: nil, persona_id: "does-not-exist")
+    adapter = service.instance_variable_get(:@adapter)
+    adapter.stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) do
+      log_output = capture_rails_logs { service.call }
+      assert_includes log_output, "persona_id=\"does-not-exist\" not found"
+      system_msg = captured.find { |m| m[:role] == "system" }
+      assert_not_nil system_msg, "should still load the default persona"
+    end
+  end
+
+  test "missing persona file results in nil persona_version and no system message" do
+    persona = Persona.find("persona1")
+    persona.stub(:load, nil) do
+      captured = nil
+      service = ChatService.new(messages: MESSAGES, model: "gpt-4o", use_persona: true, use_scaffolding: false, stream: false, max_tokens: nil, persona_id: "persona1")
+      adapter = service.instance_variable_get(:@adapter)
+      adapter.stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) do
+        result = service.call
+        assert_nil captured.find { |m| m[:role] == "system" }
+        assert_nil result[:persona_version]
+      end
+    end
+  end
+
+  test "two-pass prefill is just the planning output and a separator, no stylized intro" do
+    planning_response = { content: "my analysis", tokens: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 } }
+    execution_response = { content: "my reply", tokens: { prompt_tokens: 10, completion_tokens: 6, total_tokens: 16 } }
+
+    execution_captured = nil
+    service = ChatService.new(messages: MESSAGES, model: "gpt-4o", use_persona: false, use_scaffolding: true, stream: false, max_tokens: nil)
+    adapter = service.instance_variable_get(:@adapter)
+
+    call_count = 0
+    adapter.stub(:chat, ->(**kwargs) {
+      if call_count == 0
+        call_count += 1
+        planning_response
+      else
+        execution_captured = kwargs[:messages]
+        execution_response
+      end
+    }) do
+      service.call
+    end
+
+    assistant_prefill = execution_captured.find { |m| m[:role] == "assistant" }
+    assert_not_nil assistant_prefill
+    refute_includes assistant_prefill[:content], "Based on this analysis"
+    assert_includes assistant_prefill[:content], "my analysis"
+    assert_includes assistant_prefill[:content], "---"
+  end
+
+  test "persona_version is recorded in two-pass result" do
+    planning_response = { content: "my analysis", tokens: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 } }
+    execution_response = { content: "my reply", tokens: { prompt_tokens: 10, completion_tokens: 6, total_tokens: 16 } }
+
+    service = ChatService.new(messages: MESSAGES, model: "claude-sonnet-4-5", use_persona: true, use_scaffolding: true, stream: false, max_tokens: nil, persona_id: "persona1")
+    responses = [ planning_response, execution_response ]
+    adapter = service.instance_variable_get(:@adapter)
+
+    call_count = 0
+    adapter.stub(:chat, ->(**_kwargs) { responses[call_count].tap { call_count += 1 } }) do
+      result = service.call
+      assert_match(/\A[0-9a-f]{8}\z/, result[:persona_version])
+    end
+  end
+
+  private
+
+  def capture_rails_logs
+    original_logger = Rails.logger
+    io = StringIO.new
+    Rails.logger = ActiveSupport::Logger.new(io)
+    yield
+    io.string
+  ensure
+    Rails.logger = original_logger
+  end
 end
