@@ -28,8 +28,7 @@ module Api
       end
 
       FileUtils.mkdir_p(UPLOAD_DIR)
-      ext = File.extname(file.original_filename.to_s)
-      upload_path = UPLOAD_DIR.join("#{SecureRandom.uuid}#{ext}").to_s
+      upload_path = UPLOAD_DIR.join(SecureRandom.uuid).to_s
       FileUtils.cp(file.tempfile.path, upload_path)
 
       text = SpeechToTextService.call(audio_path: upload_path)
