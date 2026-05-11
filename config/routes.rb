@@ -33,5 +33,9 @@ Rails.application.routes.draw do
       get :voices
       get :status
     end
+
+    resource :stt, only: [], controller: "stt" do
+      post :transcribe
+    end
   end
 end

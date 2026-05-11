@@ -6,7 +6,7 @@ Full-feature, local-first AI chat app interfacing with Llama.cpp with the option
 
 - 💬 Real-time AI chat with various models
 - 🤖 Designed for local models (llama.cpp)
-- 🎤 Offline speech-to-text (Vosk)
+- 🎤 Offline speech-to-text (Whisper.cpp)
 - 🔊 Offline text-to-speech (Kokoro)
 - 🧮 Offline embedding
 - 🏗️ Optional scaffolding (user-toggle)
@@ -16,7 +16,6 @@ Full-feature, local-first AI chat app interfacing with Llama.cpp with the option
 - 📄 Document upload
 - 🔒 Privacy-focused (all inference happens locally by default, zero telemetry)
 - ☁️ Option to connect to cloud models with API keys
-
 
 ---
 ## Multi-pc setup:
@@ -98,3 +97,25 @@ Start Kokoro engine:
 docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpuLLAMA_API_URL: http://localhost:8080/v1
 
 ```
+
+## STT setup (Whisper):
+Build whisper.cpp once, outside the repo:
+
+```bash
+sudo apt install cmake ffmpeg   # cmake to build, ffmpeg used by whisper-server's --convert
+mkdir -p ~/whisper && cd ~/whisper
+git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git .
+cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
+bash ./models/download-ggml-model.sh base.en   # or small.en for slightly better accuracy
+```
+
+Start the server (keep it running alongside the Rails app):
+
+```bash
+~/whisper/build/bin/whisper-server \
+  -m ~/whisper/models/ggml-base.en.bin \
+  --host 127.0.0.1 --port 8878 \
+  --convert --no-gpu -nt -sns
+```
+
+`-sns` (suppress non-speech tokens) 
