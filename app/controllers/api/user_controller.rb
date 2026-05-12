@@ -28,6 +28,7 @@ module Api
         use_scaffolding: current_api_user.use_scaffolding,
         use_persona: current_api_user.use_persona,
         persona_id: current_api_user.persona_id,
+        personas: Persona.all.map { |p| { id: p.id, name: p.name, description: p.description } },
         tts_enabled: current_api_user.tts_enabled,
         tts_voice: current_api_user.tts_voice || "af_heart",
         tts_speed: current_api_user.tts_speed

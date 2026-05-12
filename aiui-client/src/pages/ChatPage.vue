@@ -15,11 +15,15 @@
         @update:model-value="updateScaffoldingPreference"
         color="primary"
       />
-      <q-toggle
-        v-model="usePersona"
+      <q-select
+        v-model="personaSelection"
+        :options="personaOptions"
         label="Persona"
-        @update:model-value="updatePersonaPreference"
-        color="primary"
+        emit-value
+        map-options
+        dense
+        style="min-width: 220px"
+        @update:model-value="updatePersonaSelection"
       />
       <q-toggle
         v-model="ragEnabled"
@@ -272,6 +276,7 @@ export default {
     useScaffolding: true,
     usePersona: true,
     personaId: 'persona1',
+    personas: [],
     ragEnabled: false,
     editingMessageIndex: null,
     editingContent: '',
@@ -288,6 +293,7 @@ export default {
     this.useScaffolding = userRes.data.use_scaffolding
     this.usePersona = userRes.data.use_persona
     this.personaId = userRes.data.persona_id
+    this.personas = userRes.data.personas || []
 
     this.ttsPlayer.setEnabled(userRes.data.tts_enabled || false)
     this.ttsPlayer.setVoice(userRes.data.tts_voice || 'af_heart')
@@ -354,6 +360,25 @@ export default {
         label: String(m.id),
         value: String(m.id)
       }))
+    },
+    personaOptions() {
+      return [
+        { label: 'Off', value: 'off' },
+        ...this.personas.map(p => ({ label: p.name, value: p.id }))
+      ]
+    },
+    personaSelection: {
+      get() {
+        return this.usePersona ? this.personaId : 'off'
+      },
+      set(value) {
+        if (value === 'off') {
+          this.usePersona = false
+        } else {
+          this.usePersona = true
+          this.personaId = value
+        }
+      }
     },
     displayMessages() {
       return this.messages.map((msg, index) => {
@@ -571,14 +596,18 @@ export default {
       }
     },
 
-    async updatePersonaPreference(value) {
+    async updatePersonaSelection(value) {
+      const prevUsePersona = value === 'off' ? true : this.usePersona
+      const prevPersonaId = this.personaId
+      const payload = value === 'off'
+        ? { use_persona: false }
+        : { use_persona: true, persona_id: value }
       try {
-        await api.patch('/api/user', {
-          user: { use_persona: value }
-        })
+        await api.patch('/api/user', { user: payload })
       } catch (err) {
         console.error('Error updating persona preference:', err)
-        this.usePersona = !value
+        this.usePersona = prevUsePersona
+        this.personaId = prevPersonaId
         this.$q.notify({
           type: 'negative',
           message: 'Failed to update preference',

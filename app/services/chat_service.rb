@@ -161,17 +161,13 @@ class ChatService
     end
     return nil unless persona
 
-    result = persona.load(persona_variant_for(@adapter))
+    result = persona.load
     if result
-      Rails.logger.info("Persona: id=#{persona.id} variant=#{result[:variant]} version=#{result[:version]}")
+      Rails.logger.info("Persona: id=#{persona.id} version=#{result[:version]}")
     else
       Rails.logger.warn("Persona: id=#{persona.id} failed to load — proceeding without persona system message")
     end
     result
-  end
-
-  def persona_variant_for(adapter)
-    adapter.is_a?(AiAdapters::LlamaAdapter) ? :condensed : :full
   end
 
   def prepend_persona(messages, persona)

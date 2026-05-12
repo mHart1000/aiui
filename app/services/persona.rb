@@ -3,16 +3,10 @@ require "digest"
 class Persona
   REGISTRY = {}
 
-  attr_reader :id, :name, :description, :full_path, :condensed_path
+  attr_reader :id, :name, :description, :path
 
-  def self.register(id:, name:, description:, full_path:, condensed_path: nil)
-    REGISTRY[id.to_s] = new(
-      id: id.to_s,
-      name: name,
-      description: description,
-      full_path: full_path,
-      condensed_path: condensed_path
-    )
+  def self.register(id:, name:, description:, path:)
+    REGISTRY[id.to_s] = new(id: id.to_s, name: name, description: description, path: path)
   end
 
   def self.find(id)
@@ -35,39 +29,24 @@ class Persona
     REGISTRY.clear
   end
 
-  def initialize(id:, name:, description:, full_path:, condensed_path:)
+  def initialize(id:, name:, description:, path:)
     @id = id
     @name = name
     @description = description
-    @full_path = full_path
-    @condensed_path = condensed_path
+    @path = path
   end
 
-  def load(variant)
-    path = path_for(variant)
-    content = read_cached(path)
+  def load
+    content = read_cached(@path)
     return nil unless content
 
     {
       content: content,
-      version: Digest::SHA1.hexdigest(content)[0, 8],
-      variant: actual_variant_for(variant)
+      version: Digest::SHA1.hexdigest(content)[0, 8]
     }
   end
 
   private
-
-  def path_for(variant)
-    if variant == :condensed && @condensed_path
-      @condensed_path
-    else
-      @full_path
-    end
-  end
-
-  def actual_variant_for(variant)
-    variant == :condensed && @condensed_path ? :condensed : :full
-  end
 
   def read_cached(path)
     return nil unless path && File.exist?(path)
