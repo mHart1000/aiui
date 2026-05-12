@@ -19,4 +19,11 @@ Rails.application.config.to_prepare do
     description: "A short variant of persona2 suitable for local models with limited context.",
     path: Rails.root.join("persona", "persona2-condensed.md")
   )
+
+  Persona.register(
+    id: "terse",
+    name: "Terse",
+    description: "Direct and short. Skips throat-clearing and padding. Use for quick lookups and well-defined questions.",
+    path: Rails.root.join("persona", "terse.md")
+  )
 end
