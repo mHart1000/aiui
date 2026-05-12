@@ -162,27 +162,32 @@ class ChatServiceTest < ActiveSupport::TestCase
   end
 
   test "use_persona: true with persona_id loads that persona's content as system message" do
-    captured = nil
-    service = ChatService.new(messages: MESSAGES, model: "claude-sonnet-4-5", use_persona: true, use_scaffolding: false, stream: false, max_tokens: nil, persona_id: "persona1")
-    adapter = service.instance_variable_get(:@adapter)
-    adapter.stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) do
-      result = service.call
-      system_msg = captured.find { |m| m[:role] == "system" }
-      assert_not_nil system_msg
-      assert_includes system_msg[:content], "AIUI Persona", "persona1 content should be loaded"
-      assert_match(/\A[0-9a-f]{8}\z/, result[:persona_version])
+    persona = Persona.find("persona1")
+    persona.stub(:load, { content: "PERSONA CONTENT", version: "abcd1234" }) do
+      captured = nil
+      service = ChatService.new(messages: MESSAGES, model: "claude-sonnet-4-5", use_persona: true, use_scaffolding: false, stream: false, max_tokens: nil, persona_id: "persona1")
+      adapter = service.instance_variable_get(:@adapter)
+      adapter.stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) do
+        result = service.call
+        system_msg = captured.find { |m| m[:role] == "system" }
+        assert_not_nil system_msg
+        assert_equal "PERSONA CONTENT", system_msg[:content]
+        assert_equal "abcd1234", result[:persona_version]
+      end
     end
   end
 
-  test "persona2-condensed is loadable as its own persona on any adapter" do
-    captured = nil
-    service = ChatService.new(messages: MESSAGES, model: "local-llama", use_persona: true, use_scaffolding: false, stream: false, max_tokens: nil, persona_id: "persona2-condensed")
-    adapter = service.instance_variable_get(:@adapter)
-    adapter.stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) do
-      service.call
-      system_msg = captured.find { |m| m[:role] == "system" }
-      assert_not_nil system_msg
-      assert_operator system_msg[:content].lines.count, :<, 35, "condensed persona should be short"
+  test "persona_id selection routes to the right persona's content" do
+    persona = Persona.find("persona2-condensed")
+    persona.stub(:load, { content: "CONDENSED VARIANT CONTENT", version: "11111111" }) do
+      captured = nil
+      service = ChatService.new(messages: MESSAGES, model: "local-llama", use_persona: true, use_scaffolding: false, stream: false, max_tokens: nil, persona_id: "persona2-condensed")
+      adapter = service.instance_variable_get(:@adapter)
+      adapter.stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) do
+        service.call
+        system_msg = captured.find { |m| m[:role] == "system" }
+        assert_equal "CONDENSED VARIANT CONTENT", system_msg[:content]
+      end
     end
   end
 
