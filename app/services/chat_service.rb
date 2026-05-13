@@ -1,6 +1,5 @@
 class ChatService
   FALLBACK_MODEL = ENV.fetch("DEFAULT_MODEL", "local-llama")
-  PERSONA_PATH = Rails.root.join("persona", "persona1.md")
   DEFAULT_MAX_TOKENS = 16000
 
   PLANNING_PROMPT = <<~PROMPT
@@ -16,11 +15,11 @@ class ChatService
     6. Response Strategy: If answerable, how should the response be structured?
   PROMPT
 
-  def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil, rag_context: nil, &block)
-    new(messages: messages, model: model, use_persona: use_persona, use_scaffolding: use_scaffolding, stream: stream, max_tokens: max_tokens, rag_context: rag_context).call(&block)
+  def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil, rag_context: nil, persona_id: nil, &block)
+    new(messages: messages, model: model, use_persona: use_persona, use_scaffolding: use_scaffolding, stream: stream, max_tokens: max_tokens, rag_context: rag_context, persona_id: persona_id).call(&block)
   end
 
-  def initialize(messages:, model:, use_persona:, use_scaffolding:, stream:, max_tokens:, rag_context: nil)
+  def initialize(messages:, model:, use_persona:, use_scaffolding:, stream:, max_tokens:, rag_context: nil, persona_id: nil)
     @messages = messages
     @model_id = model.presence || FALLBACK_MODEL
     @use_persona = use_persona
@@ -28,6 +27,7 @@ class ChatService
     @stream = stream
     @max_tokens = max_tokens || DEFAULT_MAX_TOKENS
     @rag_context = rag_context.presence
+    @persona_id = persona_id.presence
     @adapter = select_adapter(@model_id)
   end
 
@@ -66,7 +66,8 @@ class ChatService
   end
 
   def single_pass_call(&block)
-    messages_to_send = @use_persona ? prepend_persona(@messages) : @messages
+    persona = load_persona
+    messages_to_send = prepend_persona(@messages, persona)
     messages_to_send = inject_rag_context(messages_to_send)
 
     if @stream && block_given?
@@ -75,15 +76,15 @@ class ChatService
         response_chunks << content
         yield content, :response
       end
-      nil
+      { persona_version: persona&.dig(:version) }
     else
       response = @adapter.chat(messages: messages_to_send, stream: false, max_tokens: @max_tokens)
-      { reply: response[:content], tokens: response[:tokens] }
+      { reply: response[:content], tokens: response[:tokens], persona_version: persona&.dig(:version) }
     end
   end
 
   def two_pass_call(&block)
-    persona_content = @use_persona ? File.read(PERSONA_PATH) : nil
+    persona = load_persona
 
     # Pass 1: Planning
     # Only use planning prompt - persona during analysis can confuse the model
@@ -112,12 +113,12 @@ class ChatService
     # Pass 2: Execution via assistant-prefill
     # System message stays clean (just persona). Planning output goes in the
     # assistant role as a prior turn. The model continues from its own analysis
-    # into the final response. This works reliably with local models that
-    # struggle with long multi-purpose system messages.
-    prefill = "#{thinking}\n\n---\n\nBased on this analysis, here is my response:\n\n"
+    # into the final response without a stylized intro that would compete
+    # with the persona voice.
+    prefill = "#{thinking}\n\n---\n\n"
 
     execution_messages = [
-      *(persona_content ? [ { role: "system", content: persona_content } ] : []),
+      *(persona ? [ { role: "system", content: persona[:content] } ] : []),
       *inject_rag_context(@messages),
       { role: "assistant", content: prefill }
     ]
@@ -130,7 +131,7 @@ class ChatService
         reply += content
         yield content, :response
       end
-      { reply: reply, thinking: thinking }
+      { reply: reply, thinking: thinking, persona_version: persona&.dig(:version) }
     else
       response = @adapter.chat(messages: execution_messages, stream: false, max_tokens: @max_tokens)
       reply = response[:content]
@@ -145,15 +146,34 @@ class ChatService
       {
         reply: reply,
         thinking: thinking,
-        tokens: total_tokens
+        tokens: total_tokens,
+        persona_version: persona&.dig(:version)
       }
     end
   end
 
-  def prepend_persona(messages)
+  def load_persona
+    return nil unless @use_persona
+
+    persona = Persona.find(@persona_id) || Persona.default
+    if @persona_id && persona.id != @persona_id
+      Rails.logger.warn("ChatService: persona_id=#{@persona_id.inspect} not found, falling back to #{persona.id}")
+    end
+    return nil unless persona
+
+    result = persona.load
+    if result
+      Rails.logger.info("Persona: id=#{persona.id} version=#{result[:version]}")
+    else
+      Rails.logger.warn("Persona: id=#{persona.id} failed to load — proceeding without persona system message")
+    end
+    result
+  end
+
+  def prepend_persona(messages, persona)
+    return messages unless persona
     return messages if messages.first&.dig(:role) == "system"
-    persona_content = File.read(PERSONA_PATH)
-    [ { role: "system", content: persona_content } ] + messages
+    [ { role: "system", content: persona[:content] } ] + messages
   end
 
   # Inject retrieved RAG context by prepending it to the content of the first
