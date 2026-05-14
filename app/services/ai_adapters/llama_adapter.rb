@@ -16,6 +16,8 @@ module AiAdapters
         stream: stream
       }
       payload[:max_tokens] = max_tokens if max_tokens
+      # Ask llama.cpp to include a final usage chunk so we can log tokens/sec.
+      payload[:stream_options] = { include_usage: true } if stream
 
       if stream
         perform_streaming_request(uri, payload, &block)
@@ -35,7 +37,9 @@ module AiAdapters
       request["Authorization"] = "Bearer unused" # deeply mandated by some clients, often ignored by llama.cpp
       request.body = payload.to_json
 
+      started_at = monotonic_now
       response = http.request(request)
+      elapsed = monotonic_now - started_at
 
       unless response.is_a?(Net::HTTPSuccess)
         Rails.logger.error("Llama API Error: #{response.body}")
@@ -43,14 +47,20 @@ module AiAdapters
       end
 
       json = JSON.parse(response.body)
+      tokens = extract_token_usage(json)
+      log_throughput(tokens: tokens, timings: json["timings"], elapsed: elapsed)
 
       {
         content: json.dig("choices", 0, "message", "content"),
-        tokens: extract_token_usage(json)
+        tokens: tokens
       }
     end
 
     def perform_streaming_request(uri, payload)
+      final_usage = nil
+      final_timings = nil
+      started_at = monotonic_now
+
       Net::HTTP.start(uri.host, uri.port) do |http|
         request = Net::HTTP::Post.new(uri)
         request["Content-Type"] = "application/json"
@@ -70,6 +80,13 @@ module AiAdapters
                 json_str = line.sub("data: ", "")
                 begin
                   json = JSON.parse(json_str)
+                  # llama.cpp's final chunk (when stream_options.include_usage is set)
+                  # has an empty choices array and a populated usage block. Capture
+                  # it for throughput logging instead of yielding to the caller.
+                  if json["usage"]
+                    final_usage = json["usage"]
+                    final_timings = json["timings"]
+                  end
                   content = json.dig("choices", 0, "delta", "content")
                   yield content if content
                 rescue JSON::ParserError
@@ -80,15 +97,48 @@ module AiAdapters
           end
         end
       end
+
+      elapsed = monotonic_now - started_at
+      log_throughput(tokens: normalize_usage(final_usage), timings: final_timings, elapsed: elapsed)
     end
 
     def extract_token_usage(response)
-      usage = response.dig("usage") || {}
+      normalize_usage(response["usage"])
+    end
+
+    def normalize_usage(usage)
+      usage ||= {}
       {
         prompt_tokens: usage["prompt_tokens"] || 0,
         completion_tokens: usage["completion_tokens"] || 0,
         total_tokens: usage["total_tokens"] || 0
       }
+    end
+
+    def monotonic_now
+      Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    end
+
+    def log_throughput(tokens:, timings:, elapsed:)
+      completion = tokens[:completion_tokens]
+      server_tps = timings.is_a?(Hash) ? timings["predicted_per_second"] : nil
+
+      tps_value, tps_source =
+        if server_tps&.positive?
+          [ server_tps, "server" ]
+        elsif completion.positive? && elapsed.positive?
+          [ completion / elapsed, "computed" ]
+        else
+          [ nil, "unknown" ]
+        end
+
+      tps_str = tps_value ? format("%.1f", tps_value) : "unknown"
+
+      Rails.logger.info(
+        "LlamaAdapter: model=#{@model} " \
+        "prompt=#{tokens[:prompt_tokens]} completion=#{completion} total=#{tokens[:total_tokens]} " \
+        "elapsed=#{format('%.2f', elapsed)}s tok/s=#{tps_str} source=#{tps_source}"
+      )
     end
   end
 end
