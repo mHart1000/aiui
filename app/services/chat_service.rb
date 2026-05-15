@@ -72,14 +72,23 @@ class ChatService
 
     if @stream && block_given?
       response_chunks = []
-      @adapter.chat(messages: messages_to_send, stream: true, max_tokens: @max_tokens) do |content|
+      adapter_result = @adapter.chat(messages: messages_to_send, stream: true, max_tokens: @max_tokens) do |content|
         response_chunks << content
         yield content, :response
       end
-      { persona_version: persona&.dig(:version) }
+      {
+        tokens: adapter_result.is_a?(Hash) ? adapter_result[:tokens] : nil,
+        stats: adapter_result.is_a?(Hash) ? adapter_result[:stats] : nil,
+        persona_version: persona&.dig(:version)
+      }
     else
       response = @adapter.chat(messages: messages_to_send, stream: false, max_tokens: @max_tokens)
-      { reply: response[:content], tokens: response[:tokens], persona_version: persona&.dig(:version) }
+      {
+        reply: response[:content],
+        tokens: response[:tokens],
+        stats: response[:stats],
+        persona_version: persona&.dig(:version)
+      }
     end
   end
 
@@ -95,19 +104,25 @@ class ChatService
 
     thinking = ""
     planning_tokens = nil
+    planning_stats = nil
 
     Rails.logger.info("Starting planning pass...")
 
     if @stream && block_given?
-      @adapter.chat(messages: planning_messages, stream: true, max_tokens: @max_tokens) do |content|
+      planning_result = @adapter.chat(messages: planning_messages, stream: true, max_tokens: @max_tokens) do |content|
         thinking += content
         yield content, :thinking
+      end
+      if planning_result.is_a?(Hash)
+        planning_tokens = planning_result[:tokens]
+        planning_stats = planning_result[:stats]
       end
       yield nil, :phase_change
     else
       response = @adapter.chat(messages: planning_messages, stream: false, max_tokens: @max_tokens)
       thinking = response[:content]
       planning_tokens = response[:tokens]
+      planning_stats = response[:stats]
     end
 
     # Pass 2: Execution via assistant-prefill
@@ -127,29 +142,67 @@ class ChatService
 
     if @stream && block_given?
       reply = ""
-      @adapter.chat(messages: execution_messages, stream: true, max_tokens: @max_tokens) do |content|
+      execution_result = @adapter.chat(messages: execution_messages, stream: true, max_tokens: @max_tokens) do |content|
         reply += content
         yield content, :response
       end
-      { reply: reply, thinking: thinking, persona_version: persona&.dig(:version) }
-    else
-      response = @adapter.chat(messages: execution_messages, stream: false, max_tokens: @max_tokens)
-      reply = response[:content]
-      execution_tokens = response[:tokens]
+      execution_tokens = execution_result.is_a?(Hash) ? execution_result[:tokens] : nil
+      execution_stats = execution_result.is_a?(Hash) ? execution_result[:stats] : nil
 
-      total_tokens = {
-        planning: planning_tokens,
-        execution: execution_tokens,
-        total: (planning_tokens&.dig(:total_tokens) || 0) + (execution_tokens&.dig(:total_tokens) || 0)
-      }
+      total_tokens = combine_tokens(planning_tokens, execution_tokens)
+      combined_stats = combine_stats(planning_stats, execution_stats, total_tokens)
 
       {
         reply: reply,
         thinking: thinking,
         tokens: total_tokens,
+        stats: combined_stats,
+        persona_version: persona&.dig(:version)
+      }
+    else
+      response = @adapter.chat(messages: execution_messages, stream: false, max_tokens: @max_tokens)
+      reply = response[:content]
+      execution_tokens = response[:tokens]
+      execution_stats = response[:stats]
+
+      total_tokens = combine_tokens(planning_tokens, execution_tokens)
+      combined_stats = combine_stats(planning_stats, execution_stats, total_tokens)
+
+      {
+        reply: reply,
+        thinking: thinking,
+        tokens: total_tokens,
+        stats: combined_stats,
         persona_version: persona&.dig(:version)
       }
     end
+  end
+
+  def combine_tokens(planning, execution)
+    return execution if planning.nil?
+    return planning if execution.nil?
+    {
+      planning: planning,
+      execution: execution,
+      total: (planning[:total_tokens] || 0) + (execution[:total_tokens] || 0),
+      completion_tokens: (planning[:completion_tokens] || 0) + (execution[:completion_tokens] || 0),
+      prompt_tokens: (planning[:prompt_tokens] || 0) + (execution[:prompt_tokens] || 0),
+      total_tokens: (planning[:total_tokens] || 0) + (execution[:total_tokens] || 0)
+    }
+  end
+
+  # Sum elapsed time across the two passes and recompute tok/s from the
+  # combined completion-token count. Server-reported tok/s loses meaning when
+  # summed across requests, so we always mark this as "computed".
+  def combine_stats(planning, execution, combined_tokens)
+    return execution if planning.nil?
+    return planning if execution.nil?
+
+    elapsed_ms = (planning[:elapsed_ms] || 0) + (execution[:elapsed_ms] || 0)
+    completion = combined_tokens.is_a?(Hash) ? (combined_tokens[:completion_tokens] || 0) : 0
+    tps = (completion.positive? && elapsed_ms.positive?) ? (completion * 1000.0 / elapsed_ms) : nil
+
+    { elapsed_ms: elapsed_ms, tokens_per_second: tps, tps_source: "computed" }
   end
 
   def load_persona

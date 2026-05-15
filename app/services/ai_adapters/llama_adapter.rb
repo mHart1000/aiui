@@ -48,11 +48,13 @@ module AiAdapters
 
       json = JSON.parse(response.body)
       tokens = extract_token_usage(json)
-      log_throughput(tokens: tokens, timings: json["timings"], elapsed: elapsed)
+      stats = build_stats(tokens: tokens, timings: json["timings"], elapsed: elapsed)
+      log_throughput(tokens: tokens, stats: stats)
 
       {
         content: json.dig("choices", 0, "message", "content"),
-        tokens: tokens
+        tokens: tokens,
+        stats: stats
       }
     end
 
@@ -99,7 +101,11 @@ module AiAdapters
       end
 
       elapsed = monotonic_now - started_at
-      log_throughput(tokens: normalize_usage(final_usage), timings: final_timings, elapsed: elapsed)
+      tokens = normalize_usage(final_usage)
+      stats = build_stats(tokens: tokens, timings: final_timings, elapsed: elapsed)
+      log_throughput(tokens: tokens, stats: stats)
+
+      { tokens: tokens, stats: stats }
     end
 
     def extract_token_usage(response)
@@ -119,25 +125,34 @@ module AiAdapters
       Process.clock_gettime(Process::CLOCK_MONOTONIC)
     end
 
-    def log_throughput(tokens:, timings:, elapsed:)
+    def build_stats(tokens:, timings:, elapsed:)
       completion = tokens[:completion_tokens]
       server_tps = timings.is_a?(Hash) ? timings["predicted_per_second"] : nil
 
       tps_value, tps_source =
         if server_tps&.positive?
-          [ server_tps, "server" ]
+          [ server_tps.to_f, "server" ]
         elsif completion.positive? && elapsed.positive?
           [ completion / elapsed, "computed" ]
         else
           [ nil, "unknown" ]
         end
 
-      tps_str = tps_value ? format("%.1f", tps_value) : "unknown"
+      {
+        elapsed_ms: (elapsed * 1000).round,
+        tokens_per_second: tps_value,
+        tps_source: tps_source
+      }
+    end
+
+    def log_throughput(tokens:, stats:)
+      tps_str = stats[:tokens_per_second] ? format("%.1f", stats[:tokens_per_second]) : "unknown"
+      elapsed_s = stats[:elapsed_ms] / 1000.0
 
       Rails.logger.info(
         "LlamaAdapter: model=#{@model} " \
-        "prompt=#{tokens[:prompt_tokens]} completion=#{completion} total=#{tokens[:total_tokens]} " \
-        "elapsed=#{format('%.2f', elapsed)}s tok/s=#{tps_str} source=#{tps_source}"
+        "prompt=#{tokens[:prompt_tokens]} completion=#{tokens[:completion_tokens]} total=#{tokens[:total_tokens]} " \
+        "elapsed=#{format('%.2f', elapsed_s)}s tok/s=#{tps_str} source=#{stats[:tps_source]}"
       )
     end
   end

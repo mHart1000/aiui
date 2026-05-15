@@ -28,7 +28,10 @@ module Api
             id: m.id,
             role: m.role,
             content: m.content,
-            thinking: m.thinking
+            thinking: m.thinking,
+            total_tokens: m.total_tokens,
+            tokens_per_second: m.tokens_per_second,
+            generation_ms: m.generation_ms
           }
         }
       }
