@@ -11,6 +11,7 @@ import { ref } from 'vue'
 export function useStreamingChat() {
   const thinkingText = ref('')
   const responseText = ref('')
+  const stats = ref(null) // { total_tokens, tokens_per_second, generation_ms }
   const isStreaming = ref(false)
   const error = ref(null)
   const loadingPhase = ref('idle') // 'idle' | 'connecting' | 'thinking' | 'responding' | 'done'
