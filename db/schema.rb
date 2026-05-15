@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.2].define(version: 2026_05_11_000002) do
+ActiveRecord::Schema[7.2].define(version: 2026_05_14_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
   enable_extension "vector"
@@ -36,6 +36,8 @@ ActiveRecord::Schema[7.2].define(version: 2026_05_11_000002) do
     t.integer "completion_tokens"
     t.integer "total_tokens"
     t.string "persona_version"
+    t.integer "generation_ms"
+    t.float "tokens_per_second"
     t.index ["conversation_id"], name: "index_messages_on_conversation_id"
   end
 
