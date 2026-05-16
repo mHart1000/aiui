@@ -133,7 +133,7 @@ module AiAdapters
     def build_stats(tokens:, timings:, elapsed:, ttft_ms:)
       completion = tokens[:completion_tokens]
       server_tps = timings.is_a?(Hash) ? timings["predicted_per_second"] : nil
-      prompt_ms = timings.is_a?(Hash) ? timings["prompt_ms"] : nil
+      prompt_ms = timings.is_a?(Hash) ? timings["prompt_ms"]&.round : nil
 
       tps_value, tps_source =
         if server_tps&.positive?
@@ -144,12 +144,15 @@ module AiAdapters
           [ nil, "unknown" ]
         end
 
+      app_overhead_ms = (ttft_ms && prompt_ms) ? (ttft_ms - prompt_ms) : nil
+
       {
         elapsed_ms: (elapsed * 1000).round,
         tokens_per_second: tps_value,
         tps_source: tps_source,
         ttft_ms: ttft_ms,
-        prompt_ms: prompt_ms&.round
+        prompt_ms: prompt_ms,
+        app_overhead_ms: app_overhead_ms
       }
     end
 
@@ -158,11 +161,12 @@ module AiAdapters
       elapsed_str = format("%.2fs", stats[:elapsed_ms] / 1000.0)
       ttft_str = stats[:ttft_ms] ? "#{stats[:ttft_ms]}ms" : "n/a"
       prefill_str = stats[:prompt_ms] ? "#{stats[:prompt_ms]}ms" : "n/a"
+      overhead_str = stats[:app_overhead_ms] ? "#{stats[:app_overhead_ms]}ms" : "n/a"
 
       Rails.logger.info(
         "LlamaAdapter [model=#{@model}]\n" \
         "  Tokens     — prompt: #{tokens[:prompt_tokens]}, completion: #{tokens[:completion_tokens]}, total: #{tokens[:total_tokens]}\n" \
-        "  Latency    — end-to-end: #{elapsed_str}, time-to-first-token: #{ttft_str}, server prefill: #{prefill_str}\n" \
+        "  Latency    — end-to-end: #{elapsed_str}, time-to-first-token: #{ttft_str}, server prefill: #{prefill_str}, app overhead: #{overhead_str}\n" \
         "  Throughput — #{tps_str}"
       )
     end
