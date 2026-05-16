@@ -48,7 +48,7 @@ module AiAdapters
 
       json = JSON.parse(response.body)
       tokens = extract_token_usage(json)
-      stats = build_stats(tokens: tokens, timings: json["timings"], elapsed: elapsed)
+      stats = build_stats(tokens: tokens, timings: json["timings"], elapsed: elapsed, ttft_ms: nil)
       log_throughput(tokens: tokens, stats: stats)
 
       {
@@ -61,6 +61,7 @@ module AiAdapters
     def perform_streaming_request(uri, payload)
       final_usage = nil
       final_timings = nil
+      first_chunk_at = nil
       started_at = monotonic_now
 
       Net::HTTP.start(uri.host, uri.port) do |http|
@@ -90,7 +91,10 @@ module AiAdapters
                     final_timings = json["timings"]
                   end
                   content = json.dig("choices", 0, "delta", "content")
-                  yield content if content
+                  if content
+                    first_chunk_at ||= monotonic_now
+                    yield content
+                  end
                 rescue JSON::ParserError
                   # Partial line or invalid JSON, ignore
                 end
@@ -101,8 +105,9 @@ module AiAdapters
       end
 
       elapsed = monotonic_now - started_at
+      ttft_ms = first_chunk_at ? ((first_chunk_at - started_at) * 1000).round : nil
       tokens = normalize_usage(final_usage)
-      stats = build_stats(tokens: tokens, timings: final_timings, elapsed: elapsed)
+      stats = build_stats(tokens: tokens, timings: final_timings, elapsed: elapsed, ttft_ms: ttft_ms)
       log_throughput(tokens: tokens, stats: stats)
 
       { tokens: tokens, stats: stats }
@@ -125,9 +130,10 @@ module AiAdapters
       Process.clock_gettime(Process::CLOCK_MONOTONIC)
     end
 
-    def build_stats(tokens:, timings:, elapsed:)
+    def build_stats(tokens:, timings:, elapsed:, ttft_ms:)
       completion = tokens[:completion_tokens]
       server_tps = timings.is_a?(Hash) ? timings["predicted_per_second"] : nil
+      prompt_ms = timings.is_a?(Hash) ? timings["prompt_ms"] : nil
 
       tps_value, tps_source =
         if server_tps&.positive?
@@ -141,18 +147,23 @@ module AiAdapters
       {
         elapsed_ms: (elapsed * 1000).round,
         tokens_per_second: tps_value,
-        tps_source: tps_source
+        tps_source: tps_source,
+        ttft_ms: ttft_ms,
+        prompt_ms: prompt_ms&.round
       }
     end
 
     def log_throughput(tokens:, stats:)
-      tps_str = stats[:tokens_per_second] ? format("%.1f", stats[:tokens_per_second]) : "unknown"
-      elapsed_s = stats[:elapsed_ms] / 1000.0
+      tps_str = stats[:tokens_per_second] ? "#{format('%.1f', stats[:tokens_per_second])} tok/s (source: #{stats[:tps_source]})" : "unknown"
+      elapsed_str = format("%.2fs", stats[:elapsed_ms] / 1000.0)
+      ttft_str = stats[:ttft_ms] ? "#{stats[:ttft_ms]}ms" : "n/a"
+      prefill_str = stats[:prompt_ms] ? "#{stats[:prompt_ms]}ms" : "n/a"
 
       Rails.logger.info(
-        "LlamaAdapter: model=#{@model} " \
-        "prompt=#{tokens[:prompt_tokens]} completion=#{tokens[:completion_tokens]} total=#{tokens[:total_tokens]} " \
-        "elapsed=#{format('%.2f', elapsed_s)}s tok/s=#{tps_str} source=#{stats[:tps_source]}"
+        "LlamaAdapter [model=#{@model}]\n" \
+        "  Tokens     — prompt: #{tokens[:prompt_tokens]}, completion: #{tokens[:completion_tokens]}, total: #{tokens[:total_tokens]}\n" \
+        "  Latency    — end-to-end: #{elapsed_str}, time-to-first-token: #{ttft_str}, server prefill: #{prefill_str}\n" \
+        "  Throughput — #{tps_str}"
       )
     end
   end
