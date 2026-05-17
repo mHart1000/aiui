@@ -4,6 +4,11 @@ require "uri"
 
 module AiAdapters
   class LlamaAdapter < BaseAdapter
+    def initialize(model:, log_stats: true)
+      super(model: model)
+      @log_stats = log_stats
+    end
+
     def chat(messages:, stream: false, max_tokens: nil, &block)
       base_url = ENV["LLAMA_API_URL"] || "http://host.docker.internal:8080/v1"
       uri = URI("#{base_url}/chat/completions")
@@ -157,6 +162,8 @@ module AiAdapters
     end
 
     def log_throughput(tokens:, stats:)
+      return unless @log_stats
+
       tps_str = stats[:tokens_per_second] ? "#{format('%.1f', stats[:tokens_per_second])} tok/s (source: #{stats[:tps_source]})" : "unknown"
       elapsed_str = format("%.2fs", stats[:elapsed_ms] / 1000.0)
       ttft_str = stats[:ttft_ms] ? "#{stats[:ttft_ms]}ms" : "n/a"

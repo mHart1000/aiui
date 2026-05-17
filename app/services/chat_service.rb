@@ -15,11 +15,11 @@ class ChatService
     6. Response Strategy: If answerable, how should the response be structured?
   PROMPT
 
-  def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil, rag_context: nil, persona_id: nil, &block)
-    new(messages: messages, model: model, use_persona: use_persona, use_scaffolding: use_scaffolding, stream: stream, max_tokens: max_tokens, rag_context: rag_context, persona_id: persona_id).call(&block)
+  def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil, rag_context: nil, persona_id: nil, log_stats: true, &block)
+    new(messages: messages, model: model, use_persona: use_persona, use_scaffolding: use_scaffolding, stream: stream, max_tokens: max_tokens, rag_context: rag_context, persona_id: persona_id, log_stats: log_stats).call(&block)
   end
 
-  def initialize(messages:, model:, use_persona:, use_scaffolding:, stream:, max_tokens:, rag_context: nil, persona_id: nil)
+  def initialize(messages:, model:, use_persona:, use_scaffolding:, stream:, max_tokens:, rag_context: nil, persona_id: nil, log_stats: true)
     @messages = messages
     @model_id = model.presence || FALLBACK_MODEL
     @use_persona = use_persona
@@ -28,6 +28,7 @@ class ChatService
     @max_tokens = max_tokens || DEFAULT_MAX_TOKENS
     @rag_context = rag_context.presence
     @persona_id = persona_id.presence
+    @log_stats = log_stats
     @adapter = select_adapter(@model_id)
   end
 
@@ -59,7 +60,7 @@ class ChatService
     elsif model_id.downcase.start_with?("claude")
       AiAdapters::AnthropicAdapter.new(model: model_id)
     elsif model_id.downcase.include?("llama") || model_id.downcase.include?("local") || model_id.downcase.end_with?(".gguf")
-      AiAdapters::LlamaAdapter.new(model: model_id)
+      AiAdapters::LlamaAdapter.new(model: model_id, log_stats: @log_stats)
     else
       AiAdapters::OpenaiAdapter.new(model: model_id)
     end

@@ -60,7 +60,8 @@ class Conversation < ApplicationRecord
         model: model_code,
         use_persona: false,
         use_scaffolding: false,
-        max_tokens: 20
+        max_tokens: 20,
+        log_stats: false
       )
 
       chosen_title = result[:reply].presence || content[0..40]
