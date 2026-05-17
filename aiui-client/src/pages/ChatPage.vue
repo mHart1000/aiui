@@ -9,12 +9,6 @@
         map-options
         style="max-width: 380px"
       />
-      <q-toggle
-        v-model="useScaffolding"
-        label="Scaffolding"
-        @update:model-value="updateScaffoldingPreference"
-        color="primary"
-      />
       <q-select
         v-model="personaSelection"
         :options="personaOptions"
@@ -24,6 +18,12 @@
         dense
         style="min-width: 220px"
         @update:model-value="updatePersonaSelection"
+      />
+      <q-toggle
+        v-model="useScaffolding"
+        label="Scaffolding"
+        @update:model-value="updateScaffoldingPreference"
+        color="primary"
       />
       <q-toggle
         v-model="ragEnabled"
