@@ -7,6 +7,7 @@
         label="Model"
         emit-value
         map-options
+        dense
         style="max-width: 380px"
       />
       <q-select
