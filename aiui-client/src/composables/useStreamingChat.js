@@ -11,6 +11,7 @@ import { ref } from 'vue'
 export function useStreamingChat() {
   const thinkingText = ref('')
   const responseText = ref('')
+  const stats = ref(null) // { total_tokens, tokens_per_second, generation_ms }
   const isStreaming = ref(false)
   const error = ref(null)
   const loadingPhase = ref('idle') // 'idle' | 'connecting' | 'thinking' | 'responding' | 'done'
@@ -42,6 +43,7 @@ export function useStreamingChat() {
     // Reset state
     thinkingText.value = ''
     responseText.value = ''
+    stats.value = null
     error.value = null
     isStreaming.value = true
     loadingPhase.value = 'connecting'
@@ -136,6 +138,14 @@ export function useStreamingChat() {
                   responseText.value += data.content
                   break
 
+                case 'stats':
+                  stats.value = {
+                    total_tokens: data.total_tokens,
+                    tokens_per_second: data.tokens_per_second,
+                    generation_ms: data.generation_ms
+                  }
+                  break
+
                 case 'done':
                   isStreaming.value = false
                   loadingPhase.value = 'done'
@@ -197,6 +207,7 @@ export function useStreamingChat() {
     // Reactive state
     thinkingText,
     responseText,
+    stats,
     isStreaming,
     error,
     loadingPhase,

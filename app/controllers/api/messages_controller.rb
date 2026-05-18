@@ -23,13 +23,21 @@ module Api
         conversation.messages.create!(role: "assistant", content: "Error: #{result[:error]}")
         render json: { error: result[:error] }, status: :bad_gateway
       else
-        conversation.add_assistant_message(reply: result[:reply], thinking: result[:thinking], tokens: result[:tokens], persona_version: result[:persona_version])
+        conversation.add_assistant_message(
+          reply: result[:reply],
+          thinking: result[:thinking],
+          tokens: result[:tokens],
+          stats: result[:stats],
+          persona_version: result[:persona_version]
+        )
         conversation.entitle_async(params[:content])
 
         render json: {
           reply: result[:reply],
           thinking: result[:thinking],
-          tokens: result[:tokens]
+          tokens: result[:tokens],
+          generation_ms: result[:stats]&.dig(:elapsed_ms),
+          tokens_per_second: result[:stats]&.dig(:tokens_per_second)
         }
       end
     end
@@ -92,6 +100,17 @@ module Api
           response.stream.write("data: #{event_data.to_json}\n\n")
         end
 
+        # Send stats event before done so the client can attach throughput to the message
+        if stream_result&.dig(:stats)
+          stats_event = {
+            type: "stats",
+            generation_ms: stream_result[:stats][:elapsed_ms],
+            tokens_per_second: stream_result[:stats][:tokens_per_second],
+            total_tokens: stream_result.dig(:tokens, :total_tokens) || stream_result.dig(:tokens, :total)
+          }
+          response.stream.write("data: #{stats_event.to_json}\n\n")
+        end
+
         # Send completion event
         response.stream.write("data: #{({ type: 'done' }).to_json}\n\n")
       rescue ActionController::Live::ClientDisconnected
@@ -104,7 +123,13 @@ module Api
 
       # Save whatever was accumulated, even if the client disconnected mid-stream
       if reply_accumulator.present? || thinking_accumulator.present?
-        conversation.add_assistant_message(reply: reply_accumulator, thinking: thinking_accumulator, tokens: nil, persona_version: stream_result&.dig(:persona_version))
+        conversation.add_assistant_message(
+          reply: reply_accumulator,
+          thinking: thinking_accumulator,
+          tokens: stream_result&.dig(:tokens),
+          stats: stream_result&.dig(:stats),
+          persona_version: stream_result&.dig(:persona_version)
+        )
         conversation.entitle_async(params[:content]) unless client_disconnected
       end
     end

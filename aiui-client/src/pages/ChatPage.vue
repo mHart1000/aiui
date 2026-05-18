@@ -7,13 +7,8 @@
         label="Model"
         emit-value
         map-options
+        dense
         style="max-width: 380px"
-      />
-      <q-toggle
-        v-model="useScaffolding"
-        label="Scaffolding"
-        @update:model-value="updateScaffoldingPreference"
-        color="primary"
       />
       <q-select
         v-model="personaSelection"
@@ -24,6 +19,12 @@
         dense
         style="min-width: 220px"
         @update:model-value="updatePersonaSelection"
+      />
+      <q-toggle
+        v-model="useScaffolding"
+        label="Scaffolding"
+        @update:model-value="updateScaffoldingPreference"
+        color="primary"
       />
       <q-toggle
         v-model="ragEnabled"
@@ -168,6 +169,9 @@
               >
                 <q-tooltip>Read aloud</q-tooltip>
               </q-btn>
+              <span v-if="msg.tokens_per_second" class="message-stats">
+                {{ formatStats(msg) }}
+              </span>
             </template>
             <template v-else-if="msg.role === 'user'">
               <q-btn
@@ -510,6 +514,12 @@ export default {
       const streamedMessage = this.messages[this.streamingMessageIndex]
       streamedMessage.thinking = this.streamingChat.thinkingText.value
       streamedMessage.content = this.streamingChat.responseText.value
+      const finalStats = this.streamingChat.stats.value
+      if (finalStats) {
+        streamedMessage.total_tokens = finalStats.total_tokens
+        streamedMessage.tokens_per_second = finalStats.tokens_per_second
+        streamedMessage.generation_ms = finalStats.generation_ms
+      }
 
       if (this.streamingChat.error.value) {
         // Remove the failed placeholder message
@@ -577,6 +587,12 @@ export default {
 
     async copyToClipboard(text, toastMessage = 'Copied to clipboard') {
       await this.copyTextWithFallback(text, toastMessage)
+    },
+
+    formatStats(msg) {
+      const total = msg.total_tokens != null ? msg.total_tokens.toLocaleString() : '?'
+      const tps = msg.tokens_per_second != null ? msg.tokens_per_second.toFixed(1) : '?'
+      return `${total} tokens · ${tps} tok/s`
     },
 
     async updateScaffoldingPreference(value) {
@@ -770,9 +786,16 @@ export default {
 }
 .message-footer {
   display: flex;
+  align-items: center;
   justify-content: flex-start;
   margin-top: 8px;
   padding-top: 4px;
+}
+.message-stats {
+  margin-left: 8px;
+  font-size: 0.75rem;
+  opacity: 0.55;
+  white-space: nowrap;
 }
 .copy-btn {
   opacity: 0.6;

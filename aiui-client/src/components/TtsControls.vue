@@ -1,5 +1,5 @@
 <template>
-  <div class="tts-controls row items-center q-gutter-sm">
+  <div class="tts-controls row items-center q-gutter-x-sm">
     <!-- TTS Enable Toggle -->
     <q-toggle
       :model-value="isEnabled"
@@ -133,8 +133,6 @@ export default {
 
 <style scoped>
 .tts-controls {
-  padding: 8px;
-  background: rgba(0, 0, 0, 0.02);
-  border-radius: 4px;
+  padding: 0;
 }
 </style>

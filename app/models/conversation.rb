@@ -20,7 +20,7 @@ class Conversation < ApplicationRecord
     resolved
   end
 
-  def add_assistant_message(reply:, thinking:, tokens:, persona_version: nil)
+  def add_assistant_message(reply:, thinking:, tokens:, stats: nil, persona_version: nil)
     if tokens&.dig(:planning) && tokens&.dig(:execution)
       total_prompt = tokens[:planning][:prompt_tokens] + tokens[:execution][:prompt_tokens]
       total_completion = tokens[:planning][:completion_tokens] + tokens[:execution][:completion_tokens]
@@ -38,6 +38,8 @@ class Conversation < ApplicationRecord
       prompt_tokens: total_prompt,
       completion_tokens: total_completion,
       total_tokens: total_all,
+      generation_ms: stats&.dig(:elapsed_ms),
+      tokens_per_second: stats&.dig(:tokens_per_second),
       persona_version: persona_version
     )
   end
@@ -58,7 +60,8 @@ class Conversation < ApplicationRecord
         model: model_code,
         use_persona: false,
         use_scaffolding: false,
-        max_tokens: 20
+        max_tokens: 20,
+        log_stats: false
       )
 
       chosen_title = result[:reply].presence || content[0..40]
