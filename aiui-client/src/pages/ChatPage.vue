@@ -60,13 +60,6 @@
       />
     </div>
 
-    <div v-if="isLlamaModel" class="context-usage q-mx-md q-mb-sm">
-      <q-linear-progress :value="contextUsageRatio" size="6px" color="primary" track-color="grey-3" rounded />
-      <div class="text-caption text-grey-7 q-mt-xs">
-        {{ lastContextTokens.toLocaleString() }} / {{ llamaContextWindow.toLocaleString() }} tokens ({{ Math.round(contextUsageRatio * 100) }}%)
-      </div>
-    </div>
-
     <q-banner v-if="streamingChat.error.value" class="bg-negative text-white q-mx-md">
       <template v-slot:avatar>
         <q-icon name="error" color="white" />
@@ -231,6 +224,13 @@
         @new-chat="newChat"
         class="col message-input"
       />
+    </div>
+
+    <div v-if="isLlamaModel" class="context-usage q-mb-md">
+      <q-linear-progress :value="contextUsageRatio" size="6px" color="primary" track-color="grey-3" rounded />
+      <div class="text-caption text-grey-7 q-mt-xs">
+        {{ lastContextTokens.toLocaleString() }} / {{ llamaContextWindow.toLocaleString() }} tokens ({{ Math.round(contextUsageRatio * 100) }}%)
+      </div>
     </div>
   </q-page>
 </template>
@@ -916,6 +916,12 @@ p {
 }
 .message-input {
   max-width: 900px;
+}
+.context-usage {
+  max-width: 900px;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 0 16px;
 }
 .message-input :deep(.q-field__control) {
   border-radius: 15px;
