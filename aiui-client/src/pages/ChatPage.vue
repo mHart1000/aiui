@@ -63,15 +63,20 @@
         label="Voice mode"
         color="primary"
       />
-      <q-input
-        v-if="voiceChatMode"
-        v-model.number="endOfUtteranceMs"
-        type="number"
-        label="Pause (ms)"
-        dense
-        :min="500"
-        style="max-width: 110px"
-      />
+      <div v-if="voiceChatMode" class="row items-center q-gutter-sm" style="min-width: 220px">
+        <span class="text-caption text-grey-7">Pause</span>
+        <q-slider
+          v-model="endOfUtteranceMs"
+          :min="1000"
+          :max="10000"
+          :step="500"
+          label
+          label-always
+          :label-value="(endOfUtteranceMs / 1000).toFixed(1) + 's'"
+          color="primary"
+          style="width: 160px"
+        />
+      </div>
     </div>
 
     <q-banner v-if="streamingChat.error.value" class="bg-negative text-white q-mx-md">
