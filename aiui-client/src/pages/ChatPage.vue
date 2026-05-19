@@ -227,9 +227,19 @@
     </div>
 
     <div v-if="isLlamaModel" class="context-usage q-mb-md">
-      <q-linear-progress :value="contextUsageRatio" size="6px" color="primary" track-color="grey-3" rounded />
-      <div class="text-caption text-grey-7 q-mt-xs">
-        {{ lastContextTokens.toLocaleString() }} / {{ llamaContextWindow.toLocaleString() }} tokens ({{ Math.round(contextUsageRatio * 100) }}%)
+      <q-circular-progress
+        :value="contextUsageRatio * 100"
+        size="32px"
+        :thickness="0.2"
+        color="#ffffd0"
+        track-color="grey-3"
+        show-value
+        class="text-caption"
+      >
+        {{ Math.round(contextUsageRatio * 100) }}%
+      </q-circular-progress>
+      <div class="text-caption text-grey-7">
+        {{ lastContextTokens.toLocaleString() }} / {{ llamaContextWindow.toLocaleString() }} tokens
       </div>
     </div>
   </q-page>
@@ -918,9 +928,10 @@ p {
   max-width: 900px;
 }
 .context-usage {
-  max-width: 900px;
-  margin-left: auto;
-  margin-right: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   padding: 0 16px;
 }
 .message-input :deep(.q-field__control) {
