@@ -10,6 +10,17 @@
         dense
         style="max-width: 380px"
       />
+      <q-input
+        v-if="isLlamaModel"
+        v-model.number="llamaContextWindow"
+        type="number"
+        label="Context window"
+        dense
+        debounce="500"
+        :min="1"
+        style="max-width: 140px"
+        @update:model-value="updateContextWindow"
+      />
       <q-select
         v-model="personaSelection"
         :options="personaOptions"
@@ -214,6 +225,23 @@
         class="col message-input"
       />
     </div>
+
+    <div v-if="isLlamaModel" class="context-usage q-mb-md">
+      <q-circular-progress
+        :value="contextUsageRatio * 100"
+        size="32px"
+        :thickness="0.2"
+        color="#ffffd0"
+        track-color="grey-3"
+        show-value
+        class="text-caption"
+      >
+        {{ Math.round(contextUsageRatio * 100) }}%
+      </q-circular-progress>
+      <div class="text-caption text-grey-7">
+        {{ lastContextTokens.toLocaleString() }} / {{ llamaContextWindow.toLocaleString() }} tokens
+      </div>
+    </div>
   </q-page>
 </template>
 
@@ -282,6 +310,7 @@ export default {
     personaId: 'persona1',
     personas: [],
     ragEnabled: false,
+    llamaContextWindow: 8192,
     editingMessageIndex: null,
     editingContent: '',
     isSavingEdit: false
@@ -298,6 +327,7 @@ export default {
     this.usePersona = userRes.data.use_persona
     this.personaId = userRes.data.persona_id
     this.personas = userRes.data.personas || []
+    this.llamaContextWindow = userRes.data.llama_context_window || 8192
 
     this.ttsPlayer.setEnabled(userRes.data.tts_enabled || false)
     this.ttsPlayer.setVoice(userRes.data.tts_voice || 'af_heart')
@@ -395,6 +425,23 @@ export default {
         }
         return msg
       })
+    },
+    isLlamaModel() {
+      const code = (this.modelCode || '').toLowerCase()
+      return code.includes('llama') || code.includes('local') || code.endsWith('.gguf')
+    },
+    lastContextTokens() {
+      for (let i = this.messages.length - 1; i >= 0; i--) {
+        const msg = this.messages[i]
+        if (msg.role === 'assistant' && msg.total_tokens) {
+          return msg.total_tokens
+        }
+      }
+      return 0
+    },
+    contextUsageRatio() {
+      if (!this.llamaContextWindow) return 0
+      return Math.min(1, Math.max(0, this.lastContextTokens / this.llamaContextWindow))
     }
   },
   methods: {
@@ -606,6 +653,25 @@ export default {
         this.$q.notify({
           type: 'negative',
           message: 'Failed to update preference',
+          position: 'top',
+          timeout: 2000
+        })
+      }
+    },
+
+    async updateContextWindow(value) {
+      const intValue = Number.parseInt(value, 10)
+      if (!Number.isFinite(intValue) || intValue <= 0) return
+      try {
+        await api.patch('/api/user', {
+          user: { llama_context_window: intValue }
+        })
+        this.llamaContextWindow = intValue
+      } catch (err) {
+        console.error('Error updating context window:', err)
+        this.$q.notify({
+          type: 'negative',
+          message: 'Failed to update context window',
           position: 'top',
           timeout: 2000
         })
@@ -860,6 +926,13 @@ p {
 }
 .message-input {
   max-width: 900px;
+}
+.context-usage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 16px;
 }
 .message-input :deep(.q-field__control) {
   border-radius: 15px;

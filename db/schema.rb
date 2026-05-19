@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.2].define(version: 2026_05_14_000001) do
+ActiveRecord::Schema[7.2].define(version: 2026_05_17_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
   enable_extension "vector"
@@ -91,6 +91,7 @@ ActiveRecord::Schema[7.2].define(version: 2026_05_14_000001) do
     t.float "tts_speed", default: 1.0
     t.boolean "use_persona", default: true, null: false
     t.string "persona_id", default: "persona1", null: false
+    t.integer "llama_context_window", default: 8192
     t.index ["email"], name: "index_users_on_email", unique: true
     t.index ["reset_password_token"], name: "index_users_on_reset_password_token", unique: true
   end
