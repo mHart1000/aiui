@@ -77,6 +77,20 @@
           style="width: 160px"
         />
       </div>
+      <div v-if="voiceChatMode" class="row items-center q-gutter-sm" style="min-width: 220px">
+        <span class="text-caption text-grey-7">Timeout</span>
+        <q-slider
+          v-model="inactivityTimeoutSec"
+          :min="5"
+          :max="65"
+          :step="5"
+          label
+          label-always
+          :label-value="inactivityTimeoutSec > 60 ? 'Off' : inactivityTimeoutSec + 's'"
+          color="primary"
+          style="width: 160px"
+        />
+      </div>
     </div>
 
     <q-banner v-if="streamingChat.error.value" class="bg-negative text-white q-mx-md">
@@ -250,6 +264,7 @@
         v-model="input"
         :show-new-chat="hasMessages"
         :end-of-utterance-ms="endOfUtteranceMs"
+        :inactivity-timeout-ms="inactivityTimeoutMs"
         @error="handleSttError"
         @status="handleSttStatus"
         @send-message="sendMessage"
@@ -349,7 +364,8 @@ export default {
     editingContent: '',
     isSavingEdit: false,
     voiceChatMode: false,
-    endOfUtteranceMs: 2500
+    endOfUtteranceMs: 2500,
+    inactivityTimeoutSec: 15
   }),
   async mounted() {
     const modelsRes = await api.get('/api/models')
@@ -506,6 +522,10 @@ export default {
     },
     voiceShouldListen() {
       return this.voiceChatMode && !this.assistantBusy && this.editingMessageIndex === null
+    },
+    inactivityTimeoutMs() {
+      // The slider's top position (> 60 s) means "off" — pass 0 to disable.
+      return this.inactivityTimeoutSec > 60 ? 0 : this.inactivityTimeoutSec * 1000
     }
   },
   methods: {

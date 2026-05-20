@@ -110,6 +110,10 @@ export default {
     minChunkSpeechMs: {
       type: Number,
       default: 250
+    },
+    inactivityTimeoutMs: {
+      type: Number,
+      default: 15000
     }
   },
   emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat'],
@@ -127,6 +131,7 @@ export default {
       analyserNode: null,
       sourceNode: null,
       silenceIntervalId: null,
+      inactivityTimer: null,
 
       // Per-chunk speech tracking (reset on every chunk boundary)
       lastSpeechAt: 0,
@@ -235,6 +240,7 @@ export default {
         this.setupSilenceDetection()
 
         this.isRecording = true
+        this.startInactivityTimer()
         this.$emit('status', { state: 'recording' })
       } catch (e) {
         this.teardownCapture()
@@ -323,6 +329,7 @@ export default {
       this.isRecording = false
       this.$emit('status', { state: 'stopped' })
 
+      this.clearInactivityTimer()
       this.stopSilenceDetection()
 
       const recorder = this.mediaRecorder
@@ -363,6 +370,7 @@ export default {
 
       this.isRecording = false
       this.$emit('status', { state: 'auto-submitting' })
+      this.clearInactivityTimer()
       this.stopSilenceDetection()
 
       const recorder = this.mediaRecorder
@@ -465,6 +473,7 @@ export default {
             this.lastSpeechAt = now
             this.hasSpokenThisTurn = true
             this.lastSpeechAtTurn = now
+            this.startInactivityTimer()
             return
           }
 
@@ -516,6 +525,7 @@ export default {
     },
 
     teardownCapture () {
+      this.clearInactivityTimer()
       this.stopSilenceDetection()
 
       try {
@@ -530,6 +540,23 @@ export default {
 
       this.mediaRecorder = null
       this.mediaStream = null
+    },
+
+    startInactivityTimer () {
+      this.clearInactivityTimer()
+      // 0 (or less) means the timeout is disabled — the mic stays on until the
+      // user pauses long enough to auto-submit, or stops it manually.
+      if (!this.inactivityTimeoutMs || this.inactivityTimeoutMs <= 0) return
+      this.inactivityTimer = setTimeout(() => {
+        if (this.isRecording) this.stopRecording()
+      }, this.inactivityTimeoutMs)
+    },
+
+    clearInactivityTimer () {
+      if (this.inactivityTimer) {
+        clearTimeout(this.inactivityTimer)
+        this.inactivityTimer = null
+      }
     }
   }
 }
