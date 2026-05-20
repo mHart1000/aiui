@@ -235,7 +235,6 @@ export default {
         this.setupSilenceDetection()
 
         this.isRecording = true
-        this.playBeep('start')
         this.$emit('status', { state: 'recording' })
       } catch (e) {
         this.teardownCapture()
@@ -322,7 +321,6 @@ export default {
     stopRecording () {
       if (!this.isRecording) return
       this.isRecording = false
-      this.playBeep('stop')
       this.$emit('status', { state: 'stopped' })
 
       this.stopSilenceDetection()
@@ -364,7 +362,6 @@ export default {
       this.autoSubmitFired = true
 
       this.isRecording = false
-      this.playBeep('stop')
       this.$emit('status', { state: 'auto-submitting' })
       this.stopSilenceDetection()
 
@@ -533,58 +530,6 @@ export default {
 
       this.mediaRecorder = null
       this.mediaStream = null
-    },
-
-    playBeep (mode = 'start') {
-      try {
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)()
-        const now = audioCtx.currentTime
-
-        const osc1 = audioCtx.createOscillator()
-        const osc2 = audioCtx.createOscillator()
-        const gainNode = audioCtx.createGain()
-        const filter = audioCtx.createBiquadFilter()
-        filter.type = 'lowpass'
-        filter.Q.value = 6
-
-        osc1.connect(gainNode)
-        osc2.connect(gainNode)
-        gainNode.connect(filter)
-        filter.connect(audioCtx.destination)
-
-        osc1.type = 'triangle'
-        osc2.type = 'triangle'
-        osc2.detune.value = 18
-
-        if (mode === 'start') {
-          osc1.frequency.setValueAtTime(100, now)
-          osc1.frequency.linearRampToValueAtTime(150, now + 0.08)
-          osc2.frequency.setValueAtTime(130, now)
-          osc2.frequency.linearRampToValueAtTime(200, now + 0.08)
-          filter.frequency.setValueAtTime(250, now)
-          filter.frequency.linearRampToValueAtTime(1050, now + 0.08)
-        } else {
-          osc1.frequency.setValueAtTime(150, now)
-          osc1.frequency.linearRampToValueAtTime(90, now + 0.2)
-          osc2.frequency.setValueAtTime(200, now)
-          osc2.frequency.linearRampToValueAtTime(130, now + 0.2)
-          filter.frequency.setValueAtTime(1050, now)
-          filter.frequency.linearRampToValueAtTime(190, now + 0.2)
-        }
-
-        gainNode.gain.setValueAtTime(0, now)
-        gainNode.gain.linearRampToValueAtTime(0.19, now + 0.04)
-        gainNode.gain.linearRampToValueAtTime(0.11, now + 0.16)
-        gainNode.gain.exponentialRampToValueAtTime(0.01, now + (mode === 'start' ? 0.22 : 0.28))
-
-        const duration = mode === 'start' ? 0.22 : 0.28
-        osc1.start(now); osc1.stop(now + duration)
-        osc2.start(now); osc2.stop(now + duration)
-
-        setTimeout(() => audioCtx.close(), duration * 1000 + 100)
-      } catch (e) {
-        console.warn('Could not play beep:', e)
-      }
     }
   }
 }
