@@ -4,13 +4,14 @@ module Api
     respond_to :json
 
     def index
-      conversations = current_api_user.conversations
+      conversations = current_api_user.conversations.order(updated_at: :desc)
       render json: conversations.map { |c|
         {
           id: c.id,
           title: c.title,
           model_code: c.model_code,
-          rag_enabled: c.rag_enabled
+          rag_enabled: c.rag_enabled,
+          updated_at: c.updated_at
         }
       }
     end
