@@ -26,4 +26,11 @@ Rails.application.config.to_prepare do
     description: "Direct and short. Skips throat-clearing and padding. Use for quick lookups and well-defined questions.",
     path: Rails.root.join("persona", "terse.md")
   )
+
+  Persona.register(
+    id: "friendly-terse",
+    name: "Friendly-Terse",
+    description: "As short as Terse, but warmer in tone. Good for voice/spoken chat where curtness feels cold.",
+    path: Rails.root.join("persona", "friendly-terse.md")
+  )
 end
