@@ -58,6 +58,39 @@
         @resume="ttsPlayer.resume()"
         @stop="ttsPlayer.stop()"
       />
+      <q-toggle
+        v-model="voiceChatMode"
+        label="Voice mode"
+        color="primary"
+      />
+      <div v-if="voiceChatMode" class="row items-center q-gutter-sm" style="min-width: 220px">
+        <span class="text-caption text-grey-7">Pause</span>
+        <q-slider
+          v-model="endOfUtteranceMs"
+          :min="1000"
+          :max="10000"
+          :step="500"
+          label
+          label-always
+          :label-value="(endOfUtteranceMs / 1000).toFixed(1) + 's'"
+          color="primary"
+          style="width: 160px"
+        />
+      </div>
+      <div v-if="voiceChatMode" class="row items-center q-gutter-sm" style="min-width: 220px">
+        <span class="text-caption text-grey-7">Timeout</span>
+        <q-slider
+          v-model="inactivityTimeoutSec"
+          :min="5"
+          :max="65"
+          :step="5"
+          label
+          label-always
+          :label-value="inactivityTimeoutSec > 60 ? 'Off' : inactivityTimeoutSec + 's'"
+          color="primary"
+          style="width: 160px"
+        />
+      </div>
     </div>
 
     <q-banner v-if="streamingChat.error.value" class="bg-negative text-white q-mx-md">
@@ -216,8 +249,22 @@
 
     <div class="input-bar q-pa-md row items-end input-centered">
       <SpeechToTextInput
+        v-if="!voiceChatMode"
         v-model="input"
         :show-new-chat="hasMessages"
+        @error="handleSttError"
+        @status="handleSttStatus"
+        @send-message="sendMessage"
+        @new-chat="newChat"
+        class="col message-input"
+      />
+      <VoiceChatInput
+        v-else
+        ref="voice"
+        v-model="input"
+        :show-new-chat="hasMessages"
+        :end-of-utterance-ms="endOfUtteranceMs"
+        :inactivity-timeout-ms="inactivityTimeoutMs"
         @error="handleSttError"
         @status="handleSttStatus"
         @send-message="sendMessage"
@@ -251,6 +298,7 @@ import { Marked } from 'marked'
 import hljs from 'highlight.js'
 import 'highlight.js/styles/base16/ashes.css' // highlightjs.org/examples
 import SpeechToTextInput from 'components/SpeechToTextInput.vue'
+import VoiceChatInput from 'components/VoiceChatInput.vue'
 import TtsControls from 'components/TtsControls.vue'
 
 const marked = new Marked({
@@ -277,6 +325,7 @@ export default {
   name: 'ChatPage',
   components: {
     SpeechToTextInput,
+    VoiceChatInput,
     TtsControls
   },
   setup() {
@@ -313,7 +362,10 @@ export default {
     llamaContextWindow: 8192,
     editingMessageIndex: null,
     editingContent: '',
-    isSavingEdit: false
+    isSavingEdit: false,
+    voiceChatMode: false,
+    endOfUtteranceMs: 2500,
+    inactivityTimeoutSec: 15
   }),
   async mounted() {
     const modelsRes = await api.get('/api/models')
@@ -332,6 +384,11 @@ export default {
     this.ttsPlayer.setEnabled(userRes.data.tts_enabled || false)
     this.ttsPlayer.setVoice(userRes.data.tts_voice || 'af_heart')
     this.ttsPlayer.setSpeed(userRes.data.tts_speed || 1.0)
+
+    window.addEventListener('keydown', this.handleVoiceEscape)
+  },
+  beforeUnmount() {
+    window.removeEventListener('keydown', this.handleVoiceEscape)
   },
   watch: {
     '$route.params.id': {
@@ -382,6 +439,23 @@ export default {
       // When streaming ends, flush any remaining buffered text
       if (!isStreaming && this.ttsPlayer.isEnabled.value) {
         this.ttsPlayer.flushBuffer()
+      }
+    },
+    voiceShouldListen(newVal, oldVal) {
+      if (newVal && !oldVal) {
+        // Defer to next tick so the v-else VoiceChatInput is mounted and
+        // $refs.voice is available (e.g. on initial toggle of voice mode).
+        this.$nextTick(() => {
+          this.$refs.voice?.startRecording().catch((err) => {
+            this.$q?.notify?.({
+              type: 'negative',
+              message: `Mic error: ${err?.message || err}`,
+              timeout: 3000
+            })
+          })
+        })
+      } else if (!newVal && oldVal) {
+        this.$refs.voice?.stopRecording()
       }
     }
   },
@@ -442,6 +516,16 @@ export default {
     contextUsageRatio() {
       if (!this.llamaContextWindow) return 0
       return Math.min(1, Math.max(0, this.lastContextTokens / this.llamaContextWindow))
+    },
+    assistantBusy() {
+      return this.streamingChat.isStreaming.value || this.ttsPlayer.isPlaying.value
+    },
+    voiceShouldListen() {
+      return this.voiceChatMode && !this.assistantBusy && this.editingMessageIndex === null
+    },
+    inactivityTimeoutMs() {
+      // The slider's top position (> 60 s) means "off" — pass 0 to disable.
+      return this.inactivityTimeoutSec > 60 ? 0 : this.inactivityTimeoutSec * 1000
     }
   },
   methods: {
@@ -458,6 +542,25 @@ export default {
     },
     handleRetry() {
       this.streamingChat.retryLastMessage()
+    },
+    handleVoiceEscape(event) {
+      if (event.key !== 'Escape') return
+      if (!this.voiceChatMode) return
+      if (this.editingMessageIndex !== null) return
+      if (!this.streamingChat.isStreaming.value && !this.ttsPlayer.isPlaying.value) return
+
+      event.preventDefault()
+      this.streamingChat.cleanup()
+      this.ttsPlayer.stop()
+      this.$nextTick(() => {
+        this.$refs.voice?.startRecording().catch((err) => {
+          this.$q?.notify?.({
+            type: 'negative',
+            message: `Mic error: ${err?.message || err}`,
+            timeout: 3000
+          })
+        })
+      })
     },
     getLoadingText() {
       const phase = this.streamingChat.loadingPhase.value
