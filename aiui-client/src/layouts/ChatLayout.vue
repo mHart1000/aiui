@@ -1,7 +1,11 @@
 <template>
   <q-layout view="hHh LpR fFf">
     <q-drawer show-if-above bordered :width="sidebarWidth" class="bg-panel">
-      <q-scroll-area class="fit">
+      <q-scroll-area
+        class="drawer-scroll"
+        :thumb-style="scrollThumbStyle"
+        :bar-style="scrollBarStyle"
+      >
         <div class="q-pa-md column justify-between full-height">
           <div>
             <q-btn
@@ -71,7 +75,21 @@ export default {
   data: () => ({
     conversations: [],
     knowledgeOpen: false,
-    sidebarWidth: 260
+    sidebarWidth: 260,
+    scrollThumbStyle: {
+      right: '4px',
+      borderRadius: '5px',
+      backgroundColor: 'var(--border, #9e9e9e)',
+      width: '25px',
+      opacity: 0.9
+    },
+    scrollBarStyle: {
+      right: '4px',
+      borderRadius: '5px',
+      backgroundColor: 'var(--border, #9e9e9e)',
+      width: '25px',
+      opacity: 0.45
+    }
   }),
   mounted() {
     const saved = parseInt(localStorage.getItem('sidebarWidth'), 10)
@@ -134,6 +152,13 @@ export default {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.drawer-scroll {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  right: 2px;
 }
 .drawer-resizer {
   position: absolute;
