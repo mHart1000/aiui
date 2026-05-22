@@ -328,6 +328,9 @@ export default {
     VoiceChatInput,
     TtsControls
   },
+  inject: {
+    refreshConversations: { default: () => () => {} }
+  },
   setup() {
     const streamingChat = useStreamingChat()
     const ttsPlayer = useTtsPlayer()
@@ -681,6 +684,8 @@ export default {
       if (isNew && this.$route.params.id !== String(this.conversationId)) {
         this.$router.replace(`/chat/${this.conversationId}`)
       }
+
+      this.refreshConversations()
     },
     scrollToBottom() {
       const el = this.$refs.chatWindow
@@ -936,6 +941,8 @@ export default {
       }
 
       this.streamingMessageIndex = null
+
+      this.refreshConversations()
     }
   }
 }

@@ -57,6 +57,11 @@ import RagKnowledgeDialog from 'components/RagKnowledgeDialog.vue'
 export default {
   name: 'ChatLayout',
   components: { RagKnowledgeDialog },
+  provide() {
+    return {
+      refreshConversations: () => this.getUserConversations()
+    }
+  },
   data: () => ({
     conversations: [],
     knowledgeOpen: false
@@ -76,7 +81,7 @@ export default {
       console.log('Fetching user conversations...')
       api.get('/api/conversations')
         .then(response => {
-          this.conversations = response.data.sort((a, b) => b.id - a.id)
+          this.conversations = response.data.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
         })
         .catch(error => {
           console.error('Error fetching conversations:', error)
