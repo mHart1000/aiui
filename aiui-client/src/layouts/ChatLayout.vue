@@ -1,6 +1,6 @@
 <template>
   <q-layout view="hHh LpR fFf">
-    <q-drawer show-if-above bordered width="260" class="bg-panel">
+    <q-drawer show-if-above bordered :width="sidebarWidth" class="bg-panel">
       <q-scroll-area class="fit">
         <div class="q-pa-md column justify-between full-height">
           <div>
@@ -39,6 +39,12 @@
           </div>
         </div>
       </q-scroll-area>
+      <div
+        v-if="$q.screen.gt.sm"
+        class="drawer-resizer"
+        @mousedown="startResize"
+        @dblclick="resetWidth"
+      ></div>
     </q-drawer>
 
     <q-page-container>
@@ -64,10 +70,20 @@ export default {
   },
   data: () => ({
     conversations: [],
-    knowledgeOpen: false
+    knowledgeOpen: false,
+    sidebarWidth: 260
   }),
   mounted() {
+    const saved = parseInt(localStorage.getItem('sidebarWidth'), 10)
+    if (Number.isFinite(saved)) {
+      this.sidebarWidth = this.clampWidth(saved)
+    }
     this.getUserConversations()
+  },
+  beforeUnmount() {
+    document.removeEventListener('mousemove', this.onResize)
+    document.removeEventListener('mouseup', this.stopResize)
+    document.body.classList.remove('drawer-resizing')
   },
   methods: {
     toggleDark() {
@@ -86,6 +102,27 @@ export default {
         .catch(error => {
           console.error('Error fetching conversations:', error)
         });
+    },
+    clampWidth(w) {
+      return Math.min(500, Math.max(200, w))
+    },
+    startResize() {
+      document.addEventListener('mousemove', this.onResize)
+      document.addEventListener('mouseup', this.stopResize)
+      document.body.classList.add('drawer-resizing')
+    },
+    onResize(e) {
+      this.sidebarWidth = this.clampWidth(e.clientX)
+    },
+    stopResize() {
+      document.removeEventListener('mousemove', this.onResize)
+      document.removeEventListener('mouseup', this.stopResize)
+      document.body.classList.remove('drawer-resizing')
+      localStorage.setItem('sidebarWidth', String(this.sidebarWidth))
+    },
+    resetWidth() {
+      this.sidebarWidth = 260
+      localStorage.setItem('sidebarWidth', '260')
     }
   }
 }
@@ -97,5 +134,33 @@ export default {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.drawer-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: ew-resize;
+  z-index: 2;
+  transition: background-color 0.15s;
+}
+.drawer-resizer:hover {
+  background-color: var(--border, rgba(127, 127, 127, 0.4));
+}
+</style>
+
+<style>
+/* While dragging the sidebar edge: kill the drawer/page transitions so the
+   resize tracks the cursor instead of easing behind it, and lock the cursor
+   and text selection across the whole page for the duration of the drag. */
+body.drawer-resizing {
+  cursor: ew-resize;
+  user-select: none;
+}
+body.drawer-resizing .q-drawer,
+body.drawer-resizing .q-drawer__content,
+body.drawer-resizing .q-page-container {
+  transition: none !important;
 }
 </style>
