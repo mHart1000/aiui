@@ -43,13 +43,15 @@
           </div>
         </div>
       </q-scroll-area>
-      <div
-        v-if="$q.screen.gt.sm"
-        class="drawer-resizer"
-        @mousedown="startResize"
-        @dblclick="resetWidth"
-      ></div>
     </q-drawer>
+
+    <div
+      v-if="$q.screen.gt.sm"
+      class="drawer-resizer"
+      :style="{ left: (sidebarWidth - 6) + 'px' }"
+      @mousedown="startResize"
+      @dblclick="resetWidth"
+    ></div>
 
     <q-page-container>
       <router-view />
@@ -76,6 +78,7 @@ export default {
     conversations: [],
     knowledgeOpen: false,
     sidebarWidth: 260,
+    resizeOffset: 0,
     scrollThumbStyle: {
       right: '4px',
       borderRadius: '5px',
@@ -129,13 +132,14 @@ export default {
     clampWidth(w) {
       return Math.min(500, Math.max(200, w))
     },
-    startResize() {
+    startResize(e) {
+      this.resizeOffset = this.sidebarWidth - e.clientX
       document.addEventListener('mousemove', this.onResize)
       document.addEventListener('mouseup', this.stopResize)
       document.body.classList.add('drawer-resizing')
     },
     onResize(e) {
-      this.sidebarWidth = this.clampWidth(e.clientX)
+      this.sidebarWidth = this.clampWidth(e.clientX + this.resizeOffset)
     },
     stopResize() {
       document.removeEventListener('mousemove', this.onResize)
@@ -167,14 +171,23 @@ export default {
 .drawer-resizer {
   position: absolute;
   top: 0;
-  right: 0;
   bottom: 0;
-  width: 6px;
+  width: 14px;
   cursor: ew-resize;
-  z-index: 2;
+  z-index: 2001;
+}
+/* Only the 6px edge strip shows; the rest is an invisible, forgiving hit area. */
+.drawer-resizer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 6px;
+  background-color: transparent;
   transition: background-color 0.15s;
 }
-.drawer-resizer:hover {
+.drawer-resizer:hover::before {
   background-color: var(--border, rgba(127, 127, 127, 0.4));
 }
 </style>
