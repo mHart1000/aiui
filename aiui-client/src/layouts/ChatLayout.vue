@@ -80,14 +80,14 @@ export default {
       right: '4px',
       borderRadius: '5px',
       backgroundColor: 'var(--border, #9e9e9e)',
-      width: '25px',
+      width: '20px',
       opacity: 0.9
     },
     scrollBarStyle: {
       right: '4px',
       borderRadius: '5px',
       backgroundColor: 'var(--border, #9e9e9e)',
-      width: '25px',
+      width: '20px',
       opacity: 0.45
     }
   }),
@@ -148,7 +148,6 @@ export default {
 <style scoped>
 .conversation-title {
   min-width: 0;
-  max-width: 220px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -159,6 +158,9 @@ export default {
   left: 0;
   bottom: 0;
   right: 2px;
+}
+.drawer-scroll :deep(.q-scrollarea__content) {
+  width: 100%;
 }
 .drawer-resizer {
   position: absolute;
@@ -176,9 +178,8 @@ export default {
 </style>
 
 <style>
-/* While dragging the sidebar edge: kill the drawer/page transitions so the
-   resize tracks the cursor instead of easing behind it, and lock the cursor
-   and text selection across the whole page for the duration of the drag. */
+/*  disable drawer/page transitions so resize follows the
+   cursor, and force the resize cursor + block text selection page-wide. */
 body.drawer-resizing {
   cursor: ew-resize;
   user-select: none;
