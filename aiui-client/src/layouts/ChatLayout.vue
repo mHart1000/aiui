@@ -29,7 +29,7 @@
                 clickable
                 @click="$router.push(`/chat/${c.id}`)"
               >
-                <q-item-section class="conversation-title">
+                <q-item-section class="conversation-title" :style="{ maxWidth: titleMaxWidth }">
                   <q-item-label class="ellipsis">
                     {{ c.title }}
                   </q-item-label>
@@ -91,6 +91,11 @@ export default {
       opacity: 0.45
     }
   }),
+  computed: {
+    titleMaxWidth () {
+      return `${this.sidebarWidth - 40}px`
+    }
+  },
   mounted() {
     const saved = parseInt(localStorage.getItem('sidebarWidth'), 10)
     if (Number.isFinite(saved)) {
@@ -158,9 +163,6 @@ export default {
   left: 0;
   bottom: 0;
   right: 2px;
-}
-.drawer-scroll :deep(.q-scrollarea__content) {
-  width: 100%;
 }
 .drawer-resizer {
   position: absolute;
