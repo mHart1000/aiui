@@ -281,7 +281,7 @@
       />
     </div>
 
-    <div v-if="isLlamaModel" class="context-usage q-mb-md">
+    <div v-if="isLlamaModel && hasMessages" class="context-usage q-mb-md">
       <q-circular-progress
         :value="contextUsageRatio * 100"
         size="32px"
