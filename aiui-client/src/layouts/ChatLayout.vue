@@ -77,7 +77,7 @@ export default {
   data: () => ({
     conversations: [],
     knowledgeOpen: false,
-    sidebarWidth: 260,
+    sidebarWidth: 280,
     resizeOffset: 0,
     scrollThumbStyle: {
       right: '4px',
@@ -100,10 +100,6 @@ export default {
     }
   },
   mounted() {
-    const saved = parseInt(localStorage.getItem('sidebarWidth'), 10)
-    if (Number.isFinite(saved)) {
-      this.sidebarWidth = this.clampWidth(saved)
-    }
     this.getUserConversations()
   },
   beforeUnmount() {
@@ -145,11 +141,9 @@ export default {
       document.removeEventListener('mousemove', this.onResize)
       document.removeEventListener('mouseup', this.stopResize)
       document.body.classList.remove('drawer-resizing')
-      localStorage.setItem('sidebarWidth', String(this.sidebarWidth))
     },
     resetWidth() {
-      this.sidebarWidth = 260
-      localStorage.setItem('sidebarWidth', '260')
+      this.sidebarWidth = 280
     }
   }
 }
