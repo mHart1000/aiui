@@ -1067,9 +1067,9 @@ p {
   text-align: center;
 }
 .welcome-video {
-  width: 240px;
+  width: 280px;
   height: auto;
-  border-radius: 8px;
+  mix-blend-mode: screen;
 }
 .assistant :deep(.code-block-wrap) {
   margin: 10px 0;
