@@ -112,6 +112,7 @@
         muted
         playsinline
         class="q-mb-md welcome-video"
+        @loadedmetadata="$event.target.playbackRate = 3"
       />
       <p class="text-subtitle1 text-grey-7 text-center" style="max-width: 500px">
         Ask me anything. I'm here to help.
