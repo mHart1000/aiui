@@ -105,7 +105,14 @@
     </q-banner>
 
     <div v-if="!hasMessages" class="new-chat-welcome column items-center q-pa-xl">
-      <q-icon name="chat" size="80px" color="primary" class="q-mb-md" />
+      <video
+        src="/media/15089605_960_540_24fps.mp4"
+        autoplay
+        loop
+        muted
+        playsinline
+        class="q-mb-md welcome-video"
+      />
       <p class="text-subtitle1 text-grey-7 text-center" style="max-width: 500px">
         Ask me anything. I'm here to help.
       </p>
@@ -278,7 +285,7 @@
         :value="contextUsageRatio * 100"
         size="32px"
         :thickness="0.2"
-        color="#ffffd0"
+        color="primary"
         track-color="grey-3"
         show-value
         class="text-caption"
@@ -1058,6 +1065,11 @@ p {
 }
 .new-chat-welcome {
   text-align: center;
+}
+.welcome-video {
+  width: 240px;
+  height: auto;
+  border-radius: 8px;
 }
 .assistant :deep(.code-block-wrap) {
   margin: 10px 0;
