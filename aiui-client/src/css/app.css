@@ -89,3 +89,7 @@ a {
     color: var(--accent);
     text-decoration: none;
 }
+
+h3 {
+    font-size: 1.4rem;
+}
