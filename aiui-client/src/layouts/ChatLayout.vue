@@ -80,17 +80,16 @@ export default {
     sidebarWidth: 280,
     resizeOffset: 0,
     scrollThumbStyle: {
-      right: '4px',
       borderRadius: '5px',
       backgroundColor: 'var(--border, #9e9e9e)',
-      width: '20px',
+      width: '25px',
       opacity: 0.9
     },
     scrollBarStyle: {
-      right: '4px',
+      right: '5px',
       borderRadius: '5px',
       backgroundColor: 'var(--border, #9e9e9e)',
-      width: '20px',
+      width: '15px',
       opacity: 0.45
     }
   }),
