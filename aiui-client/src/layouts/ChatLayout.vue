@@ -77,20 +77,19 @@ export default {
   data: () => ({
     conversations: [],
     knowledgeOpen: false,
-    sidebarWidth: 260,
+    sidebarWidth: 280,
     resizeOffset: 0,
     scrollThumbStyle: {
-      right: '4px',
       borderRadius: '5px',
       backgroundColor: 'var(--border, #9e9e9e)',
-      width: '20px',
+      width: '25px',
       opacity: 0.9
     },
     scrollBarStyle: {
-      right: '4px',
+      right: '5px',
       borderRadius: '5px',
       backgroundColor: 'var(--border, #9e9e9e)',
-      width: '20px',
+      width: '15px',
       opacity: 0.45
     }
   }),
@@ -100,10 +99,6 @@ export default {
     }
   },
   mounted() {
-    const saved = parseInt(localStorage.getItem('sidebarWidth'), 10)
-    if (Number.isFinite(saved)) {
-      this.sidebarWidth = this.clampWidth(saved)
-    }
     this.getUserConversations()
   },
   beforeUnmount() {
@@ -145,11 +140,9 @@ export default {
       document.removeEventListener('mousemove', this.onResize)
       document.removeEventListener('mouseup', this.stopResize)
       document.body.classList.remove('drawer-resizing')
-      localStorage.setItem('sidebarWidth', String(this.sidebarWidth))
     },
     resetWidth() {
-      this.sidebarWidth = 260
-      localStorage.setItem('sidebarWidth', '260')
+      this.sidebarWidth = 280
     }
   }
 }

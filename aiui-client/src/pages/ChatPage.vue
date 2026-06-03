@@ -105,7 +105,15 @@
     </q-banner>
 
     <div v-if="!hasMessages" class="new-chat-welcome column items-center q-pa-xl">
-      <q-icon name="chat" size="80px" color="primary" class="q-mb-md" />
+      <video
+        src="/media/15089605_960_540_24fps.mp4"
+        autoplay
+        loop
+        muted
+        playsinline
+        class="q-mb-md welcome-video"
+        @loadedmetadata="$event.target.playbackRate = 3"
+      />
       <p class="text-subtitle1 text-grey-7 text-center" style="max-width: 500px">
         Ask me anything. I'm here to help.
       </p>
@@ -173,7 +181,7 @@
               />
             </div>
           </div>
-          <div v-else v-html="formatMessage(msg.content)" @click="handleMessageContentClick" />
+          <div v-else v-html="msg.role === 'user' ? formatUserMessage(msg.content) : formatMessage(msg.content)" @click="handleMessageContentClick" />
           <q-spinner v-if="isActivelyStreaming(i) && msg.content" color="primary" size="20px" class="q-mt-sm" />
 
           <div class="message-footer" v-if="msg.role === 'assistant' || (msg.role === 'user' && !isActivelyStreaming(i) && editingMessageIndex !== i)">
@@ -273,12 +281,12 @@
       />
     </div>
 
-    <div v-if="isLlamaModel" class="context-usage q-mb-md">
+    <div v-if="isLlamaModel && hasMessages" class="context-usage q-mb-md">
       <q-circular-progress
         :value="contextUsageRatio * 100"
         size="32px"
         :thickness="0.2"
-        color="#ffffd0"
+        color="primary"
         track-color="grey-3"
         show-value
         class="text-caption"
@@ -301,18 +309,28 @@ import SpeechToTextInput from 'components/SpeechToTextInput.vue'
 import VoiceChatInput from 'components/VoiceChatInput.vue'
 import TtsControls from 'components/TtsControls.vue'
 
-const marked = new Marked({
-  renderer: {
-    code(token) {
-      const rawLanguage = (token.lang || '').trim().toLowerCase()
-      const language = hljs.getLanguage(rawLanguage) ? rawLanguage : 'plaintext'
-      const label = rawLanguage || 'text'
-      const code = token.text || ''
-      const highlighted = hljs.highlight(code, { language }).value
-      const encodedCode = encodeURIComponent(code)
+const codeRenderer = {
+  code(token) {
+    const rawLanguage = (token.lang || '').trim().toLowerCase()
+    const language = hljs.getLanguage(rawLanguage) ? rawLanguage : 'plaintext'
+    const label = rawLanguage || 'text'
+    const code = token.text || ''
+    const highlighted = hljs.highlight(code, { language }).value
+    const encodedCode = encodeURIComponent(code)
 
-      return `<div class="code-block-wrap"><div class="code-block-header"><span class="code-lang-label">${label}</span><button class="code-copy-btn" type="button" data-code="${encodedCode}" aria-label="Copy code" title="Copy code"><span class="material-icons notranslate" aria-hidden="true">content_copy</span></button></div><pre><code class="hljs language-${language}">${highlighted}</code></pre></div>`
-    }
+    return `<div class="code-block-wrap"><div class="code-block-header"><span class="code-lang-label">${label}</span><button class="code-copy-btn" type="button" data-code="${encodedCode}" aria-label="Copy code" title="Copy code"><span class="material-icons notranslate" aria-hidden="true">content_copy</span></button></div><pre><code class="hljs language-${language}">${highlighted}</code></pre></div>`
+  }
+}
+
+const marked = new Marked({ renderer: codeRenderer })
+
+// User messages reuse the same renderer but disable indented code blocks, so
+// pasted prose with indented paragraphs isn't mistaken for a code block.
+// Fenced ``` blocks still work — those go through the separate `fences` tokenizer.
+const markedUser = new Marked({
+  renderer: codeRenderer,
+  tokenizer: {
+    code() { return undefined }
   }
 })
 import { useStreamingChat } from 'src/composables/useStreamingChat'
@@ -697,6 +715,9 @@ export default {
     formatMessage(text) {
       return marked.parse(text)
     },
+    formatUserMessage(text) {
+      return markedUser.parse(text)
+    },
 
     async copyTextWithFallback(text, successMessage) {
       if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -1058,6 +1079,11 @@ p {
 }
 .new-chat-welcome {
   text-align: center;
+}
+.welcome-video {
+  width: 280px;
+  height: auto;
+  mix-blend-mode: screen;
 }
 .assistant :deep(.code-block-wrap) {
   margin: 10px 0;
