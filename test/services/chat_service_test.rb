@@ -48,6 +48,43 @@ class ChatServiceTest < ActiveSupport::TestCase
     end
   end
 
+  # single pass streaming — reasoning routing
+  test "single pass routes reasoning chunks to thinking and emits phase_change before the answer" do
+    service = ChatService.new(messages: MESSAGES, model: "local-llama", use_persona: false, use_scaffolding: false, stream: true, max_tokens: nil)
+    adapter = service.instance_variable_get(:@adapter)
+    fake_stream = ->(**_kwargs, &blk) {
+      blk.call("thinking ", :reasoning)
+      blk.call("more ", :reasoning)
+      blk.call("answer", :content)
+      { tokens: { total_tokens: 5 }, stats: {} }
+    }
+    events = []
+    adapter.stub(:chat, fake_stream) do
+      service.call { |chunk, phase| events << [ phase, chunk ] }
+    end
+    assert_equal [ :thinking, "thinking " ], events[0]
+    assert_equal [ :thinking, "more " ], events[1]
+    assert_equal [ :phase_change, nil ], events[2]
+    assert_equal [ :response, "answer" ], events[3]
+  end
+
+  test "single pass treats untagged chunks as response with no phase_change" do
+    service = ChatService.new(messages: MESSAGES, model: "gpt-4o", use_persona: false, use_scaffolding: false, stream: true, max_tokens: nil)
+    adapter = service.instance_variable_get(:@adapter)
+    # Non-llama adapters yield a single arg (kind is nil).
+    fake_stream = ->(**_kwargs, &blk) {
+      blk.call("hello")
+      blk.call(" world")
+      { tokens: { total_tokens: 2 }, stats: {} }
+    }
+    events = []
+    adapter.stub(:chat, fake_stream) do
+      service.call { |chunk, phase| events << [ phase, chunk ] }
+    end
+    assert_equal [ [ :response, "hello" ], [ :response, " world" ] ], events
+    refute events.any? { |phase, _| phase == :phase_change }
+  end
+
   # rag injection
   test "rag_context is prepended to first user message in single pass" do
     captured = nil
