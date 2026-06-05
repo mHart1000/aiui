@@ -19,12 +19,36 @@
               flat
               icon="folder"
               label="Knowledge"
-              class="full-width q-mb-md"
+              class="full-width q-mb-sm"
               @click="knowledgeOpen = true"
             />
+            <q-btn
+              v-if="!searchActive"
+              flat
+              icon="search"
+              label="Search"
+              class="full-width q-mb-md"
+              @click="openSearch"
+            />
+            <q-input
+              v-else
+              ref="searchInput"
+              v-model="searchQuery"
+              dense
+              outlined
+              clearable
+              placeholder="Search conversations"
+              class="q-mb-md"
+              @keyup.esc="closeSearch"
+              @blur="onSearchBlur"
+            >
+              <template #prepend>
+                <q-icon name="search" />
+              </template>
+            </q-input>
             <q-list dense>
               <q-item
-                v-for="c in conversations"
+                v-for="c in filteredConversations"
                 :key="c.id"
                 clickable
                 @click="$router.push(`/chat/${c.id}`)"
@@ -77,6 +101,8 @@ export default {
   data: () => ({
     conversations: [],
     knowledgeOpen: false,
+    searchActive: false,
+    searchQuery: '',
     sidebarWidth: 280,
     resizeOffset: 0,
     scrollThumbStyle: {
@@ -96,6 +122,11 @@ export default {
   computed: {
     titleMaxWidth () {
       return `${this.sidebarWidth - 40}px`
+    },
+    filteredConversations () {
+      const q = this.searchQuery?.trim().toLowerCase()
+      if (!q) return this.conversations
+      return this.conversations.filter(c => (c.title || '').toLowerCase().includes(q))
     }
   },
   mounted() {
@@ -109,6 +140,17 @@ export default {
   methods: {
     toggleDark() {
       Dark.toggle();
+    },
+    openSearch() {
+      this.searchActive = true
+      this.$nextTick(() => this.$refs.searchInput?.focus())
+    },
+    closeSearch() {
+      this.searchQuery = ''
+      this.searchActive = false
+    },
+    onSearchBlur() {
+      if (!this.searchQuery?.trim()) this.closeSearch()
     },
     logout() {
       localStorage.removeItem('jwt')
