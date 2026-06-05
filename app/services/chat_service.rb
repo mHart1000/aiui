@@ -72,10 +72,20 @@ class ChatService
     messages_to_send = inject_rag_context(messages_to_send)
 
     if @stream && block_given?
-      response_chunks = []
-      adapter_result = @adapter.chat(messages: messages_to_send, stream: true, max_tokens: @max_tokens) do |content|
-        response_chunks << content
-        yield content, :response
+      saw_reasoning = false
+      switched_to_response = false
+      adapter_result = @adapter.chat(messages: messages_to_send, stream: true, max_tokens: @max_tokens) do |chunk, kind|
+        if kind == :reasoning
+          saw_reasoning = true
+          yield chunk, :thinking
+        else
+          # First answer token after a reasoning phase: flip the UI to responding.
+          if saw_reasoning && !switched_to_response
+            switched_to_response = true
+            yield nil, :phase_change
+          end
+          yield chunk, :response
+        end
       end
       {
         tokens: adapter_result.is_a?(Hash) ? adapter_result[:tokens] : nil,
@@ -86,6 +96,7 @@ class ChatService
       response = @adapter.chat(messages: messages_to_send, stream: false, max_tokens: @max_tokens)
       {
         reply: response[:content],
+        thinking: response[:reasoning],
         tokens: response[:tokens],
         stats: response[:stats],
         persona_version: persona&.dig(:version)
@@ -143,9 +154,15 @@ class ChatService
 
     if @stream && block_given?
       reply = ""
-      execution_result = @adapter.chat(messages: execution_messages, stream: true, max_tokens: @max_tokens) do |content|
-        reply += content
-        yield content, :response
+      execution_result = @adapter.chat(messages: execution_messages, stream: true, max_tokens: @max_tokens) do |chunk, kind|
+        # Native reasoning during the execution pass goes to the thinking stream,
+        # never into the saved reply.
+        if kind == :reasoning
+          yield chunk, :thinking
+        else
+          reply += chunk
+          yield chunk, :response
+        end
       end
       execution_tokens = execution_result.is_a?(Hash) ? execution_result[:tokens] : nil
       execution_stats = execution_result.is_a?(Hash) ? execution_result[:stats] : nil

@@ -58,6 +58,7 @@ module AiAdapters
 
       {
         content: json.dig("choices", 0, "message", "content"),
+        reasoning: json.dig("choices", 0, "message", "reasoning_content"),
         tokens: tokens,
         stats: stats
       }
@@ -66,10 +67,24 @@ module AiAdapters
     def perform_streaming_request(uri, payload)
       final_usage = nil
       final_timings = nil
-      first_chunk_at = nil
+      # Stage timestamps, all relative to started_at, to pinpoint where latency
+      # accrues: connect -> first raw byte (TTFB) -> first SSE event -> first
+      # content delta (TTFT). A large TTFB means bytes are held upstream; a large
+      # gap between TTFB and first content means bytes arrive but aren't content
+      # yet (a long non-content preamble or parsing stall).
+      connected_at = nil
+      first_raw_at = nil
+      first_event_at = nil
+      first_reasoning_at = nil
+      first_content_at = nil
+      last_chunk_at = nil
+      raw_chunks = 0
+      reasoning_deltas = 0
+      content_deltas = 0
       started_at = monotonic_now
 
       Net::HTTP.start(uri.host, uri.port) do |http|
+        connected_at = monotonic_now
         request = Net::HTTP::Post.new(uri)
         request["Content-Type"] = "application/json"
         request["Authorization"] = "Bearer unused"
@@ -78,6 +93,10 @@ module AiAdapters
         http.request(request) do |response|
           buffer = ""
           response.read_body do |chunk|
+            now = monotonic_now
+            first_raw_at ||= now
+            last_chunk_at = now
+            raw_chunks += 1
             buffer += chunk
             while (line_end = buffer.index("\n"))
               line = buffer.slice!(0, line_end + 1).strip
@@ -85,6 +104,7 @@ module AiAdapters
               next if line == "data: [DONE]"
 
               if line.start_with?("data: ")
+                first_event_at ||= monotonic_now
                 json_str = line.sub("data: ", "")
                 begin
                   json = JSON.parse(json_str)
@@ -95,10 +115,20 @@ module AiAdapters
                     final_usage = json["usage"]
                     final_timings = json["timings"]
                   end
+                  # Reasoning models (e.g. Qwen3) stream chain-of-thought in
+                  # reasoning_content, then switch to content for the answer.
+                  # Tag each so the caller can route reasoning to a thinking UI.
+                  reasoning = json.dig("choices", 0, "delta", "reasoning_content")
+                  if reasoning
+                    first_reasoning_at ||= monotonic_now
+                    reasoning_deltas += 1
+                    yield reasoning, :reasoning
+                  end
                   content = json.dig("choices", 0, "delta", "content")
                   if content
-                    first_chunk_at ||= monotonic_now
-                    yield content
+                    first_content_at ||= monotonic_now
+                    content_deltas += 1
+                    yield content, :content
                   end
                 rescue JSON::ParserError
                   # Partial line or invalid JSON, ignore
@@ -110,9 +140,22 @@ module AiAdapters
       end
 
       elapsed = monotonic_now - started_at
-      ttft_ms = first_chunk_at ? ((first_chunk_at - started_at) * 1000).round : nil
+      ttft_ms = first_content_at ? ((first_content_at - started_at) * 1000).round : nil
+      rel_ms = ->(t) { t ? ((t - started_at) * 1000).round : nil }
+      stream_diag = {
+        connect_ms: rel_ms.call(connected_at),
+        ttfb_ms: rel_ms.call(first_raw_at),
+        first_event_ms: rel_ms.call(first_event_at),
+        first_reasoning_ms: rel_ms.call(first_reasoning_at),
+        ttft_ms: ttft_ms,
+        transport_gap_ms: (first_content_at && first_raw_at) ? ((first_content_at - first_raw_at) * 1000).round : nil,
+        stream_span_ms: (last_chunk_at && first_raw_at) ? ((last_chunk_at - first_raw_at) * 1000).round : nil,
+        raw_chunks: raw_chunks,
+        reasoning_deltas: reasoning_deltas,
+        content_deltas: content_deltas
+      }
       tokens = normalize_usage(final_usage)
-      stats = build_stats(tokens: tokens, timings: final_timings, elapsed: elapsed, ttft_ms: ttft_ms)
+      stats = build_stats(tokens: tokens, timings: final_timings, elapsed: elapsed, ttft_ms: ttft_ms, stream_diag: stream_diag)
       log_throughput(tokens: tokens, stats: stats)
 
       { tokens: tokens, stats: stats }
@@ -135,7 +178,7 @@ module AiAdapters
       Process.clock_gettime(Process::CLOCK_MONOTONIC)
     end
 
-    def build_stats(tokens:, timings:, elapsed:, ttft_ms:)
+    def build_stats(tokens:, timings:, elapsed:, ttft_ms:, stream_diag: nil)
       completion = tokens[:completion_tokens]
       server_tps = timings.is_a?(Hash) ? timings["predicted_per_second"] : nil
       prompt_ms = timings.is_a?(Hash) ? timings["prompt_ms"]&.round : nil
@@ -157,7 +200,8 @@ module AiAdapters
         tps_source: tps_source,
         ttft_ms: ttft_ms,
         prompt_ms: prompt_ms,
-        app_overhead_ms: app_overhead_ms
+        app_overhead_ms: app_overhead_ms,
+        stream_diag: stream_diag
       }
     end
 
@@ -170,12 +214,22 @@ module AiAdapters
       prefill_str = stats[:prompt_ms] ? "#{stats[:prompt_ms]}ms" : "n/a"
       overhead_str = stats[:app_overhead_ms] ? "#{stats[:app_overhead_ms]}ms" : "n/a"
 
-      Rails.logger.info(
-        "LlamaAdapter [model=#{@model}]\n" \
+      message = +"LlamaAdapter [model=#{@model}]\n" \
         "  Tokens     — prompt: #{tokens[:prompt_tokens]}, completion: #{tokens[:completion_tokens]}, total: #{tokens[:total_tokens]}\n" \
         "  Latency    — end-to-end: #{elapsed_str}, time-to-first-token: #{ttft_str}, server prefill: #{prefill_str}, app overhead: #{overhead_str}\n" \
         "  Throughput — #{tps_str}"
-      )
+
+      if (diag = stats[:stream_diag])
+        avg_chunk = (diag[:raw_chunks].to_i.positive? && diag[:stream_span_ms]) ? format("%.1f", diag[:stream_span_ms].to_f / diag[:raw_chunks]) : nil
+        message << "\n  Streaming  — connect: #{ms(diag[:connect_ms])}, first byte: #{ms(diag[:ttfb_ms])}, first SSE event: #{ms(diag[:first_event_ms])}, first reasoning: #{ms(diag[:first_reasoning_ms])}, first content: #{ms(diag[:ttft_ms])}"
+        message << "\n             — raw→content gap: #{ms(diag[:transport_gap_ms])}, stream span: #{ms(diag[:stream_span_ms])}, raw chunks: #{diag[:raw_chunks]}, reasoning deltas: #{diag[:reasoning_deltas]}, content deltas: #{diag[:content_deltas]}#{avg_chunk ? ", avg #{avg_chunk}ms/chunk" : ''}"
+      end
+
+      Rails.logger.info(message)
+    end
+
+    def ms(value)
+      value ? "#{value}ms" : "n/a"
     end
   end
 end
