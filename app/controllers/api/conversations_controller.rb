@@ -85,16 +85,21 @@ module Api
 
     private
 
-    # Returns a one-line excerpt of `content` centered on the first match of `query`.
-    def snippet_for(content, query, window: 60)
+    # Splits `content` around the first match of `query` into windowed
+    # before/match/after parts so the client can highlight and center the match.
+    def snippet_for(content, query, window: 80)
       flat = content.to_s.gsub(/\s+/, " ").strip
       idx = flat.downcase.index(query.downcase)
-      return flat.truncate(2 * window) if idx.nil?
+      return nil if idx.nil?
 
-      start = [ idx - window, 0 ].max
-      prefix = start.positive? ? "…" : ""
-      suffix = start + 2 * window < flat.length ? "…" : ""
-      "#{prefix}#{flat[start, 2 * window].strip}#{suffix}"
+      match = flat[idx, query.length]
+      before = flat[0...idx]
+      after = flat[(idx + query.length)..] || ""
+
+      before = "…#{before[-window..]}" if before.length > window
+      after = "#{after[0, window]}…" if after.length > window
+
+      { before: before, match: match, after: after }
     end
 
     def conversation_params

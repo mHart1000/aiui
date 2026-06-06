@@ -57,8 +57,8 @@
                   <q-item-label class="ellipsis">
                     {{ c.title }}
                   </q-item-label>
-                  <q-item-label v-if="c.snippet" caption class="ellipsis">
-                    {{ c.snippet }}
+                  <q-item-label v-if="c.snippet" caption class="snippet-line">
+                    <span class="snippet-side snippet-before"><bdi>{{ c.snippet.before }}</bdi></span><mark class="snippet-match">{{ c.snippet.match }}</mark><span class="snippet-side snippet-after">{{ c.snippet.after }}</span>
                   </q-item-label>
                 </q-item-section>
               </q-item>
@@ -217,6 +217,34 @@ export default {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* 3-part snippet: keyword stays centered, text clips on both sides. */
+.snippet-line {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+}
+.snippet-side {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.snippet-before {
+  /* clip/ellipsis on the left so the text nearest the keyword stays visible */
+  direction: rtl;
+  text-align: right;
+}
+.snippet-after {
+  text-align: left;
+}
+.snippet-match {
+  flex: 0 0 auto;
+  background-color: rgba(255, 213, 79, 0.45);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
 }
 .drawer-scroll {
   position: absolute;
