@@ -19,6 +19,7 @@ Rails.application.routes.draw do
     }
 
     resources :conversations, only: [ :index, :create, :show, :update ] do
+      collection { get :search }
       resources :messages, only: [ :create, :update ]
       post "messages/stream", to: "messages#create_streaming"
     end

@@ -16,6 +16,35 @@ module Api
       }
     end
 
+    def search
+      q = params[:q].to_s.strip
+      return render json: [] if q.blank?
+
+      pattern = "%#{ActiveRecord::Base.sanitize_sql_like(q)}%"
+      scope = current_api_user.conversations
+
+      title_ids = scope.where("title ILIKE ?", pattern).pluck(:id)
+      content_ids = scope.joins(:messages).where("messages.content ILIKE ?", pattern).distinct.pluck(:id)
+
+      snippets = {}
+      Message.where(conversation_id: content_ids)
+             .where("content ILIKE ?", pattern)
+             .order(:created_at)
+             .each { |m| snippets[m.conversation_id] ||= snippet_for(m.content, q) }
+
+      conversations = scope.where(id: (title_ids + content_ids).uniq).order(updated_at: :desc)
+      render json: conversations.map { |c|
+        {
+          id: c.id,
+          title: c.title,
+          model_code: c.model_code,
+          rag_enabled: c.rag_enabled,
+          updated_at: c.updated_at,
+          snippet: snippets[c.id]
+        }
+      }
+    end
+
     def show
       conversation = current_api_user.conversations.includes(:messages).find(params[:id])
 
@@ -55,6 +84,18 @@ module Api
     end
 
     private
+
+    # Returns a one-line excerpt of `content` centered on the first match of `query`.
+    def snippet_for(content, query, window: 60)
+      flat = content.to_s.gsub(/\s+/, " ").strip
+      idx = flat.downcase.index(query.downcase)
+      return flat.truncate(2 * window) if idx.nil?
+
+      start = [ idx - window, 0 ].max
+      prefix = start.positive? ? "…" : ""
+      suffix = start + 2 * window < flat.length ? "…" : ""
+      "#{prefix}#{flat[start, 2 * window].strip}#{suffix}"
+    end
 
     def conversation_params
       params.require(:conversation).permit(:rag_enabled)

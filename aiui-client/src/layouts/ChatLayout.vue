@@ -57,6 +57,9 @@
                   <q-item-label class="ellipsis">
                     {{ c.title }}
                   </q-item-label>
+                  <q-item-label v-if="c.snippet" caption class="ellipsis">
+                    {{ c.snippet }}
+                  </q-item-label>
                 </q-item-section>
               </q-item>
             </q-list>
@@ -103,6 +106,7 @@ export default {
     knowledgeOpen: false,
     searchActive: false,
     searchQuery: '',
+    searchResults: [],
     sidebarWidth: 280,
     resizeOffset: 0,
     scrollThumbStyle: {
@@ -124,15 +128,20 @@ export default {
       return `${this.sidebarWidth - 40}px`
     },
     filteredConversations () {
-      const q = this.searchQuery?.trim().toLowerCase()
-      if (!q) return this.conversations
-      return this.conversations.filter(c => (c.title || '').toLowerCase().includes(q))
+      return this.searchQuery?.trim() ? this.searchResults : this.conversations
+    }
+  },
+  watch: {
+    searchQuery () {
+      clearTimeout(this.searchTimer)
+      this.searchTimer = setTimeout(this.runSearch, 200)
     }
   },
   mounted() {
     this.getUserConversations()
   },
   beforeUnmount() {
+    clearTimeout(this.searchTimer)
     document.removeEventListener('mousemove', this.onResize)
     document.removeEventListener('mouseup', this.stopResize)
     document.body.classList.remove('drawer-resizing')
@@ -147,7 +156,20 @@ export default {
     },
     closeSearch() {
       this.searchQuery = ''
+      this.searchResults = []
       this.searchActive = false
+    },
+    runSearch() {
+      const q = this.searchQuery?.trim()
+      if (!q) {
+        this.searchResults = []
+        return
+      }
+      api.get('/api/conversations/search', { params: { q } })
+        .then(response => {
+          if (this.searchQuery?.trim() === q) this.searchResults = response.data
+        })
+        .catch(error => console.error('Error searching conversations:', error))
     },
     onSearchBlur() {
       if (!this.searchQuery?.trim()) this.closeSearch()
