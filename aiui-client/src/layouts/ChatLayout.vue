@@ -38,7 +38,7 @@
               outlined
               clearable
               placeholder="Search conversations"
-              class="q-mb-md"
+              class="search-input q-mb-md"
               @keyup.esc="closeSearch"
               @blur="onSearchBlur"
             >
@@ -217,6 +217,9 @@ export default {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.search-input {
+  width: calc(100% - 14px);
 }
 /* 3-part snippet: keyword stays centered, text clips on both sides. */
 .snippet-line {
