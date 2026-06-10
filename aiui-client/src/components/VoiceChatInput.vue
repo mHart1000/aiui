@@ -42,13 +42,13 @@
           </q-btn>
 
           <q-btn
-            icon="send"
-            color="primary"
+            :icon="isStreaming ? 'stop' : 'send'"
+            :color="isStreaming ? 'negative' : 'primary'"
             round
             flat
             @click="handleSend"
           >
-            <q-tooltip>Send message</q-tooltip>
+            <q-tooltip>{{ sendTooltip }}</q-tooltip>
           </q-btn>
         </div>
       </div>
@@ -91,6 +91,10 @@ export default {
       type: String,
       required: true
     },
+    isStreaming: {
+      type: Boolean,
+      default: false
+    },
     showNewChat: {
       type: Boolean,
       default: false
@@ -116,7 +120,7 @@ export default {
       default: 15000
     }
   },
-  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat'],
+  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat', 'stop'],
   data () {
     return {
       isLoading: false,
@@ -152,6 +156,9 @@ export default {
     micIcon () {
       return this.isRecording ? 'stop' : 'mic'
     },
+    sendTooltip () {
+      return this.isStreaming ? 'Stop generating' : 'Send message'
+    },
     showSpinner () {
       return this.isTranscribing && !this.isRecording
     },
@@ -175,6 +182,10 @@ export default {
   },
   methods: {
     handleSend () {
+      if (this.isStreaming) {
+        this.$emit('stop')
+        return
+      }
       if (this.isRecording) {
         // Manual send while listening: stop the mic, then submit after the
         // pipeline drains. Reuse the auto-submit path so behavior is uniform.

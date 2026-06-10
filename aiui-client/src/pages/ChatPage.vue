@@ -260,9 +260,11 @@
         v-if="!voiceChatMode"
         v-model="input"
         :show-new-chat="hasMessages"
+        :is-streaming="streamingChat.isStreaming.value"
         @error="handleSttError"
         @status="handleSttStatus"
         @send-message="sendMessage"
+        @stop="stopStreaming"
         @new-chat="newChat"
         class="col message-input"
       />
@@ -271,11 +273,13 @@
         ref="voice"
         v-model="input"
         :show-new-chat="hasMessages"
+        :is-streaming="streamingChat.isStreaming.value"
         :end-of-utterance-ms="endOfUtteranceMs"
         :inactivity-timeout-ms="inactivityTimeoutMs"
         @error="handleSttError"
         @status="handleSttStatus"
         @send-message="sendMessage"
+        @stop="stopStreaming"
         @new-chat="newChat"
         class="col message-input"
       />
@@ -564,6 +568,16 @@ export default {
     handleRetry() {
       this.streamingChat.retryLastMessage()
     },
+    stopStreaming() {
+      // Commit whatever streamed so far before flipping isStreaming off, so the
+      // visible text doesn't briefly flash to empty.
+      if (this.streamingMessageIndex !== null) {
+        const msg = this.messages[this.streamingMessageIndex]
+        msg.thinking = this.streamingChat.thinkingText.value
+        msg.content = this.streamingChat.responseText.value
+      }
+      this.streamingChat.stop()
+    },
     handleVoiceEscape(event) {
       if (event.key !== 'Escape') return
       if (!this.voiceChatMode) return
@@ -571,7 +585,7 @@ export default {
       if (!this.streamingChat.isStreaming.value && !this.ttsPlayer.isPlaying.value) return
 
       event.preventDefault()
-      this.streamingChat.cleanup()
+      this.streamingChat.stop()
       this.ttsPlayer.stop()
       this.$nextTick(() => {
         this.$refs.voice?.startRecording().catch((err) => {
@@ -664,7 +678,8 @@ export default {
       this.input = ''
 
       // Add placeholder for incoming stream
-      this.streamingMessageIndex = this.messages.length
+      const myIndex = this.messages.length
+      this.streamingMessageIndex = myIndex
       this.messages.push({
         role: 'assistant',
         content: '',
@@ -682,7 +697,7 @@ export default {
       )
 
       // Update placeholder message with final content from composable
-      const streamedMessage = this.messages[this.streamingMessageIndex]
+      const streamedMessage = this.messages[myIndex]
       streamedMessage.thinking = this.streamingChat.thinkingText.value
       streamedMessage.content = this.streamingChat.responseText.value
       const finalStats = this.streamingChat.stats.value
@@ -694,10 +709,13 @@ export default {
 
       if (this.streamingChat.error.value) {
         // Remove the failed placeholder message
-        this.messages.splice(this.streamingMessageIndex, 1)
+        this.messages.splice(myIndex, 1)
       }
 
-      this.streamingMessageIndex = null
+      // Only clear the shared index if a newer send hasn't taken it over.
+      if (this.streamingMessageIndex === myIndex) {
+        this.streamingMessageIndex = null
+      }
 
       if (isNew && this.$route.params.id !== String(this.conversationId)) {
         this.$router.replace(`/chat/${this.conversationId}`)
@@ -934,7 +952,8 @@ export default {
     },
     async regenerateFromMessage(userMessageContent) {
       // Add placeholder for incoming stream
-      this.streamingMessageIndex = this.messages.length
+      const myIndex = this.messages.length
+      this.streamingMessageIndex = myIndex
       this.messages.push({
         role: 'assistant',
         content: '',
@@ -953,15 +972,17 @@ export default {
       )
 
       // Update placeholder with final content
-      const streamedMessage = this.messages[this.streamingMessageIndex]
+      const streamedMessage = this.messages[myIndex]
       streamedMessage.thinking = this.streamingChat.thinkingText.value
       streamedMessage.content = this.streamingChat.responseText.value
 
       if (this.streamingChat.error.value) {
-        this.messages.splice(this.streamingMessageIndex, 1)
+        this.messages.splice(myIndex, 1)
       }
 
-      this.streamingMessageIndex = null
+      if (this.streamingMessageIndex === myIndex) {
+        this.streamingMessageIndex = null
+      }
 
       this.refreshConversations()
     }
