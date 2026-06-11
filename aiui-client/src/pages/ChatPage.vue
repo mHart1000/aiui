@@ -245,7 +245,6 @@
                 icon="edit"
                 class="edit-btn"
                 @click="startEdit(i, msg)"
-                :disable="streamingChat.isStreaming.value"
               >
                 <q-tooltip>Edit message</q-tooltip>
               </q-btn>
@@ -905,6 +904,10 @@ export default {
 
     async saveEdit() {
       if (!this.editingContent.trim() || this.isSavingEdit) return
+
+      if (this.streamingChat.isStreaming.value) {
+        this.streamingChat.stop()
+      }
 
       const messageIndex = this.editingMessageIndex
       let message = this.messages[messageIndex]
