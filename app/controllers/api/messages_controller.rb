@@ -62,11 +62,17 @@ module Api
       safe_model_code = conversation.apply_model_code(params[:model_code])
 
       if params[:regenerating]
-        last_msg = conversation.messages.order(:created_at).last
-        last_msg.destroy if last_msg&.role == "assistant"
+        # Drop any trailing assistant messages
+        while (last_msg = conversation.messages.order(:created_at).last)&.role == "assistant"
+          last_msg.destroy
+        end
       else
         conversation.messages.create!(role: "user", content: params[:content])
       end
+
+      # Track the answered turn so we can skip persisting if it's edited mid-stream.
+      answering_id = conversation.messages.order(:created_at).last&.id
+      answering_stamp = answering_id && conversation.messages.where(id: answering_id).pick(:updated_at)
 
       thinking_accumulator = ""
       reply_accumulator = ""
@@ -121,8 +127,12 @@ module Api
         response.stream.close
       end
 
+      # The partial is stale if the answered message was edited or removed mid-stream.
+      current_stamp = answering_id && conversation.messages.where(id: answering_id).pick(:updated_at)
+      superseded = answering_id.nil? || current_stamp.nil? || current_stamp != answering_stamp
+
       # Save whatever was accumulated, even if the client disconnected mid-stream
-      if reply_accumulator.present? || thinking_accumulator.present?
+      if !superseded && (reply_accumulator.present? || thinking_accumulator.present?)
         conversation.add_assistant_message(
           reply: reply_accumulator,
           thinking: thinking_accumulator,
