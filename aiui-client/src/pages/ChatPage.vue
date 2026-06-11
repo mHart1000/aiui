@@ -910,6 +910,7 @@ export default {
       }
 
       const messageIndex = this.editingMessageIndex
+      const newContent = this.editingContent
       let message = this.messages[messageIndex]
 
       if (!message.id) {
@@ -922,19 +923,8 @@ export default {
       try {
         await api.patch(
           `/api/conversations/${this.conversationId}/messages/${message.id}`,
-          { content: this.editingContent }
+          { content: newContent }
         )
-
-        message.content = this.editingContent
-
-        // Remove all messages after the edited one
-        this.messages = this.messages.slice(0, messageIndex + 1)
-
-        await this.regenerateFromMessage(this.editingContent)
-
-        this.editingMessageIndex = null
-        this.editingContent = ''
-
       } catch (err) {
         console.error('Error updating message:', err)
         this.$q.notify({
@@ -943,9 +933,20 @@ export default {
           position: 'top',
           timeout: 2000
         })
-      } finally {
         this.isSavingEdit = false
+        return
       }
+
+      message.content = newContent
+
+      // Remove all messages after the edited one
+      this.messages = this.messages.slice(0, messageIndex + 1)
+
+      this.editingMessageIndex = null
+      this.editingContent = ''
+      this.isSavingEdit = false
+
+      this.regenerateFromMessage(newContent)
     },
 
     async regenerateMessage(message, messageIndex) {
