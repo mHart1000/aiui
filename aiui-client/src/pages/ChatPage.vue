@@ -1,5 +1,5 @@
 <template>
-  <q-page class="column">
+  <q-page class="column chat-page">
     <div class="row q-ma-md q-gutter-md items-center">
       <q-select
         v-model="modelCode"
@@ -995,9 +995,31 @@ export default {
 </script>
 
 <style scoped>
+.chat-page {
+  height: 100vh;
+  overflow: hidden;
+}
 .chat-window {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.chat-window::-webkit-scrollbar {
+  width: 10px;
+}
+.chat-window::-webkit-scrollbar-track {
+  background: transparent;
+}
+.chat-window::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.chat-window::-webkit-scrollbar-thumb:hover {
+  background: var(--text-subtle);
 }
 .bubble {
   color: var(--text);
@@ -1103,6 +1125,8 @@ p {
   display: none;
 }
 .new-chat-welcome {
+  flex: 1;
+  justify-content: center;
   text-align: center;
 }
 .welcome-video {
