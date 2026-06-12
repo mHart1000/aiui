@@ -168,8 +168,16 @@ export function useStreamingChat() {
       clearTimeout(streamTimeoutId)
 
     } catch (err) {
-      error.value = err
-      loadingPhase.value = 'idle'
+      clearTimeout(streamTimeoutId)
+      if (err.name === 'AbortError') {
+        // User stop, voice escape, or timeout cleanup — keep partial text;
+        // don't surface an error or let ChatPage splice the message.
+        isStreaming.value = false
+        if (!error.value) loadingPhase.value = 'done' // preserve a timeout error
+      } else {
+        error.value = err
+        loadingPhase.value = 'idle'
+      }
     }
   }
 
@@ -203,6 +211,15 @@ export function useStreamingChat() {
     }
   }
 
+  // Stop streaming on user request: abort the connection and settle state so the
+  // partial response is kept (no error). Distinct from cleanup(), which is a pure
+  // teardown used on unmount and before starting a new stream.
+  function stop() {
+    cleanup()
+    isStreaming.value = false
+    loadingPhase.value = 'done'
+  }
+
   return {
     // Reactive state
     thinkingText,
@@ -216,6 +233,7 @@ export function useStreamingChat() {
     sendMessage,
     retryLastMessage,
     dismissError,
-    cleanup
+    cleanup,
+    stop
   }
 }
