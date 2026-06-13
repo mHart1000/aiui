@@ -1,6 +1,11 @@
 <template>
   <q-page class="column chat-page">
-    <div class="row q-ma-md q-gutter-md items-center">
+    <div
+      class="row q-ma-md q-gutter-md items-center toolbar-wrap"
+      :class="{ 'toolbar-collapsed': !toolbarExpanded }"
+      @mouseenter="toolbarHovered = true"
+      @mouseleave="toolbarHovered = false"
+    >
       <q-select
         v-model="modelCode"
         :options="modelOptions"
@@ -379,6 +384,8 @@ export default {
     input: '',
     messages: [],
     atBottom: true,
+    atTop: true,
+    toolbarHovered: false,
     conversationId: null,
     models: [],
     modelCode: null,
@@ -500,6 +507,9 @@ export default {
     composerExpanded() {
       if (!this.hasMessages) return true
       return this.atBottom && !this.streamingChat.isStreaming.value
+    },
+    toolbarExpanded() {
+      return this.atTop || this.toolbarHovered
     },
     modelOptions() {
       return this.models.map(m => ({
@@ -743,6 +753,7 @@ export default {
     onChatScroll() {
       const el = this.$refs.chatWindow
       if (!el) return
+      this.atTop = el.scrollTop <= 8
       const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
       if (this.atBottom && distanceFromBottom > COMPOSER_COLLAPSE_AT_PX) {
         this.atBottom = false
@@ -1022,6 +1033,14 @@ export default {
 .chat-page {
   height: 100vh;
   overflow: hidden;
+}
+.toolbar-wrap {
+  overflow: hidden;
+  transition: max-height 0.25s ease;
+  max-height: 300px;
+}
+.toolbar-wrap.toolbar-collapsed {
+  max-height: 12px;
 }
 .chat-window {
   flex: 1;
