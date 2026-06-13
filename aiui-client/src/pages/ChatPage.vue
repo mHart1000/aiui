@@ -260,7 +260,7 @@
         v-model="input"
         :show-new-chat="hasMessages"
         :is-streaming="streamingChat.isStreaming.value"
-        :expanded="atBottom"
+        :expanded="composerExpanded"
         @error="handleSttError"
         @status="handleSttStatus"
         @send-message="sendMessage"
@@ -274,7 +274,7 @@
         v-model="input"
         :show-new-chat="hasMessages"
         :is-streaming="streamingChat.isStreaming.value"
-        :expanded="atBottom"
+        :expanded="composerExpanded"
         :end-of-utterance-ms="endOfUtteranceMs"
         :inactivity-timeout-ms="inactivityTimeoutMs"
         @error="handleSttError"
@@ -496,6 +496,9 @@ export default {
   computed: {
     hasMessages() {
       return this.messages.length > 0
+    },
+    composerExpanded() {
+      return this.atBottom && !this.streamingChat.isStreaming.value
     },
     modelOptions() {
       return this.models.map(m => ({
