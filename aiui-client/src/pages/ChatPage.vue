@@ -1,7 +1,7 @@
 <template>
   <q-page class="column chat-page">
     <div
-      class="row q-ma-md q-gutter-md items-center toolbar-wrap"
+      class="row q-ma-none q-gutter-md items-center toolbar-wrap"
       :class="{ 'toolbar-collapsed': !toolbarExpanded }"
       @mouseenter="toolbarHovered = true"
       @mouseleave="toolbarHovered = false"
@@ -509,6 +509,7 @@ export default {
       return this.atBottom && !this.streamingChat.isStreaming.value
     },
     toolbarExpanded() {
+      if (!this.hasMessages) return true
       return this.atTop || this.toolbarHovered
     },
     modelOptions() {
