@@ -1,5 +1,5 @@
 <template>
-  <q-page class="column">
+  <q-page class="column chat-page">
     <div class="row q-ma-md q-gutter-md items-center">
       <q-select
         v-model="modelCode"
@@ -119,7 +119,7 @@
       </p>
     </div>
 
-    <div v-else ref="chatWindow" class="chat-window q-pa-md">
+    <div v-else ref="chatWindow" class="chat-window q-pa-md" @scroll.passive="onChatScroll">
       <div v-for="(msg, i) in displayMessages" :key="msg.id || i" class="q-mb-md">
         <q-expansion-item
           v-if="msg.role === 'assistant' && (msg.thinking || isActivelyStreaming(i))"
@@ -260,6 +260,7 @@
         v-model="input"
         :show-new-chat="hasMessages"
         :is-streaming="streamingChat.isStreaming.value"
+        :expanded="atBottom"
         @error="handleSttError"
         @status="handleSttStatus"
         @send-message="sendMessage"
@@ -273,6 +274,7 @@
         v-model="input"
         :show-new-chat="hasMessages"
         :is-streaming="streamingChat.isStreaming.value"
+        :expanded="atBottom"
         :end-of-utterance-ms="endOfUtteranceMs"
         :inactivity-timeout-ms="inactivityTimeoutMs"
         @error="handleSttError"
@@ -342,6 +344,9 @@ import { onBeforeUnmount, onMounted} from 'vue'
 
 const DEFAULT_MODEL_ID = import.meta.env.VITE_DEFAULT_MODEL_ID || null
 
+const COMPOSER_EXPAND_AT_PX = 16
+const COMPOSER_COLLAPSE_AT_PX = 140
+
 export default {
   name: 'ChatPage',
   components: {
@@ -373,6 +378,7 @@ export default {
   data: () => ({
     input: '',
     messages: [],
+    atBottom: true,
     conversationId: null,
     models: [],
     modelCode: null,
@@ -435,6 +441,10 @@ export default {
         this.$nextTick(() => this.scrollToBottom())
       },
       deep: true
+    },
+    atBottom(val) {
+      // re-pin so the taller composer doesn't hide the last message
+      if (val) this.$nextTick(() => this.scrollToBottom())
     },
     'streamingChat.thinkingText.value'(newThinking) {
       if (this.streamingMessageIndex !== null) {
@@ -726,6 +736,16 @@ export default {
       const el = this.$refs.chatWindow
       if (el) el.scrollTop = el.scrollHeight
     },
+    onChatScroll() {
+      const el = this.$refs.chatWindow
+      if (!el) return
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      if (this.atBottom && distanceFromBottom > COMPOSER_COLLAPSE_AT_PX) {
+        this.atBottom = false
+      } else if (!this.atBottom && distanceFromBottom <= COMPOSER_EXPAND_AT_PX) {
+        this.atBottom = true
+      }
+    },
     isActivelyStreaming(index) {
       return index === this.streamingMessageIndex && this.streamingChat.isStreaming.value
     },
@@ -995,9 +1015,31 @@ export default {
 </script>
 
 <style scoped>
+.chat-page {
+  height: 100vh;
+  overflow: hidden;
+}
 .chat-window {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.chat-window::-webkit-scrollbar {
+  width: 10px;
+}
+.chat-window::-webkit-scrollbar-track {
+  background: transparent;
+}
+.chat-window::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.chat-window::-webkit-scrollbar-thumb:hover {
+  background: var(--text-subtle);
 }
 .bubble {
   color: var(--text);
@@ -1103,6 +1145,8 @@ p {
   display: none;
 }
 .new-chat-welcome {
+  flex: 1;
+  justify-content: center;
   text-align: center;
 }
 .welcome-video {
