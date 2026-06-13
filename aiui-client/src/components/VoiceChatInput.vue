@@ -13,7 +13,7 @@
         :input-style="inputStyle"
       />
 
-      <div class="button-overlay">
+      <div class="button-overlay" :class="{ 'overlay-centered': !expanded }">
         <div class="left-buttons">
           <q-btn
             v-if="showNewChat"
@@ -166,7 +166,7 @@ export default {
     inputStyle () {
       return this.expanded
         ? { minHeight: '120px', paddingBottom: '45px' }
-        : { minHeight: '0', paddingBottom: '45px' }
+        : { minHeight: '0', paddingLeft: '52px', paddingRight: '100px' }
     },
     showSpinner () {
       return this.isTranscribing && !this.isRecording
@@ -608,6 +608,11 @@ export default {
   justify-content: space-between;
   align-items: center;
   pointer-events: none;
+}
+
+.button-overlay.overlay-centered {
+  top: 0;
+  bottom: 0;
 }
 
 .left-buttons,

@@ -1133,7 +1133,7 @@ p {
   padding: 0 16px;
 }
 .message-input :deep(.q-field__control) {
-  border-radius: 15px;
+  border-radius: 25px;
 }
 .message-input :deep(.q-field__control textarea) {
   font-size: 16px;
