@@ -254,7 +254,7 @@
       </div>
     </div>
 
-    <div class="input-bar q-pa-md row items-end input-centered">
+    <div class="input-bar q-pa-md row items-end input-centered" :class="{ 'input-bar-centered': !hasMessages }">
       <SpeechToTextInput
         v-if="!voiceChatMode"
         v-model="input"
@@ -498,6 +498,7 @@ export default {
       return this.messages.length > 0
     },
     composerExpanded() {
+      if (!this.hasMessages) return true
       return this.atBottom && !this.streamingChat.isStreaming.value
     },
     modelOptions() {
@@ -1125,6 +1126,9 @@ p {
   border-top: none;
   justify-content: center;
 }
+.input-bar-centered {
+  margin-bottom: auto;
+}
 .message-input {
   max-width: 900px;
 }
@@ -1148,8 +1152,6 @@ p {
   display: none;
 }
 .new-chat-welcome {
-  flex: 1;
-  justify-content: center;
   text-align: center;
 }
 .welcome-video {
