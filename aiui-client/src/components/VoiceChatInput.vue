@@ -10,7 +10,7 @@
         @keydown.enter.exact.prevent="handleSend"
         placeholder="Listening…"
         type="textarea"
-        :input-style="{ minHeight: '120px', paddingBottom: '45px' }"
+        :input-style="inputStyle"
       />
 
       <div class="button-overlay">
@@ -95,6 +95,10 @@ export default {
       type: Boolean,
       default: false
     },
+    expanded: {
+      type: Boolean,
+      default: true
+    },
     showNewChat: {
       type: Boolean,
       default: false
@@ -159,6 +163,11 @@ export default {
     sendTooltip () {
       return this.isStreaming ? 'Stop generating' : 'Send message'
     },
+    inputStyle () {
+      return this.expanded
+        ? { minHeight: '120px', paddingBottom: '45px' }
+        : { minHeight: '0', paddingBottom: '45px' }
+    },
     showSpinner () {
       return this.isTranscribing && !this.isRecording
     },
@@ -175,6 +184,17 @@ export default {
       }
       if (this.isTranscribing) return 'Transcribing…'
       return 'Mic off'
+    }
+  },
+  watch: {
+    expanded () {
+      this.$nextTick(() => {
+        const el = this.$refs.inputField?.getNativeElement?.()
+        if (!el) return
+        // autogrow caches a fixed height; re-measure so the new min-height applies
+        el.style.height = '1px'
+        el.style.height = el.scrollHeight + 'px'
+      })
     }
   },
   beforeUnmount () {
