@@ -1,6 +1,11 @@
 <template>
-  <q-page class="column">
-    <div class="row q-ma-md q-gutter-md items-center">
+  <q-page class="column chat-page">
+    <div
+      class="row q-ma-none q-gutter-md items-center toolbar-wrap"
+      :class="{ 'toolbar-collapsed': !toolbarExpanded }"
+      @mouseenter="toolbarHovered = true"
+      @mouseleave="toolbarHovered = false"
+    >
       <q-select
         v-model="modelCode"
         :options="modelOptions"
@@ -119,7 +124,7 @@
       </p>
     </div>
 
-    <div v-else ref="chatWindow" class="chat-window q-pa-md">
+    <div v-else ref="chatWindow" class="chat-window q-pa-md" @scroll.passive="onChatScroll">
       <div v-for="(msg, i) in displayMessages" :key="msg.id || i" class="q-mb-md">
         <q-expansion-item
           v-if="msg.role === 'assistant' && (msg.thinking || isActivelyStreaming(i))"
@@ -254,12 +259,13 @@
       </div>
     </div>
 
-    <div class="input-bar q-pa-md row items-end input-centered">
+    <div class="input-bar q-pa-none row items-end input-centered" :class="{ 'input-bar-centered': !hasMessages }">
       <SpeechToTextInput
         v-if="!voiceChatMode"
         v-model="input"
         :show-new-chat="hasMessages"
         :is-streaming="streamingChat.isStreaming.value"
+        :expanded="composerExpanded"
         @error="handleSttError"
         @status="handleSttStatus"
         @send-message="sendMessage"
@@ -273,6 +279,7 @@
         v-model="input"
         :show-new-chat="hasMessages"
         :is-streaming="streamingChat.isStreaming.value"
+        :expanded="composerExpanded"
         :end-of-utterance-ms="endOfUtteranceMs"
         :inactivity-timeout-ms="inactivityTimeoutMs"
         @error="handleSttError"
@@ -342,6 +349,9 @@ import { onBeforeUnmount, onMounted} from 'vue'
 
 const DEFAULT_MODEL_ID = import.meta.env.VITE_DEFAULT_MODEL_ID || null
 
+const COMPOSER_EXPAND_AT_PX = 16
+const COMPOSER_COLLAPSE_AT_PX = 140
+
 export default {
   name: 'ChatPage',
   components: {
@@ -373,6 +383,9 @@ export default {
   data: () => ({
     input: '',
     messages: [],
+    atBottom: true,
+    atTop: true,
+    toolbarHovered: false,
     conversationId: null,
     models: [],
     modelCode: null,
@@ -436,6 +449,10 @@ export default {
       },
       deep: true
     },
+    atBottom(val) {
+      // re-pin so the taller composer doesn't hide the last message
+      if (val) this.$nextTick(() => this.scrollToBottom())
+    },
     'streamingChat.thinkingText.value'(newThinking) {
       if (this.streamingMessageIndex !== null) {
         if (newThinking && !this.expandedThinking[this.streamingMessageIndex]) {
@@ -486,6 +503,14 @@ export default {
   computed: {
     hasMessages() {
       return this.messages.length > 0
+    },
+    composerExpanded() {
+      if (!this.hasMessages) return true
+      return this.atBottom && !this.streamingChat.isStreaming.value
+    },
+    toolbarExpanded() {
+      if (!this.hasMessages) return true
+      return this.atTop || this.toolbarHovered
     },
     modelOptions() {
       return this.models.map(m => ({
@@ -725,6 +750,17 @@ export default {
     scrollToBottom() {
       const el = this.$refs.chatWindow
       if (el) el.scrollTop = el.scrollHeight
+    },
+    onChatScroll() {
+      const el = this.$refs.chatWindow
+      if (!el) return
+      this.atTop = el.scrollTop <= 8
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      if (this.atBottom && distanceFromBottom > COMPOSER_COLLAPSE_AT_PX) {
+        this.atBottom = false
+      } else if (!this.atBottom && distanceFromBottom <= COMPOSER_EXPAND_AT_PX) {
+        this.atBottom = true
+      }
     },
     isActivelyStreaming(index) {
       return index === this.streamingMessageIndex && this.streamingChat.isStreaming.value
@@ -995,9 +1031,39 @@ export default {
 </script>
 
 <style scoped>
+.chat-page {
+  height: 100vh;
+  overflow: hidden;
+}
+.toolbar-wrap {
+  overflow: hidden;
+  transition: max-height 0.25s ease;
+  max-height: 300px;
+}
+.toolbar-wrap.toolbar-collapsed {
+  max-height: 12px;
+}
 .chat-window {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.chat-window::-webkit-scrollbar {
+  width: 10px;
+}
+.chat-window::-webkit-scrollbar-track {
+  background: transparent;
+}
+.chat-window::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.chat-window::-webkit-scrollbar-thumb:hover {
+  background: var(--text-subtle);
 }
 .bubble {
   color: var(--text);
@@ -1080,6 +1146,9 @@ p {
   border-top: none;
   justify-content: center;
 }
+.input-bar-centered {
+  margin-bottom: auto;
+}
 .message-input {
   max-width: 900px;
 }
@@ -1091,7 +1160,7 @@ p {
   padding: 0 16px;
 }
 .message-input :deep(.q-field__control) {
-  border-radius: 15px;
+  border-radius: 25px;
 }
 .message-input :deep(.q-field__control textarea) {
   font-size: 16px;

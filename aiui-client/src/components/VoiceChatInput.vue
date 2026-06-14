@@ -10,10 +10,10 @@
         @keydown.enter.exact.prevent="handleSend"
         placeholder="Listening…"
         type="textarea"
-        :input-style="{ minHeight: '120px', paddingBottom: '45px' }"
+        :input-style="inputStyle"
       />
 
-      <div class="button-overlay">
+      <div class="button-overlay" :class="{ 'overlay-centered': !expanded }">
         <div class="left-buttons">
           <q-btn
             v-if="showNewChat"
@@ -95,6 +95,10 @@ export default {
       type: Boolean,
       default: false
     },
+    expanded: {
+      type: Boolean,
+      default: true
+    },
     showNewChat: {
       type: Boolean,
       default: false
@@ -159,6 +163,11 @@ export default {
     sendTooltip () {
       return this.isStreaming ? 'Stop generating' : 'Send message'
     },
+    inputStyle () {
+      return this.expanded
+        ? { minHeight: '120px', maxHeight: '40vh', paddingBottom: '45px' }
+        : { minHeight: '0', maxHeight: '40vh', paddingLeft: '52px', paddingRight: '100px' }
+    },
     showSpinner () {
       return this.isTranscribing && !this.isRecording
     },
@@ -175,6 +184,17 @@ export default {
       }
       if (this.isTranscribing) return 'Transcribing…'
       return 'Mic off'
+    }
+  },
+  watch: {
+    expanded () {
+      this.$nextTick(() => {
+        const el = this.$refs.inputField?.getNativeElement?.()
+        if (!el) return
+        // autogrow caches a fixed height; re-measure so the new min-height applies
+        el.style.height = '1px'
+        el.style.height = el.scrollHeight + 'px'
+      })
     }
   },
   beforeUnmount () {
@@ -588,6 +608,11 @@ export default {
   justify-content: space-between;
   align-items: center;
   pointer-events: none;
+}
+
+.button-overlay.overlay-centered {
+  top: 0;
+  bottom: 0;
 }
 
 .left-buttons,
