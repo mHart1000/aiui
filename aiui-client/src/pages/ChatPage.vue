@@ -15,17 +15,6 @@
         dense
         style="max-width: 380px"
       />
-      <q-input
-        v-if="isLlamaModel"
-        v-model.number="llamaContextWindow"
-        type="number"
-        label="Context window"
-        dense
-        debounce="500"
-        :min="1"
-        style="max-width: 140px"
-        @update:model-value="updateContextWindow"
-      />
       <q-select
         v-model="personaSelection"
         :options="personaOptions"
@@ -428,6 +417,9 @@ export default {
     window.removeEventListener('keydown', this.handleVoiceEscape)
   },
   watch: {
+    isLlamaModel(isLlama) {
+      if (isLlama) this.fetchLlamaContext()
+    },
     '$route.params.id': {
       immediate: true,
       async handler(newId) {
@@ -841,22 +833,12 @@ export default {
       }
     },
 
-    async updateContextWindow(value) {
-      const intValue = Number.parseInt(value, 10)
-      if (!Number.isFinite(intValue) || intValue <= 0) return
+    async fetchLlamaContext() {
       try {
-        await api.patch('/api/user', {
-          user: { llama_context_window: intValue }
-        })
-        this.llamaContextWindow = intValue
+        const res = await api.get('/api/models/llama_context')
+        if (res.data.n_ctx) this.llamaContextWindow = res.data.n_ctx
       } catch (err) {
-        console.error('Error updating context window:', err)
-        this.$q.notify({
-          type: 'negative',
-          message: 'Failed to update context window',
-          position: 'top',
-          timeout: 2000
-        })
+        console.error('Error fetching llama context window:', err)
       }
     },
 
