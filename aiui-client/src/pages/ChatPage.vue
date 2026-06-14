@@ -259,7 +259,7 @@
       </div>
     </div>
 
-    <div class="input-bar q-pa-md row items-end input-centered" :class="{ 'input-bar-centered': !hasMessages }">
+    <div class="input-bar q-pa-none row items-end input-centered" :class="{ 'input-bar-centered': !hasMessages }">
       <SpeechToTextInput
         v-if="!voiceChatMode"
         v-model="input"
