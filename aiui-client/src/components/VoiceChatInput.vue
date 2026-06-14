@@ -165,8 +165,8 @@ export default {
     },
     inputStyle () {
       return this.expanded
-        ? { minHeight: '120px', paddingBottom: '45px' }
-        : { minHeight: '0', paddingLeft: '52px', paddingRight: '100px' }
+        ? { minHeight: '120px', maxHeight: '40vh', paddingBottom: '45px' }
+        : { minHeight: '0', maxHeight: '40vh', paddingLeft: '52px', paddingRight: '100px' }
     },
     showSpinner () {
       return this.isTranscribing && !this.isRecording
