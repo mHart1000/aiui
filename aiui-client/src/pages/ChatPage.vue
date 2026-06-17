@@ -85,6 +85,22 @@
           style="width: 160px"
         />
       </div>
+      <div v-if="isLlamaModel && hasMessages" class="context-usage">
+        <q-circular-progress
+          :value="contextUsageRatio * 100"
+          size="32px"
+          :thickness="0.2"
+          color="primary"
+          track-color="grey-3"
+          show-value
+          class="text-caption"
+        >
+          {{ Math.round(contextUsageRatio * 100) }}%
+        </q-circular-progress>
+        <div class="text-caption text-grey-7">
+          {{ lastContextTokens.toLocaleString() }} / {{ llamaContextWindow.toLocaleString() }} tokens
+        </div>
+      </div>
     </div>
 
     <q-banner v-if="streamingChat.error.value" class="bg-negative text-white q-mx-md">
@@ -280,22 +296,6 @@
       />
     </div>
 
-    <div v-if="isLlamaModel && hasMessages" class="context-usage q-mb-md">
-      <q-circular-progress
-        :value="contextUsageRatio * 100"
-        size="32px"
-        :thickness="0.2"
-        color="primary"
-        track-color="grey-3"
-        show-value
-        class="text-caption"
-      >
-        {{ Math.round(contextUsageRatio * 100) }}%
-      </q-circular-progress>
-      <div class="text-caption text-grey-7">
-        {{ lastContextTokens.toLocaleString() }} / {{ llamaContextWindow.toLocaleString() }} tokens
-      </div>
-    </div>
   </q-page>
 </template>
 
