@@ -25,9 +25,6 @@
           >
             <q-tooltip>New chat</q-tooltip>
           </q-btn>
-        </div>
-
-        <div class="right-buttons">
           <q-circular-progress
             v-if="contextUsage !== null"
             :value="contextUsage"
@@ -40,6 +37,9 @@
           >
             {{ contextUsage }}%
           </q-circular-progress>
+        </div>
+
+        <div class="right-buttons">
           <q-btn
             round
             flat
