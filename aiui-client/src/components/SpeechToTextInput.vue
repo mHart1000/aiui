@@ -28,6 +28,18 @@
         </div>
 
         <div class="right-buttons">
+          <q-circular-progress
+            v-if="contextUsage !== null"
+            :value="contextUsage"
+            size="28px"
+            :thickness="0.2"
+            font-size="9px"
+            color="primary"
+            track-color="grey-3"
+            show-value
+          >
+            {{ contextUsage }}%
+          </q-circular-progress>
           <q-btn
             round
             flat
@@ -97,6 +109,10 @@ export default {
     expanded: {
       type: Boolean,
       default: true
+    },
+    contextUsage: {
+      type: Number,
+      default: null
     },
     showNewChat: {
       type: Boolean,
@@ -573,6 +589,7 @@ export default {
 .right-buttons {
   display: flex;
   gap: 4px;
+  align-items: center;
   pointer-events: auto;
 }
 </style>

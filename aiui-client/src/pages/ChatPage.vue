@@ -271,6 +271,7 @@
         :show-new-chat="hasMessages"
         :is-streaming="streamingChat.isStreaming.value"
         :expanded="composerExpanded"
+        :context-usage="composerContextPercent"
         @error="handleSttError"
         @status="handleSttStatus"
         @send-message="sendMessage"
@@ -285,6 +286,7 @@
         :show-new-chat="hasMessages"
         :is-streaming="streamingChat.isStreaming.value"
         :expanded="composerExpanded"
+        :context-usage="composerContextPercent"
         :end-of-utterance-ms="endOfUtteranceMs"
         :inactivity-timeout-ms="inactivityTimeoutMs"
         @error="handleSttError"
@@ -557,6 +559,10 @@ export default {
     contextUsageRatio() {
       if (!this.llamaContextWindow) return 0
       return Math.min(1, Math.max(0, this.lastContextTokens / this.llamaContextWindow))
+    },
+    composerContextPercent() {
+      if (!this.isLlamaModel || !this.hasMessages) return null
+      return Math.round(this.contextUsageRatio * 100)
     },
     assistantBusy() {
       return this.streamingChat.isStreaming.value || this.ttsPlayer.isPlaying.value
