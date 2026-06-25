@@ -180,9 +180,11 @@ export default {
       return this.isStreaming ? 'Stop generating' : 'Send message'
     },
     inputStyle () {
-      return this.expanded
-        ? { minHeight: '120px', maxHeight: '40vh', paddingBottom: '45px' }
-        : { minHeight: '0', maxHeight: '40vh', paddingLeft: '52px', paddingRight: '100px' }
+      if (this.expanded) {
+        return { minHeight: '120px', maxHeight: '40vh', paddingBottom: '45px' }
+      }
+      const paddingLeft = this.contextUsage !== null ? '88px' : '52px'
+      return { minHeight: '0', maxHeight: '40vh', paddingLeft, paddingRight: '100px' }
     },
     showSpinner () {
       return this.isTranscribing && !this.isRecording
