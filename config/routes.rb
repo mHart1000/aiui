@@ -23,7 +23,9 @@ Rails.application.routes.draw do
       resources :messages, only: [ :create, :update ]
       post "messages/stream", to: "messages#create_streaming"
     end
-    resources :models, only: [ :index ]
+    resources :models, only: [ :index ] do
+      get :llama_context, on: :collection
+    end
     resources :rag_documents, only: [ :index, :create, :destroy ]
 
     get "user", to: "user#show"

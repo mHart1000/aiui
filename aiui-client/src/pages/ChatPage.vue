@@ -15,17 +15,6 @@
         dense
         style="max-width: 380px"
       />
-      <q-input
-        v-if="isLlamaModel"
-        v-model.number="llamaContextWindow"
-        type="number"
-        label="Context window"
-        dense
-        debounce="500"
-        :min="1"
-        style="max-width: 140px"
-        @update:model-value="updateContextWindow"
-      />
       <q-select
         v-model="personaSelection"
         :options="personaOptions"
@@ -95,6 +84,22 @@
           color="primary"
           style="width: 160px"
         />
+      </div>
+      <div v-if="isLlamaModel && hasMessages" class="context-usage">
+        <q-circular-progress
+          :value="contextUsageRatio * 100"
+          size="32px"
+          :thickness="0.2"
+          color="primary"
+          track-color="grey-3"
+          show-value
+          class="text-caption"
+        >
+          {{ Math.round(contextUsageRatio * 100) }}%
+        </q-circular-progress>
+        <div class="text-caption text-grey-7">
+          {{ lastContextTokens.toLocaleString() }} / {{ llamaContextWindow.toLocaleString() }} tokens
+        </div>
       </div>
     </div>
 
@@ -266,6 +271,7 @@
         :show-new-chat="hasMessages"
         :is-streaming="streamingChat.isStreaming.value"
         :expanded="composerExpanded"
+        :context-usage="composerContextPercent"
         @error="handleSttError"
         @status="handleSttStatus"
         @send-message="sendMessage"
@@ -280,6 +286,7 @@
         :show-new-chat="hasMessages"
         :is-streaming="streamingChat.isStreaming.value"
         :expanded="composerExpanded"
+        :context-usage="composerContextPercent"
         :end-of-utterance-ms="endOfUtteranceMs"
         :inactivity-timeout-ms="inactivityTimeoutMs"
         @error="handleSttError"
@@ -291,22 +298,6 @@
       />
     </div>
 
-    <div v-if="isLlamaModel && hasMessages" class="context-usage q-mb-md">
-      <q-circular-progress
-        :value="contextUsageRatio * 100"
-        size="32px"
-        :thickness="0.2"
-        color="primary"
-        track-color="grey-3"
-        show-value
-        class="text-caption"
-      >
-        {{ Math.round(contextUsageRatio * 100) }}%
-      </q-circular-progress>
-      <div class="text-caption text-grey-7">
-        {{ lastContextTokens.toLocaleString() }} / {{ llamaContextWindow.toLocaleString() }} tokens
-      </div>
-    </div>
   </q-page>
 </template>
 
@@ -428,6 +419,9 @@ export default {
     window.removeEventListener('keydown', this.handleVoiceEscape)
   },
   watch: {
+    isLlamaModel(isLlama) {
+      if (isLlama) this.fetchLlamaContext()
+    },
     '$route.params.id': {
       immediate: true,
       async handler(newId) {
@@ -565,6 +559,10 @@ export default {
     contextUsageRatio() {
       if (!this.llamaContextWindow) return 0
       return Math.min(1, Math.max(0, this.lastContextTokens / this.llamaContextWindow))
+    },
+    composerContextPercent() {
+      if (!this.isLlamaModel || !this.hasMessages) return null
+      return Math.round(this.contextUsageRatio * 100)
     },
     assistantBusy() {
       return this.streamingChat.isStreaming.value || this.ttsPlayer.isPlaying.value
@@ -841,22 +839,12 @@ export default {
       }
     },
 
-    async updateContextWindow(value) {
-      const intValue = Number.parseInt(value, 10)
-      if (!Number.isFinite(intValue) || intValue <= 0) return
+    async fetchLlamaContext() {
       try {
-        await api.patch('/api/user', {
-          user: { llama_context_window: intValue }
-        })
-        this.llamaContextWindow = intValue
+        const res = await api.get('/api/models/llama_context')
+        if (res.data.n_ctx) this.llamaContextWindow = res.data.n_ctx
       } catch (err) {
-        console.error('Error updating context window:', err)
-        this.$q.notify({
-          type: 'negative',
-          message: 'Failed to update context window',
-          position: 'top',
-          timeout: 2000
-        })
+        console.error('Error fetching llama context window:', err)
       }
     },
 

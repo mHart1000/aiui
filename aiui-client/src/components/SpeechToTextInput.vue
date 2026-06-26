@@ -25,6 +25,18 @@
           >
             <q-tooltip>New chat</q-tooltip>
           </q-btn>
+          <q-circular-progress
+            v-if="contextUsage !== null"
+            :value="contextUsage"
+            size="28px"
+            :thickness="0.2"
+            font-size="9px"
+            color="primary"
+            track-color="grey-3"
+            show-value
+          >
+            {{ contextUsage }}%
+          </q-circular-progress>
         </div>
 
         <div class="right-buttons">
@@ -98,6 +110,10 @@ export default {
       type: Boolean,
       default: true
     },
+    contextUsage: {
+      type: Number,
+      default: null
+    },
     showNewChat: {
       type: Boolean,
       default: false
@@ -152,9 +168,11 @@ export default {
       return this.isStreaming ? 'Stop generating' : 'Send message'
     },
     inputStyle () {
-      return this.expanded
-        ? { minHeight: '120px', maxHeight: '40vh', paddingBottom: '45px' }
-        : { minHeight: '0', maxHeight: '40vh', paddingLeft: '52px', paddingRight: '100px' }
+      if (this.expanded) {
+        return { minHeight: '120px', maxHeight: '40vh', paddingBottom: '45px' }
+      }
+      const paddingLeft = this.contextUsage !== null ? '88px' : '52px'
+      return { minHeight: '0', maxHeight: '40vh', paddingLeft, paddingRight: '100px' }
     },
     showSpinner () {
       return this.isTranscribing && !this.isRecording
@@ -573,6 +591,7 @@ export default {
 .right-buttons {
   display: flex;
   gap: 4px;
+  align-items: center;
   pointer-events: auto;
 }
 </style>
