@@ -393,7 +393,8 @@ export default {
     isSavingEdit: false,
     voiceChatMode: false,
     endOfUtteranceMs: 2500,
-    inactivityTimeoutSec: 15
+    inactivityTimeoutSec: 15,
+    armTimer: null
   }),
   async mounted() {
     const modelsRes = await api.get('/api/models')
@@ -417,6 +418,7 @@ export default {
   },
   beforeUnmount() {
     window.removeEventListener('keydown', this.handleVoiceEscape)
+    this.cancelArm()
   },
   watch: {
     isLlamaModel(isLlama) {
@@ -478,18 +480,9 @@ export default {
     },
     voiceShouldListen(newVal, oldVal) {
       if (newVal && !oldVal) {
-        // Defer to next tick so the v-else VoiceChatInput is mounted and
-        // $refs.voice is available (e.g. on initial toggle of voice mode).
-        this.$nextTick(() => {
-          this.$refs.voice?.startRecording().catch((err) => {
-            this.$q?.notify?.({
-              type: 'negative',
-              message: `Mic error: ${err?.message || err}`,
-              timeout: 3000
-            })
-          })
-        })
+        this.scheduleArm()
       } else if (!newVal && oldVal) {
+        this.cancelArm()
         this.$refs.voice?.stopRecording()
       }
     }
@@ -586,6 +579,29 @@ export default {
     },
     handleSttStatus(status) {
       console.log('Speech status:', status)
+    },
+    // Debounce the start so a brief assistant-busy flicker can't flap the mic.
+    scheduleArm() {
+      this.cancelArm()
+      this.armTimer = setTimeout(() => {
+        this.armTimer = null
+        if (!this.voiceShouldListen) return
+        this.$nextTick(() => {
+          this.$refs.voice?.startRecording().catch((err) => {
+            this.$q?.notify?.({
+              type: 'negative',
+              message: `Mic error: ${err?.message || err}`,
+              timeout: 3000
+            })
+          })
+        })
+      }, 300)
+    },
+    cancelArm() {
+      if (this.armTimer) {
+        clearTimeout(this.armTimer)
+        this.armTimer = null
+      }
     },
     handleRetry() {
       this.streamingChat.retryLastMessage()

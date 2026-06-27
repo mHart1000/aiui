@@ -401,10 +401,12 @@ export default {
         } catch { /* ignore */ }
       }
 
+      // Stop only the stream this teardown owns, not one a later start acquired.
+      const stream = this.mediaStream
       this.transcribePipeline.finally(() => {
-        if (this.mediaStream) {
-          try { this.mediaStream.getTracks().forEach(t => t.stop()) } catch { /* ignore */ }
-          this.mediaStream = null
+        if (stream) {
+          try { stream.getTracks().forEach(t => t.stop()) } catch { /* ignore */ }
+          if (this.mediaStream === stream) this.mediaStream = null
         }
       })
     },
@@ -434,10 +436,11 @@ export default {
       // onto transcribePipeline (which happens inside the recorder's 'stop'
       // event handler below).
       const finalize = () => {
+        const stream = this.mediaStream
         this.transcribePipeline.finally(() => {
-          if (this.mediaStream) {
-            try { this.mediaStream.getTracks().forEach(t => t.stop()) } catch { /* ignore */ }
-            this.mediaStream = null
+          if (stream) {
+            try { stream.getTracks().forEach(t => t.stop()) } catch { /* ignore */ }
+            if (this.mediaStream === stream) this.mediaStream = null
           }
           const text = (this.modelValue || '').trim()
           if (text || !requireText) {
