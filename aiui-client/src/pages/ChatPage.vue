@@ -1039,7 +1039,6 @@ export default {
 .chat-page {
   height: 100vh;
   overflow: hidden;
-  padding-top: 14px;
 }
 .toolbar-wrap {
   overflow: hidden;

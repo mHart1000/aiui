@@ -33,4 +33,11 @@ Rails.application.config.to_prepare do
     description: "As short as Terse, but warmer in tone. Good for voice/spoken chat where curtness feels cold.",
     path: Rails.root.join("persona", "friendly-terse.md")
   )
+
+  Persona.register(
+    id: "voice",
+    name: "Voice",
+    description: "Purely conversational, for spoken voice mode. Written for the ear and never references anything visual.",
+    path: Rails.root.join("persona", "voice.md")
+  )
 end
