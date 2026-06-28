@@ -45,6 +45,7 @@
         :current-voice="ttsPlayer.currentVoice.value"
         :speed="ttsPlayer.speed.value"
         :available-voices="ttsPlayer.availableVoices.value"
+        :label-always="toolbarExpanded"
         @update:enabled="handleTtsEnabledChange"
         @update:voice="handleTtsVoiceChange"
         @update:speed="handleTtsSpeedChange"
@@ -1038,6 +1039,7 @@ export default {
 .chat-page {
   height: 100vh;
   overflow: hidden;
+  padding-top: 14px;
 }
 .toolbar-wrap {
   overflow: hidden;
