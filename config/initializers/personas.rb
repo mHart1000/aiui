@@ -40,4 +40,11 @@ Rails.application.config.to_prepare do
     description: "Purely conversational, for spoken voice mode. Written for the ear and never references anything visual.",
     path: Rails.root.join("persona", "voice.md")
   )
+
+  Persona.register(
+    id: "interviewer",
+    name: "Interviewer",
+    description: "A supportive mock-interview coach for voice mode. You're the candidate; it asks questions and gives quick feedback after each answer.",
+    path: Rails.root.join("persona", "interviewer.md")
+  )
 end
