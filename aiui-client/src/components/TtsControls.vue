@@ -76,7 +76,8 @@
         :max="2.0"
         :step="0.1"
         :label-value="speed.toFixed(1) + 'x'"
-        label-always
+        label
+        :label-always="labelAlways"
         dense
         style="flex: 1"
       />
@@ -116,6 +117,10 @@ export default {
     availableVoices: {
       type: Array,
       required: true
+    },
+    labelAlways: {
+      type: Boolean,
+      default: true
     }
   },
 
