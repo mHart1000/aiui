@@ -1,11 +1,13 @@
 # frozen_string_literal: true
 
 class TextToSpeechService
+  DEFAULT_ADAPTER = "kokoro"
+
   # Synthesizes text to speech using the specified adapter
   # @param text [String] The text to synthesize
   # @param voice [String, nil] Voice identifier
   # @param speed [Float, nil] Playback speed multiplier
-  # @param adapter [String, Symbol, nil] Which TTS adapter to use (default: :kokoro)
+  # @param adapter [String, Symbol, nil] Which TTS adapter to use (default: ENV["TTS_ADAPTER"] or :kokoro)
   # @return [String] Raw audio bytes
   def self.call(text:, voice: nil, speed: nil, adapter: nil)
     adapter_instance = resolve_adapter(adapter)
@@ -29,18 +31,19 @@ class TextToSpeechService
   end
 
   # Resolves adapter name to adapter instance
+  # Defaults to ENV["TTS_ADAPTER"] (falling back to Kokoro) when no name is given
   # @param adapter [String, Symbol, nil] Adapter name
   # @return [TtsAdapters::BaseAdapter] Adapter instance
   def self.resolve_adapter(adapter)
-    case adapter&.to_s
-    when "kokoro", nil
+    name = adapter&.to_s || ENV["TTS_ADAPTER"] || DEFAULT_ADAPTER
+
+    case name.downcase
+    when "kokoro"
       TtsAdapters::KokoroAdapter.new
-    # Future adapters:
-    # when "tada"
-    #   TtsAdapters::TadaAdapter.new
-    # when "elevenlabs"
-    #   TtsAdapters::ElevenLabsAdapter.new
+    when "qwen3"
+      TtsAdapters::Qwen3Adapter.new
     else
+      Rails.logger.warn "Unknown TTS adapter #{name.inspect}, falling back to Kokoro"
       TtsAdapters::KokoroAdapter.new
     end
   end

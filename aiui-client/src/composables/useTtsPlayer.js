@@ -362,6 +362,11 @@ export function useTtsPlayer() {
       if (isTtsAvailable.value) {
         const voicesResponse = await api.get('/api/tts/voices')
         availableVoices.value = voicesResponse.data.voices || []
+
+        // Persisted voice may belong to a different TTS engine
+        if (availableVoices.value.length > 0 && !availableVoices.value.includes(currentVoice.value)) {
+          currentVoice.value = availableVoices.value[0]
+        }
       }
 
       return isTtsAvailable.value

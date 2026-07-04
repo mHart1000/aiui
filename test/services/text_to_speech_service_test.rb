@@ -30,6 +30,26 @@ class TextToSpeechServiceTest < ActiveSupport::TestCase
     @mock_adapter.verify
   end
 
+  test "qwen3 adapter name resolves to Qwen3Adapter" do
+    @mock_adapter.expect(:available?, true)
+    TtsAdapters::Qwen3Adapter.stub(:new, @mock_adapter) do
+      assert TextToSpeechService.available?(adapter: "qwen3")
+    end
+    @mock_adapter.verify
+  end
+
+  test "TTS_ADAPTER env var selects the default adapter" do
+    previous = ENV["TTS_ADAPTER"]
+    ENV["TTS_ADAPTER"] = "qwen3"
+    @mock_adapter.expect(:available?, true)
+    TtsAdapters::Qwen3Adapter.stub(:new, @mock_adapter) do
+      assert TextToSpeechService.available?
+    end
+    @mock_adapter.verify
+  ensure
+    previous.nil? ? ENV.delete("TTS_ADAPTER") : ENV["TTS_ADAPTER"] = previous
+  end
+
   test "unknown adapter name falls back to KokoroAdapter" do
     @mock_adapter.expect(:available?, true)
     TtsAdapters::KokoroAdapter.stub(:new, @mock_adapter) do

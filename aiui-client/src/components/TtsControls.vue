@@ -10,7 +10,7 @@
       :label="isTtsAvailable ? 'Voice' : 'Voice (unavailable)'"
     >
       <q-tooltip v-if="!isTtsAvailable">
-        TTS service is not available. Make sure the Kokoro server is running.
+        TTS service is not available. Make sure the TTS server is running.
       </q-tooltip>
     </q-toggle>
 

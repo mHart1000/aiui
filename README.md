@@ -74,7 +74,7 @@ ssh -f -N -L 8080:127.0.0.1:8080 WINDOWS_USER@IP
 
 And this to connect to the embedder:
 ```bash
-ssh -f -N -L 8080:127.0.0.1:8080 WINDOWS_USER@IP
+ssh -f -N -L 8090:127.0.0.1:8090 WINDOWS_USER@IP
 ```
 Test the connection from the app machine:
 ```bash
@@ -92,10 +92,40 @@ LLAMA_API_URL: http://localhost:8080/v1
 ```
 
 ## TTS setup:
+The TTS engine is selected with `TTS_ADAPTER` in `.env` (`kokoro` or `qwen3`, default `kokoro`). Restart the backend after switching.
+
+### Kokoro (local CPU)
 Start Kokoro engine:
 ```bash
-docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpuLLAMA_API_URL: http://localhost:8080/v1
+docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu
 
+```
+
+### Qwen3 TTS (remote GPU, via SSH tunnel)
+
+Runs on the same GPU machine as llama.cpp. Start a Qwen3 TTS server exposing the OpenAI-compatible speech API (`/v1/audio/speech`) on the remote machine:
+
+```bash
+# adjust to your serving stack; it must listen on 0.0.0.0:8881
+<qwen3-tts-server> --host 0.0.0.0 --port 8881
+```
+
+Bridge the port from the app machine, same as the llama.cpp tunnels:
+
+```bash
+ssh -f -N -L 8881:127.0.0.1:8881 WINDOWS_USER@IP
+```
+
+Test the connection from the app machine:
+```bash
+curl http://localhost:8881/v1/audio/voices
+```
+
+Then in `.env`:
+```bash
+TTS_ADAPTER=qwen3
+QWEN3_TTS_URL=http://localhost:8881
+# QWEN3_TTS_MODEL=qwen3-tts   # override if your server names the model differently
 ```
 
 ## STT setup (Whisper):
