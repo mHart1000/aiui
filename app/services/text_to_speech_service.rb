@@ -14,6 +14,23 @@ class TextToSpeechService
     adapter_instance.synthesize(text: text, voice: voice, speed: speed)
   end
 
+  # Streams synthesized audio, yielding chunks as they arrive
+  # @param text [String] The text to synthesize
+  # @param voice [String, nil] Voice identifier
+  # @param speed [Float, nil] Playback speed multiplier
+  # @param adapter [String, Symbol, nil] Which TTS adapter to use
+  # @yield [String] Raw audio chunks
+  def self.stream(text:, voice: nil, speed: nil, adapter: nil, &block)
+    resolve_adapter(adapter).synthesize_stream(text: text, voice: voice, speed: speed, &block)
+  end
+
+  # Whether the active adapter supports chunked streaming
+  # @param adapter [String, Symbol, nil] Which TTS adapter to check
+  # @return [Boolean]
+  def self.streaming?(adapter: nil)
+    resolve_adapter(adapter).streaming?
+  end
+
   # Checks if the TTS backend is available
   # @param adapter [String, Symbol, nil] Which TTS adapter to check
   # @return [Boolean] true if the adapter is available

@@ -47,6 +47,45 @@ module TtsAdapters
       response.body
     end
 
+    # @return [Boolean] Chatterbox-TTS-Server supports chunked streaming
+    def streaming?
+      true
+    end
+
+    # Streams synthesized audio via the server's /tts endpoint:
+    # one WAV header, then crossfaded PCM16 chunks as generation proceeds
+    # @param text [String] The text to synthesize
+    # @param voice [String, nil] Voice identifier; first available voice when nil
+    # @param speed [Float, nil] Playback speed multiplier (default: 1.0)
+    # @yield [String] Raw audio chunks
+    def synthesize_stream(text:, voice: nil, speed: nil)
+      uri = URI("#{@base_url}/tts")
+
+      request = Net::HTTP::Post.new(uri)
+      request["Content-Type"] = "application/json"
+      request.body = {
+        text: text,
+        voice_mode: "predefined",
+        predefined_voice_id: voice || voices.first,
+        stream: true,
+        split_text: true,
+        speed_factor: speed || 1.0
+      }.to_json
+
+      Net::HTTP.start(uri.hostname, uri.port,
+                      use_ssl: uri.scheme == "https",
+                      open_timeout: 5,
+                      read_timeout: 60) do |http|
+        http.request(request) do |response|
+          unless response.is_a?(Net::HTTPSuccess)
+            raise "Chatterbox TTS stream failed: #{response.code} #{response.message}"
+          end
+
+          response.read_body { |chunk| yield chunk }
+        end
+      end
+    end
+
     # Returns list of available Chatterbox voices
     # @return [Array<String>] Array of voice identifiers
     def voices

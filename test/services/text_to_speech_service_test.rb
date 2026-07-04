@@ -58,6 +58,25 @@ class TextToSpeechServiceTest < ActiveSupport::TestCase
     previous.nil? ? ENV.delete("TTS_ADAPTER") : ENV["TTS_ADAPTER"] = previous
   end
 
+  test "stream delegates chunks to adapter synthesize_stream" do
+    chunks = []
+    fake_adapter = Object.new
+    def fake_adapter.synthesize_stream(text:, voice: nil, speed: nil)
+      yield "chunk1"
+      yield "chunk2"
+    end
+    TtsAdapters::KokoroAdapter.stub(:new, fake_adapter) do
+      TextToSpeechService.stream(text: "Hello") { |c| chunks << c }
+    end
+    assert_equal %w[chunk1 chunk2], chunks
+  end
+
+  test "adapter streaming capability flags" do
+    assert TtsAdapters::ChatterboxAdapter.new.streaming?
+    refute TtsAdapters::KokoroAdapter.new.streaming?
+    refute TtsAdapters::Qwen3Adapter.new.streaming?
+  end
+
   test "unknown adapter name falls back to KokoroAdapter" do
     @mock_adapter.expect(:available?, true)
     TtsAdapters::KokoroAdapter.stub(:new, @mock_adapter) do

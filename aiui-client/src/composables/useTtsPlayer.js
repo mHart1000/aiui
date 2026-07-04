@@ -29,8 +29,16 @@ export function useTtsPlayer() {
   let textBuffer = ''
   let isProcessing = false
   let currentPlaybackChain = null
+  // Streaming engines: rolling batches, one stream in flight
+  // (docs/tts-streaming-spec.md)
+  let serverStreaming = false
+  let streamWorkerActive = false
+  let streamNextStartTime = 0 // Rolling schedule clock across batches
+  let streamAbort = null
+  let activeSources = [] // Scheduled-ahead sources, silenced by stop()
 
-  const PREFETCH_AHEAD = 3 // How many sentences to synthesize ahead
+  const PREFETCH_AHEAD = 3 // How many sentences to synthesize ahead (non-streaming engines)
+  const STREAM_SEGMENT_SECONDS = 0.5 // Audio per scheduled segment when streaming
 
   /**
    * Split text into sentences
@@ -217,7 +225,9 @@ export function useTtsPlayer() {
     queueLength.value = sentenceQueue.length
 
     // Start processing if not already
-    if (!isProcessing) {
+    if (serverStreaming) {
+      runStreamWorker()
+    } else if (!isProcessing) {
       processQueue()
     }
   }
@@ -265,17 +275,13 @@ export function useTtsPlayer() {
     const synthesizingCount = sentenceQueue.filter(item => item.status === 'synthesizing').length
     const pendingItems = sentenceQueue.filter(item => item.status === 'pending')
 
-    // Start synthesizing up to PREFETCH_AHEAD sentences
     const toSynthesize = Math.min(PREFETCH_AHEAD - synthesizingCount, pendingItems.length)
 
-    const promises = []
+    // Fire without awaiting: awaiting batches here serialized the pipeline,
+    // delaying the next sentence until the previous batch fully finished.
+    // synthesizeSentence handles its own errors.
     for (let i = 0; i < toSynthesize; i++) {
-      const item = pendingItems[i]
-      promises.push(synthesizeSentence(item))
-    }
-
-    if (promises.length > 0) {
-      await Promise.allSettled(promises)
+      synthesizeSentence(pendingItems[i])
     }
   }
 
@@ -357,6 +363,7 @@ export function useTtsPlayer() {
     try {
       const response = await api.get('/api/tts/status')
       isTtsAvailable.value = response.data.available
+      serverStreaming = !!response.data.streaming
 
       // Also fetch available voices if TTS is available
       if (isTtsAvailable.value) {
@@ -406,6 +413,176 @@ export function useTtsPlayer() {
     } catch (error) {
       console.error('TTS synthesis failed:', error)
       throw error
+    }
+  }
+
+  /**
+   * Stream worker for streaming engines: sends all pending sentences as one
+   * /api/tts/stream request (the server chunks the text internally), schedules
+   * arriving audio on a rolling clock, and immediately fires the next batch
+   * with whatever sentences accumulated while the previous one streamed.
+   */
+  async function runStreamWorker() {
+    if (streamWorkerActive) return
+    streamWorkerActive = true
+    isPlaying.value = true
+    const ctx = initAudioContext()
+    streamNextStartTime = Math.max(streamNextStartTime, ctx.currentTime)
+
+    try {
+      while (isPlaying.value) {
+        const batch = sentenceQueue.filter(item => item.status === 'pending')
+
+        if (batch.length > 0) {
+          for (const item of batch) item.status = 'synthesizing'
+          const clockBefore = streamNextStartTime
+          try {
+            await streamBatch(batch.map(item => item.text).join('\n'), ctx)
+          } catch (error) {
+            if (error.name === 'AbortError') {
+              // stop() aborted us; the loop exits via isPlaying
+            } else if (streamNextStartTime > clockBefore) {
+              // Partial audio arrived and was scheduled; drop the batch
+              console.error('TTS batch stream interrupted:', error)
+            } else {
+              // Nothing arrived: fall back to per-sentence synthesis
+              console.warn('TTS stream failed, falling back to per-sentence synthesis:', error)
+              serverStreaming = false
+              for (const item of batch) item.status = 'pending'
+              isPlaying.value = false
+              if (!isProcessing) processQueue()
+              return
+            }
+          }
+          for (const item of batch) item.status = 'done'
+          sentenceQueue = sentenceQueue.filter(item => item.status !== 'done')
+          queueLength.value = sentenceQueue.length
+          continue
+        }
+
+        // Nothing pending: exit once the scheduled audio has finished playing
+        if (ctx.currentTime >= streamNextStartTime - 0.03) break
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+    } finally {
+      streamWorkerActive = false
+    }
+
+    isPlaying.value = false
+    // Catch sentences that arrived in the exit window
+    if (serverStreaming && sentenceQueue.some(item => item.status === 'pending')) {
+      runStreamWorker()
+    }
+  }
+
+  /**
+   * Stream one batch of text from /api/tts/stream (single WAV header, then
+   * continuous PCM16), scheduling segments onto the rolling clock as they
+   * arrive. Resolves when the stream has been fully received — which, with
+   * generation faster than real time, is well before it finishes playing.
+   *
+   * @param {string} text - Batch text (the server splits it internally)
+   * @param {AudioContext} ctx - Audio context for scheduling
+   */
+  async function streamBatch(text, ctx) {
+    const controller = new AbortController()
+    streamAbort = controller
+
+    try {
+      const headers = { 'Content-Type': 'application/json' }
+      const token = localStorage.getItem('jwt')
+      if (token) headers.Authorization = `Bearer ${token}`
+
+      const baseURL = import.meta.env.VITE_API_BASE_URL || ''
+      const response = await fetch(`${baseURL}/api/tts/stream`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          text,
+          voice: currentVoice.value,
+          speed: speed.value
+        }),
+        signal: controller.signal
+      })
+
+      if (!response.ok || !response.body) {
+        throw new Error(`TTS stream failed: ${response.status}`)
+      }
+
+      const reader = response.body.getReader()
+      let wavFormat = null // { channels, sampleRate }
+      let pending = new Uint8Array(0)
+
+      const scheduleSegment = (byteCount) => {
+        const segBytes = pending.slice(0, byteCount)
+        pending = pending.slice(byteCount)
+
+        const samples = new Int16Array(segBytes.buffer, 0, segBytes.length / 2)
+        const frames = samples.length / wavFormat.channels
+        const buffer = ctx.createBuffer(wavFormat.channels, frames, wavFormat.sampleRate)
+        for (let ch = 0; ch < wavFormat.channels; ch++) {
+          const data = buffer.getChannelData(ch)
+          for (let i = 0; i < frames; i++) {
+            data[i] = samples[i * wavFormat.channels + ch] / 32768
+          }
+        }
+
+        const source = ctx.createBufferSource()
+        source.buffer = buffer
+        source.connect(ctx.destination)
+        const startTime = Math.max(streamNextStartTime, ctx.currentTime)
+        source.start(startTime)
+        streamNextStartTime = startTime + buffer.duration
+        trackSource(source)
+        currentPlaybackChain = source
+      }
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        const merged = new Uint8Array(pending.length + value.length)
+        merged.set(pending)
+        merged.set(value, pending.length)
+        pending = merged
+
+        if (!wavFormat && pending.length >= 44) {
+          const view = new DataView(pending.buffer, 0, 44)
+          wavFormat = {
+            channels: view.getUint16(22, true),
+            sampleRate: view.getUint32(24, true)
+          }
+          pending = pending.slice(44)
+        }
+
+        if (wavFormat) {
+          const frameBytes = wavFormat.channels * 2
+          const segmentBytes = Math.floor(wavFormat.sampleRate * STREAM_SEGMENT_SECONDS) * frameBytes
+          while (pending.length >= segmentBytes) {
+            scheduleSegment(segmentBytes)
+          }
+        }
+      }
+
+      // Flush the frame-aligned remainder
+      if (wavFormat) {
+        const frameBytes = wavFormat.channels * 2
+        const flushable = pending.length - (pending.length % frameBytes)
+        if (flushable > 0) scheduleSegment(flushable)
+      }
+    } finally {
+      if (streamAbort === controller) streamAbort = null
+    }
+  }
+
+  /**
+   * Track a scheduled-ahead source so stop() can silence it
+   */
+  function trackSource(source) {
+    activeSources.push(source)
+    source.onended = () => {
+      const i = activeSources.indexOf(source)
+      if (i !== -1) activeSources.splice(i, 1)
     }
   }
 
@@ -486,7 +663,13 @@ export function useTtsPlayer() {
     isPlaying.value = false
     isPaused.value = false
 
-    // Stop current audio
+    // Abort the in-flight batch stream
+    if (streamAbort) {
+      try { streamAbort.abort() } catch { /* already settled */ }
+      streamAbort = null
+    }
+
+    // Stop current audio and any scheduled-ahead stream segments
     if (currentPlaybackChain) {
       try {
         currentPlaybackChain.stop()
@@ -496,6 +679,15 @@ export function useTtsPlayer() {
       }
       currentPlaybackChain = null
     }
+    for (const source of activeSources) {
+      try {
+        source.stop()
+        source.disconnect()
+      } catch {
+        // Already stopped
+      }
+    }
+    activeSources = []
 
     // Clear queue
     sentenceQueue = []

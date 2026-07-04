@@ -22,5 +22,20 @@ module TtsAdapters
     def available?
       raise NotImplementedError, "#{self.class} must implement #available?"
     end
+
+    # Whether the adapter supports chunked streaming synthesis
+    # @return [Boolean]
+    def streaming?
+      false
+    end
+
+    # Streams synthesized audio, yielding chunks as they arrive
+    # @param text [String] The text to synthesize
+    # @param voice [String, nil] The voice identifier to use
+    # @param speed [Float, nil] The playback speed (0.5 - 2.0)
+    # @yield [String] Raw audio chunks (WAV header first, then PCM)
+    def synthesize_stream(text:, voice: nil, speed: nil, &block)
+      raise NotImplementedError, "#{self.class} does not support streaming"
+    end
   end
 end

@@ -47,15 +47,15 @@ module Api
     end
 
     # GET /api/tts/status
-    # Checks if TTS service is available
+    # Checks if TTS service is available and whether it streams
     #
-    # Returns: { available: true/false }
+    # Returns: { available: true/false, streaming: true/false }
     def status
       available = TextToSpeechService.available?
-      render json: { available: available }
+      render json: { available: available, streaming: TextToSpeechService.streaming? }
     rescue StandardError => e
       Rails.logger.error "TTS status check failed: #{e.message}"
-      render json: { available: false }
+      render json: { available: false, streaming: false }
     end
   end
 end
