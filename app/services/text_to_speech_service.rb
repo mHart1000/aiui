@@ -42,6 +42,8 @@ class TextToSpeechService
       TtsAdapters::KokoroAdapter.new
     when "qwen3"
       TtsAdapters::Qwen3Adapter.new
+    when "chatterbox"
+      TtsAdapters::ChatterboxAdapter.new
     else
       Rails.logger.warn "Unknown TTS adapter #{name.inspect}, falling back to Kokoro"
       TtsAdapters::KokoroAdapter.new

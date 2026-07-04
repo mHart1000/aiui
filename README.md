@@ -92,7 +92,7 @@ LLAMA_API_URL: http://localhost:8080/v1
 ```
 
 ## TTS setup:
-The TTS engine is selected with `TTS_ADAPTER` in `.env` (`kokoro` or `qwen3`, default `kokoro`). Restart the backend after switching.
+The TTS engine is selected with `TTS_ADAPTER` in `.env` (`kokoro`, `qwen3`, or `chatterbox`; default `kokoro`). Restart the backend after switching.
 
 ### Kokoro (local CPU)
 Start Kokoro engine:
@@ -144,6 +144,42 @@ Then in `.env`:
 TTS_ADAPTER=qwen3
 QWEN3_TTS_URL=http://localhost:8881
 # QWEN3_TTS_MODEL=qwen3-tts   # override if your server names the model differently
+```
+
+### Chatterbox (remote GPU, via SSH tunnel)
+
+Served via [Chatterbox-TTS-Server](https://github.com/devnen/Chatterbox-TTS-Server) (OpenAI-compatible `/v1/audio/speech`). One-time setup on the remote machine (WSL2):
+
+```bash
+sudo apt install -y ffmpeg    # required for mp3 encoding
+git clone https://github.com/devnen/Chatterbox-TTS-Server.git
+cd Chatterbox-TTS-Server
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements-nvidia.txt
+pip install --no-deps git+https://github.com/devnen/chatterbox-v2.git@master s3tokenizer==0.3.0 onnx==1.16.0
+# onnx needs protobuf 4.x (skipped by --no-deps); perth needs pkg_resources (removed in setuptools 81)
+pip install "protobuf>=4.25,<5" "setuptools<81"
+```
+
+Start the server (defaults to `0.0.0.0:8004`, configurable in its `config.yaml`; model downloads on first run):
+
+```bash
+python server.py
+```
+
+Bridge the port from the app machine and test:
+
+```bash
+ssh -f -N -L 8004:127.0.0.1:8004 WINDOWS_USER@IP
+curl http://localhost:8004/v1/audio/voices
+```
+
+Then in `.env`:
+```bash
+TTS_ADAPTER=chatterbox
+CHATTERBOX_TTS_URL=http://localhost:8004
 ```
 
 ## STT setup (Whisper):

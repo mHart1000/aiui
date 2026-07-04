@@ -38,6 +38,14 @@ class TextToSpeechServiceTest < ActiveSupport::TestCase
     @mock_adapter.verify
   end
 
+  test "chatterbox adapter name resolves to ChatterboxAdapter" do
+    @mock_adapter.expect(:available?, true)
+    TtsAdapters::ChatterboxAdapter.stub(:new, @mock_adapter) do
+      assert TextToSpeechService.available?(adapter: "chatterbox")
+    end
+    @mock_adapter.verify
+  end
+
   test "TTS_ADAPTER env var selects the default adapter" do
     previous = ENV["TTS_ADAPTER"]
     ENV["TTS_ADAPTER"] = "qwen3"
