@@ -103,11 +103,29 @@ docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu
 
 ### Qwen3 TTS (remote GPU, via SSH tunnel)
 
-Runs on the same GPU machine as llama.cpp. Start a Qwen3 TTS server exposing the OpenAI-compatible speech API (`/v1/audio/speech`) on the remote machine:
+Runs on the same GPU machine as llama.cpp, served via [Qwen3-TTS-Openai-Fastapi](https://github.com/groxaxo/Qwen3-TTS-Openai-Fastapi) (OpenAI-compatible `/v1/audio/speech`). One-time setup on the remote machine (WSL2):
 
 ```bash
-# adjust to your serving stack; it must listen on 0.0.0.0:8881
-<qwen3-tts-server> --host 0.0.0.0 --port 8881
+sudo apt install -y sox        # required for audio processing
+git clone https://github.com/groxaxo/Qwen3-TTS-Openai-Fastapi
+cd Qwen3-TTS-Openai-Fastapi
+python3 -m venv .venv          # needs python 3.10+
+source .venv/bin/activate
+pip install -e ".[api]"
+```
+
+(`flash-attn` is an optional speedup but fails to build against mismatched system/torch CUDA versions — skip it unless latency is a problem.)
+
+Start the server on 8881 (its default 8880 collides with local Kokoro; model weights download from Hugging Face on first run). Load the model eagerly and disable the 300s idle self-shutdown:
+
+```bash
+PORT=8881 TTS_LAZY_LOAD=false TTS_IDLE_TIMEOUT_SECONDS=0 python -m api.main
+```
+
+Or with Docker instead:
+```bash
+docker build -t qwen3-tts-api .
+docker run --gpus all -p 8881:8880 qwen3-tts-api
 ```
 
 Bridge the port from the app machine, same as the llama.cpp tunnels:
@@ -118,7 +136,7 @@ ssh -f -N -L 8881:127.0.0.1:8881 WINDOWS_USER@IP
 
 Test the connection from the app machine:
 ```bash
-curl http://localhost:8881/v1/audio/voices
+curl http://localhost:8881/v1/voices
 ```
 
 Then in `.env`:
