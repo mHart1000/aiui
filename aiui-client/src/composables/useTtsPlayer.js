@@ -226,7 +226,9 @@ export function useTtsPlayer() {
 
     // Start processing if not already
     if (serverStreaming) {
-      runStreamWorker()
+      // Defer a tick so a synchronous burst of sentences (read-aloud,
+      // multi-sentence LLM chunks) lands in one batch
+      setTimeout(runStreamWorker, 0)
     } else if (!isProcessing) {
       processQueue()
     }

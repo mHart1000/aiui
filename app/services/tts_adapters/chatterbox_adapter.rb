@@ -69,6 +69,8 @@ module TtsAdapters
         predefined_voice_id: voice || voices.first,
         stream: true,
         split_text: true,
+        # Small chunks so each batch's first audio arrives sooner
+        chunk_size: 50,
         speed_factor: speed || 1.0
       }.to_json
 
