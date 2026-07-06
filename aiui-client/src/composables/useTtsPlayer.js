@@ -145,7 +145,8 @@ export function useTtsPlayer() {
   /**
    * Convert markdown to speakable plain text so the synthesizer doesn't read
    * out formatting characters or skip inline code. Underscores are left alone
-   * to avoid mangling snake_case identifiers.
+   * to avoid mangling snake_case identifiers. Dashes used as prose punctuation
+   * become periods so Chatterbox actually pauses (it drops the em-dash glyph).
    *
    * @param {string} text - Sentence to normalize
    * @returns {string} Plain text
@@ -161,6 +162,8 @@ export function useTtsPlayer() {
       .replace(/^\s{0,3}>\s?/gm, '')            // blockquote markers
       .replace(/^\s{0,3}[-*+•]\s+/gm, '')       // list markers
       .replace(/[`*]/g, '')                     // stray backticks/asterisks
+      .replace(/\s*(?:—|--)\s*/g, '. ')         // em dash / double hyphen -> pause
+      .replace(/\s+–\s+/g, '. ')                // spaced en dash -> pause (keep 10–20 ranges)
       .replace(/\s{2,}/g, ' ')
       .trim()
   }
