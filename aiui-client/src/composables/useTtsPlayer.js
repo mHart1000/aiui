@@ -50,9 +50,9 @@ export function useTtsPlayer() {
   function splitIntoSentences(text) {
     if (!text || text.trim().length === 0) return []
 
-    // Remove code blocks (don't speak code)
+    // Drop fenced code blocks entirely (don't speak whole snippets).
+    // Inline code and other markdown is normalized later in queueSentence.
     text = text.replace(/```[\s\S]*?```/g, '')
-    text = text.replace(/`[^`]+`/g, '')
 
     const sentences = []
     
@@ -143,6 +143,29 @@ export function useTtsPlayer() {
   }
 
   /**
+   * Convert markdown to speakable plain text so the synthesizer doesn't read
+   * out formatting characters or skip inline code. Underscores are left alone
+   * to avoid mangling snake_case identifiers.
+   *
+   * @param {string} text - Sentence to normalize
+   * @returns {string} Plain text
+   */
+  function stripMarkdown(text) {
+    return text
+      .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1') // images -> alt text
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')  // links -> link text
+      .replace(/`([^`]+)`/g, '$1')              // inline code -> spoken content
+      .replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1')  // bold/italic -> inner text
+      .replace(/~~([^~]+)~~/g, '$1')            // strikethrough -> inner text
+      .replace(/^\s{0,3}#{1,6}\s+/gm, '')       // heading markers
+      .replace(/^\s{0,3}>\s?/gm, '')            // blockquote markers
+      .replace(/^\s{0,3}[-*+•]\s+/gm, '')       // list markers
+      .replace(/[`*]/g, '')                     // stray backticks/asterisks
+      .replace(/\s{2,}/g, ' ')
+      .trim()
+  }
+
+  /**
    * Extract complete sentences from buffer
    * Used for streaming text that arrives incrementally
    */
@@ -212,10 +235,12 @@ export function useTtsPlayer() {
    * @param {string} sentence - Sentence to queue
    */
   async function queueSentence(sentence) {
-    if (!sentence || sentence.trim().length === 0) return
+    if (!sentence) return
+    const spoken = stripMarkdown(sentence.trim())
+    if (spoken.length === 0) return
 
     const queueItem = {
-      text: sentence.trim(),
+      text: spoken,
       status: 'pending', // pending | synthesizing | ready | playing | done
       audioBuffer: null,
       error: null
