@@ -3,6 +3,13 @@ require "test_helper"
 class TextToSpeechServiceTest < ActiveSupport::TestCase
   def setup
     @mock_adapter = Minitest::Mock.new
+    # Tests that stub the default adapter assume Kokoro; a TTS_ADAPTER in the
+    # environment (.env) would otherwise resolve a real adapter and hit the network.
+    @previous_tts_adapter = ENV.delete("TTS_ADAPTER")
+  end
+
+  def teardown
+    ENV["TTS_ADAPTER"] = @previous_tts_adapter if @previous_tts_adapter
   end
 
   test "call delegates to adapter synthesize and returns audio bytes" do
@@ -73,8 +80,8 @@ class TextToSpeechServiceTest < ActiveSupport::TestCase
 
   test "adapter streaming capability flags" do
     assert TtsAdapters::ChatterboxAdapter.new.streaming?
+    assert TtsAdapters::Qwen3Adapter.new.streaming?
     refute TtsAdapters::KokoroAdapter.new.streaming?
-    refute TtsAdapters::Qwen3Adapter.new.streaming?
   end
 
   test "unknown adapter name falls back to KokoroAdapter" do

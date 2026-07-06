@@ -103,29 +103,37 @@ docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu
 
 ### Qwen3 TTS (remote GPU, via SSH tunnel)
 
-Runs on the same GPU machine as llama.cpp, served via [Qwen3-TTS-Openai-Fastapi](https://github.com/groxaxo/Qwen3-TTS-Openai-Fastapi) (OpenAI-compatible `/v1/audio/speech`). One-time setup on the remote machine (WSL2):
+Runs on the same GPU machine as llama.cpp, served via [faster-qwen3-tts](https://github.com/andimarafioti/faster-qwen3-tts) — CUDA-graph inference that makes Qwen3-TTS faster than realtime on the 3090 (~RTF 0.32; see [docs/faster-qwen3-tts-spec.md](docs/faster-qwen3-tts-spec.md)). Its `examples/openai_server.py` is a voice-*cloning* server (OpenAI-compatible `/v1/audio/speech` + `/health`, no voices endpoint), so we clone a fixed reference clip. One-time setup on the remote machine (WSL2):
 
 ```bash
-sudo apt install -y sox        # required for audio processing
-git clone https://github.com/groxaxo/Qwen3-TTS-Openai-Fastapi
-cd Qwen3-TTS-Openai-Fastapi
+sudo apt install -y sox        # for playing/inspecting wavs
+git clone https://github.com/andimarafioti/faster-qwen3-tts
+cd faster-qwen3-tts
 python3 -m venv .venv          # needs python 3.10+
 source .venv/bin/activate
-pip install -e ".[api]"
+pip install -U pip
+pip install -e ".[demo]"
 ```
 
-(`flash-attn` is an optional speedup but fails to build against mismatched system/torch CUDA versions — skip it unless latency is a problem.)
-
-Start the server on 8881 (its default 8880 collides with local Kokoro; model weights download from Hugging Face on first run). Load the model eagerly and disable the 300s idle self-shutdown:
+Render a reference clip from a predefined CustomVoice speaker (only in the CLI, not the HTTP server), then register it for cloning. Keep the exact `--text` as the reference transcript:
 
 ```bash
-PORT=8881 TTS_LAZY_LOAD=false TTS_IDLE_TIMEOUT_SECONDS=0 python -m api.main
+faster-qwen3-tts custom --model Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
+  --speaker aiden \
+  --text "Some clean, natural paragraph about ten seconds long when spoken aloud." \
+  --output ref_aiden.wav
 ```
 
-Or with Docker instead:
+Create `voices.json` mapping the voice name to that clip (the adapter sends `voice: "aiden"`, matching `QWEN3_TTS_VOICES`):
+
+```json
+{ "aiden": { "ref_audio": "ref_aiden.wav", "ref_text": "Some clean, natural paragraph about ten seconds long when spoken aloud.", "language": "English" } }
+```
+
+Start the server on 8881 (0.6B base model is the fast clone model; weights download from Hugging Face on first run, and CUDA-graph capture runs once at startup):
+
 ```bash
-docker build -t qwen3-tts-api .
-docker run --gpus all -p 8881:8880 qwen3-tts-api
+python examples/openai_server.py --model Qwen/Qwen3-TTS-12Hz-0.6B-Base --voices voices.json --port 8881
 ```
 
 Bridge the port from the app machine, same as the llama.cpp tunnels:
@@ -136,14 +144,14 @@ ssh -f -N -L 8881:127.0.0.1:8881 WINDOWS_USER@IP
 
 Test the connection from the app machine:
 ```bash
-curl http://localhost:8881/v1/voices
+curl http://localhost:8881/health   # -> {"status":"ok","model_loaded":true}
 ```
 
 Then in `.env`:
 ```bash
 TTS_ADAPTER=qwen3
 QWEN3_TTS_URL=http://localhost:8881
-# QWEN3_TTS_MODEL=qwen3-tts   # override if your server names the model differently
+QWEN3_TTS_VOICES=aiden   # comma-separated; must match voices.json keys
 ```
 
 ### Chatterbox (remote GPU, via SSH tunnel)
