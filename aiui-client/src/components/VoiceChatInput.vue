@@ -8,7 +8,7 @@
         :model-value="modelValue"
         @update:model-value="handleInput"
         @keydown.enter.exact.prevent="handleSend"
-        placeholder="Listening…"
+        :placeholder="statusText"
         type="textarea"
         :input-style="inputStyle"
       />
