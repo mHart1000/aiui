@@ -1,21 +1,7 @@
 <template>
-  <div class="tts-controls row items-center q-gutter-x-sm">
-    <!-- TTS Enable Toggle -->
-    <q-toggle
-      :model-value="isEnabled"
-      @update:model-value="$emit('update:enabled', $event)"
-      :disable="!isTtsAvailable"
-      color="primary"
-      icon="volume_up"
-      :label="isTtsAvailable ? 'Voice' : 'Voice (unavailable)'"
-    >
-      <q-tooltip v-if="!isTtsAvailable">
-        TTS service is not available. Make sure the TTS server is running.
-      </q-tooltip>
-    </q-toggle>
-
-    <!-- Playback Controls (shown when TTS is enabled and playing/paused) -->
-    <div v-if="isEnabled && (isPlaying || isPaused)" class="row items-center q-gutter-xs">
+  <div v-if="show" class="tts-controls row items-center q-gutter-x-sm">
+    <!-- Playback Controls (shown while playing/paused) -->
+    <div v-if="isPlaying || isPaused" class="row items-center q-gutter-xs">
       <q-btn
         v-if="!isPlaying && isPaused"
         round
@@ -57,7 +43,7 @@
 
     <!-- Voice Selector -->
     <q-select
-      v-if="isEnabled && availableVoices.length > 0"
+      v-if="availableVoices.length > 0"
       :model-value="currentVoice"
       @update:model-value="$emit('update:voice', $event)"
       :options="availableVoices"
@@ -67,7 +53,7 @@
     />
 
     <!-- Speed Control -->
-    <div v-if="isEnabled" class="row items-center q-gutter-xs" style="min-width: 120px">
+    <div class="row items-center q-gutter-xs" style="min-width: 120px">
       <q-icon name="speed" size="xs" />
       <q-slider
         :model-value="speed"
@@ -90,7 +76,7 @@ export default {
   name: 'TtsControls',
 
   props: {
-    isEnabled: {
+    show: {
       type: Boolean,
       required: true
     },
@@ -99,10 +85,6 @@ export default {
       required: true
     },
     isPaused: {
-      type: Boolean,
-      required: true
-    },
-    isTtsAvailable: {
       type: Boolean,
       required: true
     },
@@ -125,10 +107,8 @@ export default {
   },
 
   emits: [
-    'update:enabled',
     'update:voice',
     'update:speed',
-    'play',
     'pause',
     'resume',
     'stop'

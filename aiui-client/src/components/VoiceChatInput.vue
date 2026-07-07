@@ -25,6 +25,16 @@
           >
             <q-tooltip>New chat</q-tooltip>
           </q-btn>
+          <q-btn
+            v-if="ttsAvailable"
+            round
+            flat
+            :icon="muted ? 'volume_off' : 'volume_up'"
+            :color="muted ? 'negative' : 'primary'"
+            @click="$emit('toggle-mute')"
+          >
+            <q-tooltip>{{ muted ? 'Unmute voice output' : 'Mute voice output' }}</q-tooltip>
+          </q-btn>
           <q-circular-progress
             v-if="contextUsage !== null"
             :value="contextUsage"
@@ -119,6 +129,14 @@ export default {
       type: Boolean,
       default: false
     },
+    muted: {
+      type: Boolean,
+      default: false
+    },
+    ttsAvailable: {
+      type: Boolean,
+      default: false
+    },
     endOfUtteranceMs: {
       type: Number,
       default: 2500
@@ -140,7 +158,7 @@ export default {
       default: 15000
     }
   },
-  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat', 'stop'],
+  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat', 'stop', 'toggle-mute'],
   data () {
     return {
       isLoading: false,

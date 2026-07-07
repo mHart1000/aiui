@@ -33,30 +33,29 @@
       />
       <q-toggle
         v-model="ragEnabled"
-        label="Personal Context"
+        label="Context"
         @update:model-value="updateRagEnabled"
         color="primary"
-      />
-      <TtsControls
-        :is-enabled="ttsPlayer.isEnabled.value"
-        :is-playing="ttsPlayer.isPlaying.value"
-        :is-paused="ttsPlayer.isPaused.value"
-        :is-tts-available="ttsPlayer.isTtsAvailable.value"
-        :current-voice="ttsPlayer.currentVoice.value"
-        :speed="ttsPlayer.speed.value"
-        :available-voices="ttsPlayer.availableVoices.value"
-        :label-always="toolbarExpanded"
-        @update:enabled="handleTtsEnabledChange"
-        @update:voice="handleTtsVoiceChange"
-        @update:speed="handleTtsSpeedChange"
-        @pause="ttsPlayer.pause()"
-        @resume="ttsPlayer.resume()"
-        @stop="ttsPlayer.stop()"
       />
       <q-toggle
         v-model="voiceChatMode"
         label="Voice mode"
         color="primary"
+        @update:model-value="handleVoiceModeChange"
+      />
+      <TtsControls
+        :show="voiceChatMode"
+        :is-playing="ttsPlayer.isPlaying.value"
+        :is-paused="ttsPlayer.isPaused.value"
+        :current-voice="ttsPlayer.currentVoice.value"
+        :speed="ttsPlayer.speed.value"
+        :available-voices="ttsPlayer.availableVoices.value"
+        :label-always="toolbarExpanded"
+        @update:voice="handleTtsVoiceChange"
+        @update:speed="handleTtsSpeedChange"
+        @pause="ttsPlayer.pause()"
+        @resume="ttsPlayer.resume()"
+        @stop="ttsPlayer.stop()"
       />
       <div v-if="voiceChatMode" class="row items-center q-gutter-sm" style="min-width: 220px">
         <span class="text-caption text-grey-7">Pause</span>
@@ -290,11 +289,14 @@
         :context-usage="composerContextPercent"
         :end-of-utterance-ms="endOfUtteranceMs"
         :inactivity-timeout-ms="inactivityTimeoutMs"
+        :muted="!ttsPlayer.isEnabled.value"
+        :tts-available="ttsPlayer.isTtsAvailable.value"
         @error="handleSttError"
         @status="handleSttStatus"
         @send-message="sendMessage"
         @stop="stopStreaming"
         @new-chat="newChat"
+        @toggle-mute="handleToggleMute"
         class="col message-input"
       />
     </div>
@@ -411,7 +413,7 @@ export default {
     this.personas = userRes.data.personas || []
     this.llamaContextWindow = userRes.data.llama_context_window || 8192
 
-    this.ttsPlayer.setEnabled(userRes.data.tts_enabled || false)
+    // TTS output now follows voice mode (off until voice mode is enabled).
     this.ttsPlayer.setVoice(userRes.data.tts_voice || 'af_heart')
     this.ttsPlayer.setSpeed(userRes.data.tts_speed || 1.0)
 
@@ -886,9 +888,17 @@ export default {
       }
     },
 
-    async handleTtsEnabledChange(value) {
+    // Voice mode owns TTS output: entering it turns voice output on by default.
+    async handleVoiceModeChange(value) {
       this.ttsPlayer.setEnabled(value)
       await this.updateTtsPreference({ tts_enabled: value })
+    },
+
+    // Mute button in the composer: toggle voice output without leaving voice mode.
+    async handleToggleMute() {
+      const enabled = !this.ttsPlayer.isEnabled.value
+      this.ttsPlayer.setEnabled(enabled)
+      await this.updateTtsPreference({ tts_enabled: enabled })
     },
 
     async handleTtsVoiceChange(value) {
