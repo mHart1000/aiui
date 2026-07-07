@@ -4,10 +4,8 @@ require "net/http"
 require "json"
 
 module TtsAdapters
-  # Targets faster-qwen3-tts's examples/openai_server.py (CUDA-graph serving).
-  # It exposes only POST /v1/audio/speech and GET /health — no voices endpoint —
-  # and clones a voice from a reference clip configured server-side.
-  # See docs/faster-qwen3-tts-spec.md.
+  # Targets faster-qwen3-tts's openai_server.py: a cloning server exposing only
+  # POST /v1/audio/speech and GET /health (no voices endpoint). See docs/faster-qwen3-tts-spec.md.
   class Qwen3Adapter < BaseAdapter
     DEFAULT_URL = "http://localhost:8881"
     DEFAULT_MODEL = "qwen3-tts"
@@ -15,8 +13,7 @@ module TtsAdapters
 
     def initialize
       @base_url = ENV.fetch("QWEN3_TTS_URL", DEFAULT_URL)
-      # Cosmetic: the served model is fixed by the server's --model flag; the
-      # request's model field is ignored by the OpenAI-compatible endpoint.
+      # Cosmetic: the server ignores this; the model is fixed by its --model flag.
       @model = ENV.fetch("QWEN3_TTS_MODEL", DEFAULT_MODEL)
     end
 
@@ -78,8 +75,7 @@ module TtsAdapters
       end
     end
 
-    # The server has no voices endpoint; voices are cloned from reference clips
-    # configured at launch, so the list is supplied via config.
+    # No voices endpoint; the list mirrors the server's configured clone voices.
     # @return [Array<String>] Configured voice names (must match voices.json keys)
     def voices
       configured = ENV["QWEN3_TTS_VOICES"].to_s.split(",").map(&:strip).reject(&:empty?)

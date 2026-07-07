@@ -37,8 +37,8 @@ export function useTtsPlayer() {
   let streamAbort = null
   let activeSources = [] // Scheduled-ahead sources, silenced by stop()
 
-  const PREFETCH_AHEAD = 3 // How many sentences to synthesize ahead (non-streaming engines)
-  const STREAM_SEGMENT_SECONDS = 0.5 // Audio per scheduled segment when streaming
+  const PREFETCH_AHEAD = 3 // Non-streaming engines only
+  const STREAM_SEGMENT_SECONDS = 0.5 // Seconds of audio per scheduled segment
 
   /**
    * Split text into sentences
@@ -50,8 +50,7 @@ export function useTtsPlayer() {
   function splitIntoSentences(text) {
     if (!text || text.trim().length === 0) return []
 
-    // Drop fenced code blocks entirely (don't speak whole snippets).
-    // Inline code and other markdown is normalized later in queueSentence.
+    // Drop fenced code blocks; inline code/markdown is normalized in queueSentence
     text = text.replace(/```[\s\S]*?```/g, '')
 
     const sentences = []
@@ -143,10 +142,8 @@ export function useTtsPlayer() {
   }
 
   /**
-   * Convert markdown to speakable plain text so the synthesizer doesn't read
-   * out formatting characters or skip inline code. Underscores are left alone
-   * to avoid mangling snake_case identifiers. Dashes used as prose punctuation
-   * become periods so Chatterbox actually pauses (it drops the em-dash glyph).
+   * Convert markdown to speakable plain text (formatting stripped, inline code kept).
+   * Underscores stay (snake_case); prose dashes become periods so the engine pauses.
    *
    * @param {string} text - Sentence to normalize
    * @returns {string} Plain text
@@ -254,8 +251,7 @@ export function useTtsPlayer() {
 
     // Start processing if not already
     if (serverStreaming) {
-      // Defer a tick so a synchronous burst of sentences (read-aloud,
-      // multi-sentence LLM chunks) lands in one batch
+      // Defer a tick so a synchronous burst of sentences batches together
       setTimeout(runStreamWorker, 0)
     } else if (!isProcessing) {
       processQueue()
@@ -307,9 +303,7 @@ export function useTtsPlayer() {
 
     const toSynthesize = Math.min(PREFETCH_AHEAD - synthesizingCount, pendingItems.length)
 
-    // Fire without awaiting: awaiting batches here serialized the pipeline,
-    // delaying the next sentence until the previous batch fully finished.
-    // synthesizeSentence handles its own errors.
+    // Fire without awaiting: awaiting here serializes the pipeline
     for (let i = 0; i < toSynthesize; i++) {
       synthesizeSentence(pendingItems[i])
     }
@@ -447,10 +441,8 @@ export function useTtsPlayer() {
   }
 
   /**
-   * Stream worker for streaming engines: sends all pending sentences as one
-   * /api/tts/stream request (the server chunks the text internally), schedules
-   * arriving audio on a rolling clock, and immediately fires the next batch
-   * with whatever sentences accumulated while the previous one streamed.
+   * Stream worker: batches pending sentences into one /api/tts/stream request
+   * and schedules arriving audio. See docs/tts-streaming-spec.md.
    */
   async function runStreamWorker() {
     if (streamWorkerActive) return
@@ -506,10 +498,8 @@ export function useTtsPlayer() {
   }
 
   /**
-   * Stream one batch of text from /api/tts/stream (single WAV header, then
-   * continuous PCM16), scheduling segments onto the rolling clock as they
-   * arrive. Resolves when the stream has been fully received — which, with
-   * generation faster than real time, is well before it finishes playing.
+   * Stream one batch from /api/tts/stream (WAV header then PCM16), scheduling
+   * segments on the rolling clock as they arrive.
    *
    * @param {string} text - Batch text (the server splits it internally)
    * @param {AudioContext} ctx - Audio context for scheduling

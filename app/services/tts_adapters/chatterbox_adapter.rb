@@ -22,8 +22,7 @@ module TtsAdapters
 
       request = Net::HTTP::Post.new(uri)
       request["Content-Type"] = "application/json"
-      # model and voice are required by the server's schema; voices are
-      # filenames from its ./voices directory, so default to the first one
+      # model and voice are required by the schema; default voice to the first available
       request.body = {
         model: "chatterbox",
         input: text,
@@ -52,8 +51,7 @@ module TtsAdapters
       true
     end
 
-    # Streams synthesized audio via the server's /tts endpoint:
-    # one WAV header, then crossfaded PCM16 chunks as generation proceeds
+    # Streams audio from the server's /tts endpoint: one WAV header, then PCM16 chunks
     # @param text [String] The text to synthesize
     # @param voice [String, nil] Voice identifier; first available voice when nil
     # @param speed [Float, nil] Playback speed multiplier (default: 1.0)
