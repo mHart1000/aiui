@@ -74,7 +74,7 @@ ssh -f -N -L 8080:127.0.0.1:8080 WINDOWS_USER@IP
 
 And this to connect to the embedder:
 ```bash
-ssh -f -N -L 8080:127.0.0.1:8080 WINDOWS_USER@IP
+ssh -f -N -L 8090:127.0.0.1:8090 WINDOWS_USER@IP
 ```
 Test the connection from the app machine:
 ```bash
@@ -92,10 +92,97 @@ LLAMA_API_URL: http://localhost:8080/v1
 ```
 
 ## TTS setup:
+The TTS engine is selected with `TTS_ADAPTER` in `.env` (`kokoro`, `qwen3`, or `chatterbox`; default `kokoro`). Restart the backend after switching.
+
+### Kokoro (local CPU)
 Start Kokoro engine:
 ```bash
-docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpuLLAMA_API_URL: http://localhost:8080/v1
+docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu
 
+```
+
+### Qwen3 TTS (remote GPU, via SSH tunnel)
+
+Served on the GPU machine (like llama.cpp) via [faster-qwen3-tts](https://github.com/andimarafioti/faster-qwen3-tts) — CUDA-graph inference that runs Qwen3-TTS faster than realtime on the 3090 (RTF ≈ 0.32; [spec](docs/faster-qwen3-tts-spec.md)). Its `openai_server.py` only *clones* voices (OpenAI `/v1/audio/speech` + `/health`, no voices endpoint), so we register one reference clip. One-time setup on the remote machine (WSL2):
+
+```bash
+sudo apt install -y sox        # for playing/inspecting wavs
+git clone https://github.com/andimarafioti/faster-qwen3-tts
+cd faster-qwen3-tts
+python3 -m venv .venv          # python 3.10+
+source .venv/bin/activate
+pip install -U pip && pip install -e ".[demo]"
+```
+
+Render a reference clip from a built-in CustomVoice speaker (CLI-only — the HTTP server has no speaker mode), keeping `--text` as its transcript:
+
+```bash
+faster-qwen3-tts custom --model Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
+  --speaker aiden \
+  --text "Some clean, natural paragraph about ten seconds long when spoken aloud." \
+  --output ref_aiden.wav
+```
+
+Register it in `voices.json` (the adapter sends `voice: "aiden"`, matching `QWEN3_TTS_VOICES`):
+
+```json
+{ "aiden": { "ref_audio": "ref_aiden.wav", "ref_text": "Some clean, natural paragraph about ten seconds long when spoken aloud.", "language": "English" } }
+```
+
+Start the server — 0.6B is the fast clone model; weights download and the CUDA graph captures once on first run:
+
+```bash
+python examples/openai_server.py --model Qwen/Qwen3-TTS-12Hz-0.6B-Base --voices voices.json --port 8881
+```
+
+Tunnel and verify from the app machine:
+
+```bash
+ssh -f -N -L 8881:127.0.0.1:8881 WINDOWS_USER@IP
+curl http://localhost:8881/health   # -> {"status":"ok","model_loaded":true}
+```
+
+Then in `.env`:
+```bash
+TTS_ADAPTER=qwen3
+QWEN3_TTS_URL=http://localhost:8881
+QWEN3_TTS_VOICES=aiden   # comma-separated; must match voices.json keys
+```
+
+### Chatterbox (remote GPU, via SSH tunnel)
+
+Served via [Chatterbox-TTS-Server](https://github.com/devnen/Chatterbox-TTS-Server) (OpenAI-compatible `/v1/audio/speech`). One-time setup on the remote machine (WSL2):
+
+```bash
+sudo apt install -y ffmpeg    # required for mp3 encoding
+git clone https://github.com/devnen/Chatterbox-TTS-Server.git
+cd Chatterbox-TTS-Server
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements-nvidia.txt
+pip install --no-deps git+https://github.com/devnen/chatterbox-v2.git@master s3tokenizer==0.3.0 onnx==1.16.0
+# onnx needs protobuf 4.x (skipped by --no-deps); perth needs pkg_resources (removed in setuptools 81)
+pip install "protobuf>=4.25,<5" "setuptools<81"
+```
+
+Start the server (defaults to `0.0.0.0:8004`, configurable in its `config.yaml`; model downloads on first run):
+
+```bash
+python server.py
+```
+
+Bridge the port from the app machine and test:
+
+```bash
+ssh -f -N -L 8004:127.0.0.1:8004 WINDOWS_USER@IP
+curl http://localhost:8004/v1/audio/voices
+```
+
+Then in `.env`:
+```bash
+TTS_ADAPTER=chatterbox
+CHATTERBOX_TTS_URL=http://localhost:8004
 ```
 
 ## STT setup (Whisper):

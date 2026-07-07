@@ -10,7 +10,7 @@
       :label="isTtsAvailable ? 'Voice' : 'Voice (unavailable)'"
     >
       <q-tooltip v-if="!isTtsAvailable">
-        TTS service is not available. Make sure the Kokoro server is running.
+        TTS service is not available. Make sure the TTS server is running.
       </q-tooltip>
     </q-toggle>
 
@@ -76,7 +76,8 @@
         :max="2.0"
         :step="0.1"
         :label-value="speed.toFixed(1) + 'x'"
-        label-always
+        label
+        :label-always="labelAlways"
         dense
         style="flex: 1"
       />
@@ -116,6 +117,10 @@ export default {
     availableVoices: {
       type: Array,
       required: true
+    },
+    labelAlways: {
+      type: Boolean,
+      default: true
     }
   },
 

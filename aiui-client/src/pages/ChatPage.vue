@@ -45,6 +45,7 @@
         :current-voice="ttsPlayer.currentVoice.value"
         :speed="ttsPlayer.speed.value"
         :available-voices="ttsPlayer.availableVoices.value"
+        :label-always="toolbarExpanded"
         @update:enabled="handleTtsEnabledChange"
         @update:voice="handleTtsVoiceChange"
         @update:speed="handleTtsSpeedChange"
