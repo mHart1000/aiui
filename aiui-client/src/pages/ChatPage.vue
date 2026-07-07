@@ -37,12 +37,6 @@
         @update:model-value="updateRagEnabled"
         color="primary"
       />
-      <q-toggle
-        v-model="voiceChatMode"
-        label="Voice mode"
-        color="primary"
-        @update:model-value="handleVoiceModeChange"
-      />
       <TtsControls
         :show="voiceChatMode"
         :is-playing="ttsPlayer.isPlaying.value"
@@ -272,11 +266,13 @@
         :is-streaming="streamingChat.isStreaming.value"
         :expanded="composerExpanded"
         :context-usage="composerContextPercent"
+        :voice-mode="voiceChatMode"
         @error="handleSttError"
         @status="handleSttStatus"
         @send-message="sendMessage"
         @stop="stopStreaming"
         @new-chat="newChat"
+        @toggle-voice-mode="toggleVoiceMode"
         class="col message-input"
       />
       <VoiceChatInput
@@ -291,12 +287,14 @@
         :inactivity-timeout-ms="inactivityTimeoutMs"
         :muted="!ttsPlayer.isEnabled.value"
         :tts-available="ttsPlayer.isTtsAvailable.value"
+        :voice-mode="voiceChatMode"
         @error="handleSttError"
         @status="handleSttStatus"
         @send-message="sendMessage"
         @stop="stopStreaming"
         @new-chat="newChat"
         @toggle-mute="handleToggleMute"
+        @toggle-voice-mode="toggleVoiceMode"
         @inactivity-timeout="handleVoiceInactivityTimeout"
         class="col message-input"
       />
@@ -887,6 +885,13 @@ export default {
           timeout: 2000
         })
       }
+    },
+
+    // Voice-mode button in the composer.
+    toggleVoiceMode() {
+      const next = !this.voiceChatMode
+      this.voiceChatMode = next
+      this.handleVoiceModeChange(next)
     },
 
     // Voice mode owns TTS output: entering it turns voice output on by default.

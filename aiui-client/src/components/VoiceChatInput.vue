@@ -54,6 +54,16 @@
           <q-btn
             round
             flat
+            icon="record_voice_over"
+            :color="voiceMode ? 'primary' : 'grey-7'"
+            @click="$emit('toggle-voice-mode')"
+          >
+            <q-tooltip>{{ voiceMode ? 'Turn voice mode off' : 'Turn voice mode on' }}</q-tooltip>
+          </q-btn>
+
+          <q-btn
+            round
+            flat
             :icon="micIcon"
             :color="isRecording ? 'negative' : 'primary'"
             :loading="showSpinner"
@@ -137,6 +147,10 @@ export default {
       type: Boolean,
       default: false
     },
+    voiceMode: {
+      type: Boolean,
+      default: false
+    },
     endOfUtteranceMs: {
       type: Number,
       default: 2500
@@ -158,7 +172,7 @@ export default {
       default: 15000
     }
   },
-  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat', 'stop', 'toggle-mute', 'inactivity-timeout'],
+  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat', 'stop', 'toggle-mute', 'inactivity-timeout', 'toggle-voice-mode'],
   data () {
     return {
       isLoading: false,
