@@ -158,7 +158,7 @@ export default {
       default: 15000
     }
   },
-  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat', 'stop', 'toggle-mute'],
+  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat', 'stop', 'toggle-mute', 'inactivity-timeout'],
   data () {
     return {
       isLoading: false,
@@ -618,7 +618,8 @@ export default {
       // user pauses long enough to auto-submit, or stops it manually.
       if (!this.inactivityTimeoutMs || this.inactivityTimeoutMs <= 0) return
       this.inactivityTimer = setTimeout(() => {
-        if (this.isRecording) this.stopRecording()
+        // Silence timeout exits voice mode; ChatPage stops the mic via its watcher.
+        if (this.isRecording) this.$emit('inactivity-timeout')
       }, this.inactivityTimeoutMs)
     },
 

@@ -297,6 +297,7 @@
         @stop="stopStreaming"
         @new-chat="newChat"
         @toggle-mute="handleToggleMute"
+        @inactivity-timeout="handleVoiceInactivityTimeout"
         class="col message-input"
       />
     </div>
@@ -892,6 +893,12 @@ export default {
     async handleVoiceModeChange(value) {
       this.ttsPlayer.setEnabled(value)
       await this.updateTtsPreference({ tts_enabled: value })
+    },
+
+    // Silence timeout: leave voice mode instead of stranding the mic off in it.
+    handleVoiceInactivityTimeout() {
+      this.voiceChatMode = false
+      this.handleVoiceModeChange(false)
     },
 
     // Mute button in the composer: toggle voice output without leaving voice mode.
