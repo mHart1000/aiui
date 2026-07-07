@@ -103,19 +103,18 @@ docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu
 
 ### Qwen3 TTS (remote GPU, via SSH tunnel)
 
-Runs on the same GPU machine as llama.cpp, served via [faster-qwen3-tts](https://github.com/andimarafioti/faster-qwen3-tts) — CUDA-graph inference that makes Qwen3-TTS faster than realtime on the 3090 (~RTF 0.32; see [docs/faster-qwen3-tts-spec.md](docs/faster-qwen3-tts-spec.md)). Its `examples/openai_server.py` is a voice-*cloning* server (OpenAI-compatible `/v1/audio/speech` + `/health`, no voices endpoint), so we clone a fixed reference clip. One-time setup on the remote machine (WSL2):
+Served on the GPU machine (like llama.cpp) via [faster-qwen3-tts](https://github.com/andimarafioti/faster-qwen3-tts) — CUDA-graph inference that runs Qwen3-TTS faster than realtime on the 3090 (RTF ≈ 0.32; [spec](docs/faster-qwen3-tts-spec.md)). Its `openai_server.py` only *clones* voices (OpenAI `/v1/audio/speech` + `/health`, no voices endpoint), so we register one reference clip. One-time setup on the remote machine (WSL2):
 
 ```bash
 sudo apt install -y sox        # for playing/inspecting wavs
 git clone https://github.com/andimarafioti/faster-qwen3-tts
 cd faster-qwen3-tts
-python3 -m venv .venv          # needs python 3.10+
+python3 -m venv .venv          # python 3.10+
 source .venv/bin/activate
-pip install -U pip
-pip install -e ".[demo]"
+pip install -U pip && pip install -e ".[demo]"
 ```
 
-Render a reference clip from a predefined CustomVoice speaker (only in the CLI, not the HTTP server), then register it for cloning. Keep the exact `--text` as the reference transcript:
+Render a reference clip from a built-in CustomVoice speaker (CLI-only — the HTTP server has no speaker mode), keeping `--text` as its transcript:
 
 ```bash
 faster-qwen3-tts custom --model Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
@@ -124,26 +123,22 @@ faster-qwen3-tts custom --model Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
   --output ref_aiden.wav
 ```
 
-Create `voices.json` mapping the voice name to that clip (the adapter sends `voice: "aiden"`, matching `QWEN3_TTS_VOICES`):
+Register it in `voices.json` (the adapter sends `voice: "aiden"`, matching `QWEN3_TTS_VOICES`):
 
 ```json
 { "aiden": { "ref_audio": "ref_aiden.wav", "ref_text": "Some clean, natural paragraph about ten seconds long when spoken aloud.", "language": "English" } }
 ```
 
-Start the server on 8881 (0.6B base model is the fast clone model; weights download from Hugging Face on first run, and CUDA-graph capture runs once at startup):
+Start the server — 0.6B is the fast clone model; weights download and the CUDA graph captures once on first run:
 
 ```bash
 python examples/openai_server.py --model Qwen/Qwen3-TTS-12Hz-0.6B-Base --voices voices.json --port 8881
 ```
 
-Bridge the port from the app machine, same as the llama.cpp tunnels:
+Tunnel and verify from the app machine:
 
 ```bash
 ssh -f -N -L 8881:127.0.0.1:8881 WINDOWS_USER@IP
-```
-
-Test the connection from the app machine:
-```bash
 curl http://localhost:8881/health   # -> {"status":"ok","model_loaded":true}
 ```
 
