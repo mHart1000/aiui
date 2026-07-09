@@ -132,6 +132,7 @@ Register it in `voices.json` (the adapter sends `voice: "aiden"`, matching `QWEN
 Start the server — 0.6B is the fast clone model; weights download and the CUDA graph captures once on first run:
 
 ```bash
+source .venv/bin/activate
 python examples/openai_server.py --model Qwen/Qwen3-TTS-12Hz-0.6B-Base --voices voices.json --port 8881
 ```
 
@@ -147,6 +148,19 @@ Then in `.env`:
 TTS_ADAPTER=qwen3
 QWEN3_TTS_URL=http://localhost:8881
 QWEN3_TTS_VOICES=aiden   # comma-separated; must match voices.json keys
+```
+
+**Adding custom voices** — clone any clean ~5–15s WAV (mono/24 kHz; `ffmpeg -i in.wav -ac 1 -ar 24000 out.wav`):
+
+1. Add an entry to `voices.json` on the GPU box: `"kerry": { "ref_audio": "kerry.wav", "ref_text": "<exact transcript of the clip>", "language": "English" }`, and restart the server.
+2. Append the name to `QWEN3_TTS_VOICES` environment variable. Names must match the `voices.json` keys.
+
+```bash
+ffmpeg -i reference-clip.mp4 \
+  -vn \
+  -ac 1 \
+  -ar 24000 \
+  reference-clip.wav
 ```
 
 ### Chatterbox (remote GPU, via SSH tunnel)
