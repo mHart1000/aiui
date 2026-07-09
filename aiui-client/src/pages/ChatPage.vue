@@ -218,12 +218,13 @@
                 dense
                 round
                 size="sm"
-                icon="volume_up"
+                :icon="readingAloudIndex === i ? 'stop' : 'volume_up'"
+                :color="readingAloudIndex === i ? 'negative' : undefined"
                 class="copy-btn"
-                @click="readAloud(msg.content)"
+                @click="readingAloudIndex === i ? stopReadAloud() : readAloud(msg.content, i)"
                 :disable="!msg.content || msg.content.trim().length === 0"
               >
-                <q-tooltip>Read aloud</q-tooltip>
+                <q-tooltip>{{ readingAloudIndex === i ? 'Stop' : 'Read aloud' }}</q-tooltip>
               </q-btn>
               <span v-if="msg.tokens_per_second" class="message-stats">
                 {{ formatStats(msg) }}
@@ -394,6 +395,7 @@ export default {
     editingContent: '',
     isSavingEdit: false,
     voiceChatMode: false,
+    readingAloudIndex: null,
     endOfUtteranceMs: 2500,
     inactivityTimeoutSec: 15,
     armTimer: null
@@ -479,6 +481,10 @@ export default {
       if (!isStreaming && this.ttsPlayer.isEnabled.value) {
         this.ttsPlayer.flushBuffer()
       }
+    },
+    'ttsPlayer.isPlaying.value'(playing) {
+      // Revert the per-message read-aloud button once playback stops.
+      if (!playing) this.readingAloudIndex = null
     },
     voiceShouldListen(newVal, oldVal) {
       if (newVal && !oldVal) {
@@ -939,13 +945,19 @@ export default {
       }
     },
 
-    async readAloud(text) {
+    async readAloud(text, index) {
       if (!text || text.trim().length === 0) return
+
+      // Stop current playback; the isPlaying watcher clears the old index first.
+      this.ttsPlayer.stop()
+      await this.$nextTick()
+      this.readingAloudIndex = index
 
       try {
         await this.ttsPlayer.speak(text)
       } catch (err) {
         console.error('Error reading aloud:', err)
+        this.readingAloudIndex = null
         this.$q.notify({
           type: 'negative',
           message: 'Failed to read aloud',
@@ -953,6 +965,11 @@ export default {
           timeout: 2000
         })
       }
+    },
+
+    stopReadAloud() {
+      this.ttsPlayer.stop()
+      this.readingAloudIndex = null
     },
 
     startEdit(index, message) {
