@@ -61,12 +61,10 @@
         :min="0.5"
         :max="2.0"
         :step="0.1"
-        :label-value="speed.toFixed(1) + 'x'"
-        label
-        :label-always="labelAlways"
         dense
         style="flex: 1"
       />
+      <span class="text-caption text-grey-7" style="min-width: 30px">{{ speed.toFixed(1) + 'x' }}</span>
     </div>
   </div>
 </template>
@@ -99,10 +97,6 @@ export default {
     availableVoices: {
       type: Array,
       required: true
-    },
-    labelAlways: {
-      type: Boolean,
-      default: true
     }
   },
 

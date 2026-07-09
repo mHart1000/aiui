@@ -44,7 +44,6 @@
         :current-voice="ttsPlayer.currentVoice.value"
         :speed="ttsPlayer.speed.value"
         :available-voices="ttsPlayer.availableVoices.value"
-        :label-always="toolbarExpanded"
         @update:voice="handleTtsVoiceChange"
         @update:speed="handleTtsSpeedChange"
         @pause="ttsPlayer.pause()"
@@ -58,12 +57,12 @@
           :min="1000"
           :max="10000"
           :step="500"
-          label
-          label-always
-          :label-value="(endOfUtteranceMs / 1000).toFixed(1) + 's'"
           color="primary"
           style="width: 160px"
         />
+        <span class="text-caption text-grey-7" style="min-width: 34px">
+          {{ (endOfUtteranceMs / 1000).toFixed(1) + 's' }}
+        </span>
       </div>
       <div v-if="voiceChatMode" class="row items-center q-gutter-sm" style="min-width: 220px">
         <span class="text-caption text-grey-7">Timeout</span>
@@ -72,12 +71,12 @@
           :min="5"
           :max="65"
           :step="5"
-          label
-          label-always
-          :label-value="inactivityTimeoutSec > 60 ? 'Off' : inactivityTimeoutSec + 's'"
           color="primary"
           style="width: 160px"
         />
+        <span class="text-caption text-grey-7" style="min-width: 34px">
+          {{ inactivityTimeoutSec > 60 ? 'Off' : inactivityTimeoutSec + 's' }}
+        </span>
       </div>
       <div v-if="isLlamaModel && hasMessages" class="context-usage">
         <q-circular-progress
