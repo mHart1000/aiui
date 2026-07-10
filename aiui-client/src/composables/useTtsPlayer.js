@@ -30,7 +30,6 @@ export function useTtsPlayer() {
   let isProcessing = false
   let currentPlaybackChain = null
   // Streaming engines: rolling batches, one stream in flight
-  // (docs/tts-streaming-spec.md)
   let serverStreaming = false
   let streamWorkerActive = false
   let streamNextStartTime = 0 // Rolling schedule clock across batches

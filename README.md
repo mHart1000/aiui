@@ -150,11 +150,7 @@ QWEN3_TTS_URL=http://localhost:8881
 QWEN3_TTS_VOICES=aiden   # comma-separated; must match voices.json keys
 ```
 
-**Adding custom voices** — clone any clean ~5–15s WAV (mono/24 kHz; `ffmpeg -i in.wav -ac 1 -ar 24000 out.wav`):
-
-1. Add an entry to `voices.json` on the GPU box: `"kerry": { "ref_audio": "kerry.wav", "ref_text": "<exact transcript of the clip>", "language": "English" }`, and restart the server.
-2. Append the name to `QWEN3_TTS_VOICES` environment variable. Names must match the `voices.json` keys.
-
+**Adding custom voices** — clone any clean ~5–15s WAV (mono/24 kHz;
 ```bash
 ffmpeg -i reference-clip.mp4 \
   -vn \
@@ -162,6 +158,10 @@ ffmpeg -i reference-clip.mp4 \
   -ar 24000 \
   reference-clip.wav
 ```
+
+1. Add an entry to `voices.json` on the GPU box: `"kerry": { "ref_audio": "kerry.wav", "ref_text": "<exact transcript of the clip>", "language": "English" }`, and restart the server.
+2. Append the name to `QWEN3_TTS_VOICES` environment variable. Names must match the `voices.json` keys.
+
 
 ### Chatterbox (remote GPU, via SSH tunnel)
 
