@@ -413,6 +413,9 @@ export default {
     this.personas = userRes.data.personas || []
     this.llamaContextWindow = userRes.data.llama_context_window || 8192
 
+    // Live context window from llama.cpp is authoritative; the stored value above is only the fallback.
+    if (this.isLlamaModel) await this.fetchLlamaContext()
+
     // TTS output now follows voice mode (off until voice mode is enabled).
     this.ttsPlayer.setVoice(userRes.data.tts_voice || 'af_heart')
     this.ttsPlayer.setSpeed(userRes.data.tts_speed || 1.0)
@@ -424,8 +427,8 @@ export default {
     this.cancelArm()
   },
   watch: {
-    isLlamaModel(isLlama) {
-      if (isLlama) this.fetchLlamaContext()
+    modelCode() {
+      if (this.isLlamaModel) this.fetchLlamaContext()
     },
     '$route.params.id': {
       immediate: true,
