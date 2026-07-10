@@ -25,6 +25,16 @@
           >
             <q-tooltip>New chat</q-tooltip>
           </q-btn>
+          <q-btn
+            v-if="ttsAvailable"
+            round
+            flat
+            :icon="muted ? 'volume_off' : 'volume_up'"
+            :color="muted ? 'negative' : 'primary'"
+            @click="$emit('toggle-mute')"
+          >
+            <q-tooltip>{{ muted ? 'Unmute voice output' : 'Mute voice output' }}</q-tooltip>
+          </q-btn>
           <q-circular-progress
             v-if="contextUsage !== null"
             :value="contextUsage"
@@ -41,6 +51,16 @@
         </div>
 
         <div class="right-buttons">
+          <q-btn
+            round
+            flat
+            icon="record_voice_over"
+            :color="voiceMode ? 'primary' : 'grey-7'"
+            @click="$emit('toggle-voice-mode')"
+          >
+            <q-tooltip>{{ voiceMode ? 'Turn voice mode off' : 'Turn voice mode on' }}</q-tooltip>
+          </q-btn>
+
           <q-btn
             round
             flat
@@ -119,6 +139,18 @@ export default {
       type: Boolean,
       default: false
     },
+    muted: {
+      type: Boolean,
+      default: false
+    },
+    ttsAvailable: {
+      type: Boolean,
+      default: false
+    },
+    voiceMode: {
+      type: Boolean,
+      default: false
+    },
     endOfUtteranceMs: {
       type: Number,
       default: 2500
@@ -140,7 +172,7 @@ export default {
       default: 15000
     }
   },
-  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat', 'stop'],
+  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat', 'stop', 'toggle-mute', 'inactivity-timeout', 'toggle-voice-mode'],
   data () {
     return {
       isLoading: false,
@@ -600,7 +632,8 @@ export default {
       // user pauses long enough to auto-submit, or stops it manually.
       if (!this.inactivityTimeoutMs || this.inactivityTimeoutMs <= 0) return
       this.inactivityTimer = setTimeout(() => {
-        if (this.isRecording) this.stopRecording()
+        // Silence timeout exits voice mode; ChatPage stops the mic via its watcher.
+        if (this.isRecording) this.$emit('inactivity-timeout')
       }, this.inactivityTimeoutMs)
     },
 

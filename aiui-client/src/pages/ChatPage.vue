@@ -33,30 +33,22 @@
       />
       <q-toggle
         v-model="ragEnabled"
-        label="Personal Context"
+        label="Context"
         @update:model-value="updateRagEnabled"
         color="primary"
       />
       <TtsControls
-        :is-enabled="ttsPlayer.isEnabled.value"
+        :show="voiceChatMode"
         :is-playing="ttsPlayer.isPlaying.value"
         :is-paused="ttsPlayer.isPaused.value"
-        :is-tts-available="ttsPlayer.isTtsAvailable.value"
         :current-voice="ttsPlayer.currentVoice.value"
         :speed="ttsPlayer.speed.value"
         :available-voices="ttsPlayer.availableVoices.value"
-        :label-always="toolbarExpanded"
-        @update:enabled="handleTtsEnabledChange"
         @update:voice="handleTtsVoiceChange"
         @update:speed="handleTtsSpeedChange"
         @pause="ttsPlayer.pause()"
         @resume="ttsPlayer.resume()"
         @stop="ttsPlayer.stop()"
-      />
-      <q-toggle
-        v-model="voiceChatMode"
-        label="Voice mode"
-        color="primary"
       />
       <div v-if="voiceChatMode" class="row items-center q-gutter-sm" style="min-width: 220px">
         <span class="text-caption text-grey-7">Pause</span>
@@ -65,12 +57,12 @@
           :min="1000"
           :max="10000"
           :step="500"
-          label
-          label-always
-          :label-value="(endOfUtteranceMs / 1000).toFixed(1) + 's'"
           color="primary"
           style="width: 160px"
         />
+        <span class="text-caption text-grey-7" style="min-width: 34px">
+          {{ (endOfUtteranceMs / 1000).toFixed(1) + 's' }}
+        </span>
       </div>
       <div v-if="voiceChatMode" class="row items-center q-gutter-sm" style="min-width: 220px">
         <span class="text-caption text-grey-7">Timeout</span>
@@ -79,12 +71,12 @@
           :min="5"
           :max="65"
           :step="5"
-          label
-          label-always
-          :label-value="inactivityTimeoutSec > 60 ? 'Off' : inactivityTimeoutSec + 's'"
           color="primary"
           style="width: 160px"
         />
+        <span class="text-caption text-grey-7" style="min-width: 34px">
+          {{ inactivityTimeoutSec > 60 ? 'Off' : inactivityTimeoutSec + 's' }}
+        </span>
       </div>
       <div v-if="isLlamaModel && hasMessages" class="context-usage">
         <q-circular-progress
@@ -225,12 +217,13 @@
                 dense
                 round
                 size="sm"
-                icon="volume_up"
+                :icon="readingAloudIndex === i ? 'stop' : 'volume_up'"
+                :color="readingAloudIndex === i ? 'negative' : undefined"
                 class="copy-btn"
-                @click="readAloud(msg.content)"
+                @click="readingAloudIndex === i ? stopReadAloud() : readAloud(msg.content, i)"
                 :disable="!msg.content || msg.content.trim().length === 0"
               >
-                <q-tooltip>Read aloud</q-tooltip>
+                <q-tooltip>{{ readingAloudIndex === i ? 'Stop' : 'Read aloud' }}</q-tooltip>
               </q-btn>
               <span v-if="msg.tokens_per_second" class="message-stats">
                 {{ formatStats(msg) }}
@@ -273,11 +266,13 @@
         :is-streaming="streamingChat.isStreaming.value"
         :expanded="composerExpanded"
         :context-usage="composerContextPercent"
+        :voice-mode="voiceChatMode"
         @error="handleSttError"
         @status="handleSttStatus"
         @send-message="sendMessage"
         @stop="stopStreaming"
         @new-chat="newChat"
+        @toggle-voice-mode="toggleVoiceMode"
         class="col message-input"
       />
       <VoiceChatInput
@@ -290,11 +285,17 @@
         :context-usage="composerContextPercent"
         :end-of-utterance-ms="endOfUtteranceMs"
         :inactivity-timeout-ms="inactivityTimeoutMs"
+        :muted="!ttsPlayer.isEnabled.value"
+        :tts-available="ttsPlayer.isTtsAvailable.value"
+        :voice-mode="voiceChatMode"
         @error="handleSttError"
         @status="handleSttStatus"
         @send-message="sendMessage"
         @stop="stopStreaming"
         @new-chat="newChat"
+        @toggle-mute="handleToggleMute"
+        @toggle-voice-mode="toggleVoiceMode"
+        @inactivity-timeout="handleVoiceInactivityTimeout"
         class="col message-input"
       />
     </div>
@@ -393,6 +394,7 @@ export default {
     editingContent: '',
     isSavingEdit: false,
     voiceChatMode: false,
+    readingAloudIndex: null,
     endOfUtteranceMs: 2500,
     inactivityTimeoutSec: 15,
     armTimer: null
@@ -411,7 +413,7 @@ export default {
     this.personas = userRes.data.personas || []
     this.llamaContextWindow = userRes.data.llama_context_window || 8192
 
-    this.ttsPlayer.setEnabled(userRes.data.tts_enabled || false)
+    // TTS output now follows voice mode (off until voice mode is enabled).
     this.ttsPlayer.setVoice(userRes.data.tts_voice || 'af_heart')
     this.ttsPlayer.setSpeed(userRes.data.tts_speed || 1.0)
 
@@ -478,6 +480,10 @@ export default {
       if (!isStreaming && this.ttsPlayer.isEnabled.value) {
         this.ttsPlayer.flushBuffer()
       }
+    },
+    'ttsPlayer.isPlaying.value'(playing) {
+      // Revert the per-message read-aloud button once playback stops.
+      if (!playing) this.readingAloudIndex = null
     },
     voiceShouldListen(newVal, oldVal) {
       if (newVal && !oldVal) {
@@ -886,9 +892,30 @@ export default {
       }
     },
 
-    async handleTtsEnabledChange(value) {
+    // Voice-mode button in the composer.
+    toggleVoiceMode() {
+      const next = !this.voiceChatMode
+      this.voiceChatMode = next
+      this.handleVoiceModeChange(next)
+    },
+
+    // Voice mode owns TTS output: entering it turns voice output on by default.
+    async handleVoiceModeChange(value) {
       this.ttsPlayer.setEnabled(value)
       await this.updateTtsPreference({ tts_enabled: value })
+    },
+
+    // Silence timeout: leave voice mode instead of stranding the mic off in it.
+    handleVoiceInactivityTimeout() {
+      this.voiceChatMode = false
+      this.handleVoiceModeChange(false)
+    },
+
+    // Mute button in the composer: toggle voice output without leaving voice mode.
+    async handleToggleMute() {
+      const enabled = !this.ttsPlayer.isEnabled.value
+      this.ttsPlayer.setEnabled(enabled)
+      await this.updateTtsPreference({ tts_enabled: enabled })
     },
 
     async handleTtsVoiceChange(value) {
@@ -917,13 +944,19 @@ export default {
       }
     },
 
-    async readAloud(text) {
+    async readAloud(text, index) {
       if (!text || text.trim().length === 0) return
+
+      // Stop current playback; the isPlaying watcher clears the old index first.
+      this.ttsPlayer.stop()
+      await this.$nextTick()
+      this.readingAloudIndex = index
 
       try {
         await this.ttsPlayer.speak(text)
       } catch (err) {
         console.error('Error reading aloud:', err)
+        this.readingAloudIndex = null
         this.$q.notify({
           type: 'negative',
           message: 'Failed to read aloud',
@@ -931,6 +964,11 @@ export default {
           timeout: 2000
         })
       }
+    },
+
+    stopReadAloud() {
+      this.ttsPlayer.stop()
+      this.readingAloudIndex = null
     },
 
     startEdit(index, message) {
