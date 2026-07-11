@@ -31,9 +31,6 @@ gem "bootsnap", require: false
 # CORS handling for Vue frontend
 gem "rack-cors"
 
-# serialization helpers
-gem "active_model_serializers", "~> 0.10.16"
-
 group :development, :test do
   gem "minitest", "~> 5.22"
 
