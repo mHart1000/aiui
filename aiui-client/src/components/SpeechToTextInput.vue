@@ -25,18 +25,20 @@
           >
             <q-tooltip>New chat</q-tooltip>
           </q-btn>
-          <q-circular-progress
-            v-if="contextUsage !== null"
-            :value="contextUsage"
-            size="28px"
-            :thickness="0.2"
-            font-size="9px"
-            color="primary"
-            track-color="grey-3"
-            show-value
-          >
-            {{ contextUsage }}%
-          </q-circular-progress>
+          <span v-if="contextUsage !== null" class="context-ring">
+            <q-circular-progress
+              :value="contextUsage"
+              size="28px"
+              :thickness="0.2"
+              font-size="9px"
+              color="primary"
+              track-color="grey-3"
+              show-value
+            >
+              {{ contextUsage }}%
+            </q-circular-progress>
+            <q-tooltip v-if="contextLabel">{{ contextLabel }}</q-tooltip>
+          </span>
         </div>
 
         <div class="right-buttons">
@@ -122,6 +124,10 @@ export default {
     },
     contextUsage: {
       type: Number,
+      default: null
+    },
+    contextLabel: {
+      type: String,
       default: null
     },
     showNewChat: {
@@ -607,5 +613,10 @@ export default {
   gap: 4px;
   align-items: center;
   pointer-events: auto;
+}
+
+.context-ring {
+  display: inline-flex;
+  align-items: center;
 }
 </style>

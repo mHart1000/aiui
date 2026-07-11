@@ -266,6 +266,7 @@
         :is-streaming="streamingChat.isStreaming.value"
         :expanded="composerExpanded"
         :context-usage="composerContextPercent"
+        :context-label="composerContextLabel"
         :voice-mode="voiceChatMode"
         @error="handleSttError"
         @status="handleSttStatus"
@@ -283,6 +284,7 @@
         :is-streaming="streamingChat.isStreaming.value"
         :expanded="composerExpanded"
         :context-usage="composerContextPercent"
+        :context-label="composerContextLabel"
         :end-of-utterance-ms="endOfUtteranceMs"
         :inactivity-timeout-ms="inactivityTimeoutMs"
         :muted="!ttsPlayer.isEnabled.value"
@@ -413,6 +415,9 @@ export default {
     this.personas = userRes.data.personas || []
     this.llamaContextWindow = userRes.data.llama_context_window || 8192
 
+    // Live context window from llama.cpp is authoritative; the stored value above is only the fallback.
+    if (this.isLlamaModel) await this.fetchLlamaContext()
+
     // TTS output now follows voice mode (off until voice mode is enabled).
     this.ttsPlayer.setVoice(userRes.data.tts_voice || 'af_heart')
     this.ttsPlayer.setSpeed(userRes.data.tts_speed || 1.0)
@@ -424,8 +429,8 @@ export default {
     this.cancelArm()
   },
   watch: {
-    isLlamaModel(isLlama) {
-      if (isLlama) this.fetchLlamaContext()
+    modelCode() {
+      if (this.isLlamaModel) this.fetchLlamaContext()
     },
     '$route.params.id': {
       immediate: true,
@@ -563,6 +568,10 @@ export default {
     composerContextPercent() {
       if (!this.isLlamaModel || !this.hasMessages) return null
       return Math.round(this.contextUsageRatio * 100)
+    },
+    composerContextLabel() {
+      if (this.composerContextPercent === null) return null
+      return `${this.lastContextTokens.toLocaleString()} / ${this.llamaContextWindow.toLocaleString()}`
     },
     assistantBusy() {
       return this.streamingChat.isStreaming.value || this.ttsPlayer.isPlaying.value
