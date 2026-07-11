@@ -266,6 +266,7 @@
         :is-streaming="streamingChat.isStreaming.value"
         :expanded="composerExpanded"
         :context-usage="composerContextPercent"
+        :context-label="composerContextLabel"
         :voice-mode="voiceChatMode"
         @error="handleSttError"
         @status="handleSttStatus"
@@ -283,6 +284,7 @@
         :is-streaming="streamingChat.isStreaming.value"
         :expanded="composerExpanded"
         :context-usage="composerContextPercent"
+        :context-label="composerContextLabel"
         :end-of-utterance-ms="endOfUtteranceMs"
         :inactivity-timeout-ms="inactivityTimeoutMs"
         :muted="!ttsPlayer.isEnabled.value"
@@ -566,6 +568,10 @@ export default {
     composerContextPercent() {
       if (!this.isLlamaModel || !this.hasMessages) return null
       return Math.round(this.contextUsageRatio * 100)
+    },
+    composerContextLabel() {
+      if (this.composerContextPercent === null) return null
+      return `${this.lastContextTokens.toLocaleString()} / ${this.llamaContextWindow.toLocaleString()}`
     },
     assistantBusy() {
       return this.streamingChat.isStreaming.value || this.ttsPlayer.isPlaying.value
