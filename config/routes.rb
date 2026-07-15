@@ -37,6 +37,7 @@ Rails.application.routes.draw do
       get :status
     end
     post "tts/stream", to: "tts_stream#stream"
+    post "voice_chat", to: "voice_chat#stream"
 
     resource :stt, only: [], controller: "stt" do
       post :transcribe

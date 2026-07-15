@@ -8,10 +8,12 @@ class TextToSpeechService
   # @param voice [String, nil] Voice identifier
   # @param speed [Float, nil] Playback speed multiplier
   # @param adapter [String, Symbol, nil] Which TTS adapter to use (default: ENV["TTS_ADAPTER"] or :kokoro)
+  # @param format [String, nil] Audio format override; only forwarded when set (not all adapters accept it)
   # @return [String] Raw audio bytes
-  def self.call(text:, voice: nil, speed: nil, adapter: nil)
+  def self.call(text:, voice: nil, speed: nil, adapter: nil, format: nil)
     adapter_instance = resolve_adapter(adapter)
-    adapter_instance.synthesize(text: text, voice: voice, speed: speed)
+    format_option = format ? { format: format } : {}
+    adapter_instance.synthesize(text: text, voice: voice, speed: speed, **format_option)
   end
 
   # Streams synthesized audio, yielding chunks as they arrive
