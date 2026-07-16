@@ -257,6 +257,18 @@
               >
                 <q-tooltip>Edit message</q-tooltip>
               </q-btn>
+              <q-btn
+                v-if="i === displayMessages.length - 1"
+                flat
+                dense
+                round
+                size="sm"
+                icon="autorenew"
+                class="copy-btn"
+                @click="regenerateMessage(msg.content, i + 1)"
+              >
+                <q-tooltip>Retry</q-tooltip>
+              </q-btn>
             </template>
           </div>
         </div>
