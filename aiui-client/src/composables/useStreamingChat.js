@@ -177,6 +177,7 @@ export function useStreamingChat() {
       } else {
         error.value = err
         loadingPhase.value = 'idle'
+        isStreaming.value = false
       }
     }
   }
