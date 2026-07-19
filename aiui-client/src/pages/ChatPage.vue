@@ -184,12 +184,17 @@
               />
             </div>
           </div>
+          <div v-else-if="msg.failed && !msg.content" class="failed-message text-negative">
+            <q-icon name="error_outline" size="18px" class="q-mr-xs" />
+            Failed to generate a response.
+          </div>
           <div v-else v-html="msg.role === 'user' ? formatUserMessage(msg.content) : formatMessage(msg.content)" @click="handleMessageContentClick" />
           <q-spinner v-if="isActivelyStreaming(i) && msg.content" color="primary" size="20px" class="q-mt-sm" />
 
           <div class="message-footer" v-if="msg.role === 'assistant' || (msg.role === 'user' && !isActivelyStreaming(i) && editingMessageIndex !== i)">
             <template v-if="msg.role === 'assistant'">
               <q-btn
+                v-if="msg.content"
                 flat
                 dense
                 round
@@ -251,6 +256,18 @@
                 @click="startEdit(i, msg)"
               >
                 <q-tooltip>Edit message</q-tooltip>
+              </q-btn>
+              <q-btn
+                v-if="i === displayMessages.length - 1"
+                flat
+                dense
+                round
+                size="sm"
+                icon="autorenew"
+                class="copy-btn"
+                @click="regenerateMessage(msg.content, i + 1)"
+              >
+                <q-tooltip>Retry</q-tooltip>
               </q-btn>
             </template>
           </div>
@@ -762,8 +779,8 @@ export default {
       }
 
       if (this.streamingChat.error.value) {
-        // Remove the failed placeholder message
-        this.messages.splice(myIndex, 1)
+        // Keep the placeholder for a regenerate button.
+        streamedMessage.failed = true
       }
 
       // Only clear the shared index if a newer send hasn't taken it over.
@@ -1069,7 +1086,7 @@ export default {
       streamedMessage.content = this.streamingChat.responseText.value
 
       if (this.streamingChat.error.value) {
-        this.messages.splice(myIndex, 1)
+        streamedMessage.failed = true
       }
 
       if (this.streamingMessageIndex === myIndex) {
@@ -1136,6 +1153,10 @@ export default {
   font-size: 0.75rem;
   opacity: 0.55;
   white-space: nowrap;
+}
+.failed-message {
+  display: flex;
+  align-items: center;
 }
 .copy-btn {
   opacity: 0.6;
