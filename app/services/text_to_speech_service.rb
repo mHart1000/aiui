@@ -21,7 +21,23 @@ class TextToSpeechService
   # @param adapter [String, Symbol, nil] Which TTS adapter to use
   # @yield [String] Raw audio chunks
   def self.stream(text:, voice: nil, speed: nil, adapter: nil, &block)
-    resolve_adapter(adapter).synthesize_stream(text: text, voice: voice, speed: speed, &block)
+    adapter_instance = resolve_adapter(adapter)
+    label = adapter_instance.class.name.demodulize.sub(/Adapter\z/, "").downcase
+
+    start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    ttfb = nil
+    result = adapter_instance.synthesize_stream(text: text, voice: voice, speed: speed) do |chunk|
+      ttfb ||= Process.clock_gettime(Process::CLOCK_MONOTONIC) - start
+      block.call(chunk)
+    end
+
+    total = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start
+    # One latency line per stream: text size in, time to first audio chunk, total synth time.
+    Rails.logger.info(
+      "TTS stream: adapter=#{label} chars=#{text.to_s.length} " \
+      "ttfb_ms=#{ttfb ? (ttfb * 1000).round : "nil"} total_ms=#{(total * 1000).round}"
+    )
+    result
   end
 
   # Whether the active adapter supports chunked streaming
