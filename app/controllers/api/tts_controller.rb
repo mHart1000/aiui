@@ -57,5 +57,20 @@ module Api
       Rails.logger.error "TTS status check failed: #{e.message}"
       render json: { available: false, streaming: false }
     end
+
+    # POST /api/tts/warmup — throwaway synthesis to pay the engine's one-time cold start early.
+    def warmup
+      if TextToSpeechService.available?
+        if TextToSpeechService.streaming?
+          TextToSpeechService.stream(text: "Warming up.") { |_chunk| }
+        else
+          TextToSpeechService.call(text: "Warming up.")
+        end
+      end
+      head :no_content
+    rescue StandardError => e
+      Rails.logger.warn "TTS warmup failed: #{e.message}"
+      head :no_content
+    end
   end
 end

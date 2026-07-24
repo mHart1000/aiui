@@ -928,6 +928,8 @@ export default {
     // Voice mode owns TTS output: entering it turns voice output on by default.
     async handleVoiceModeChange(value) {
       this.ttsPlayer.setEnabled(value)
+      // Warm the TTS engine on entry so its one-time cold start doesn't delay the first reply.
+      if (value) api.post('/api/tts/warmup').catch(() => {})
       await this.updateTtsPreference({ tts_enabled: value })
     },
 

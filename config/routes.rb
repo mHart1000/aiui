@@ -35,6 +35,7 @@ Rails.application.routes.draw do
       post :synthesize
       get :voices
       get :status
+      post :warmup
     end
     post "tts/stream", to: "tts_stream#stream"
 
