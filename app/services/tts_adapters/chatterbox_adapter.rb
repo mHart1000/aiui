@@ -68,7 +68,7 @@ module TtsAdapters
         stream: true,
         split_text: true,
         # Small chunks so each batch's first audio arrives sooner
-        chunk_size: 70,
+        chunk_size: 90,
         speed_factor: speed || 1.0
       }.to_json
 

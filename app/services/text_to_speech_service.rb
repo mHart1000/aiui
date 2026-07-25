@@ -66,6 +66,13 @@ class TextToSpeechService
     resolve_adapter(adapter).streaming?
   end
 
+  # Sentences to queue before the first streamed batch (per-engine)
+  # @param adapter [String, Symbol, nil] Which TTS adapter to check
+  # @return [Integer]
+  def self.first_batch_min_sentences(adapter: nil)
+    resolve_adapter(adapter).first_batch_min_sentences
+  end
+
   # Checks if the TTS backend is available
   # @param adapter [String, Symbol, nil] Which TTS adapter to check
   # @return [Boolean] true if the adapter is available

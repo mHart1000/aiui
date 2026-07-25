@@ -39,7 +39,7 @@ export function useTtsPlayer() {
 
   const PREFETCH_AHEAD = 3 // Non-streaming engines only
   const STREAM_SEGMENT_SECONDS = 0.5 // Seconds of audio per scheduled segment
-  const FIRST_BATCH_MIN_SENTENCES = 5 // Hold the first live batch until this many sentences queue (or LLM done) — avoids GPU contention
+  let firstBatchMinSentences = 1 // Per-engine, from /api/tts/status
 
   /**
    * Split text into sentences
@@ -254,7 +254,7 @@ export function useTtsPlayer() {
     if (serverStreaming) {
       // Wait for a few sentences before starting, so the LLM and voice model don't overlap on the GPU.
       const pending = sentenceQueue.filter(item => item.status === 'pending').length
-      if (firstStreamBatchStarted || pending >= FIRST_BATCH_MIN_SENTENCES) {
+      if (firstStreamBatchStarted || pending >= firstBatchMinSentences) {
         firstStreamBatchStarted = true
         setTimeout(runStreamWorker, 0)
       }
@@ -393,6 +393,7 @@ export function useTtsPlayer() {
       const response = await api.get('/api/tts/status')
       isTtsAvailable.value = response.data.available
       serverStreaming = !!response.data.streaming
+      firstBatchMinSentences = response.data.first_batch_min_sentences || 1
 
       // Also fetch available voices if TTS is available
       if (isTtsAvailable.value) {

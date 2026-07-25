@@ -48,6 +48,12 @@ module TtsAdapters
       true
     end
 
+    # Little RTF headroom: speaking early makes this fight the LLM for the GPU and stutter.
+    # @return [Integer]
+    def first_batch_min_sentences
+      5
+    end
+
     # Streams synthesized audio: one WAV header, then PCM16 chunks. The server
     # auto-streams whenever response_format is wav/pcm (no stream flag).
     # @param text [String] The text to synthesize
