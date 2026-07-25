@@ -498,11 +498,15 @@ export default {
       }
     },
     'streamingChat.isStreaming.value'(isStreaming) {
-      // When streaming ends, flush any remaining buffered text
-      if (!isStreaming && this.ttsPlayer.isEnabled.value) {
+      if (isStreaming) {
+        // New response: re-arm the wait-for-sentences hold.
+        this.ttsPlayer.resetFirstBatchGate()
+      } else if (this.ttsPlayer.isEnabled.value) {
+        // Streaming ended: flush any remaining buffered text.
         this.ttsPlayer.flushBuffer()
       }
     },
+
     'ttsPlayer.isPlaying.value'(playing) {
       // Revert the per-message read-aloud button once playback stops.
       if (!playing) this.readingAloudIndex = null

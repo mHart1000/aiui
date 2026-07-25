@@ -32,12 +32,14 @@ export function useTtsPlayer() {
   // Streaming engines: rolling batches, one stream in flight
   let serverStreaming = false
   let streamWorkerActive = false
+  let firstStreamBatchStarted = false // First live-stream batch dispatched this response?
   let streamNextStartTime = 0 // Rolling schedule clock across batches
   let streamAbort = null
   let activeSources = [] // Scheduled-ahead sources, silenced by stop()
 
   const PREFETCH_AHEAD = 3 // Non-streaming engines only
   const STREAM_SEGMENT_SECONDS = 0.5 // Seconds of audio per scheduled segment
+  const FIRST_BATCH_MIN_SENTENCES = 5 // Hold the first live batch until this many sentences queue (or LLM done) — avoids GPU contention
 
   /**
    * Split text into sentences
@@ -250,8 +252,12 @@ export function useTtsPlayer() {
 
     // Start processing if not already
     if (serverStreaming) {
-      // Defer a tick so a synchronous burst of sentences batches together
-      setTimeout(runStreamWorker, 0)
+      // Wait for a few sentences before starting, so the LLM and voice model don't overlap on the GPU.
+      const pending = sentenceQueue.filter(item => item.status === 'pending').length
+      if (firstStreamBatchStarted || pending >= FIRST_BATCH_MIN_SENTENCES) {
+        firstStreamBatchStarted = true
+        setTimeout(runStreamWorker, 0)
+      }
     } else if (!isProcessing) {
       processQueue()
     }
@@ -630,6 +636,16 @@ export function useTtsPlayer() {
       queueSentence(textBuffer.trim())
       textBuffer = ''
     }
+    // LLM finished: start now even if we never reached the sentence threshold (short reply).
+    if (serverStreaming && !streamWorkerActive && sentenceQueue.some(item => item.status === 'pending')) {
+      firstStreamBatchStarted = true
+      setTimeout(runStreamWorker, 0)
+    }
+  }
+
+  // Re-arm the wait-for-sentences hold at the start of a new response.
+  function resetFirstBatchGate() {
+    firstStreamBatchStarted = false
   }
 
   /**
@@ -651,6 +667,12 @@ export function useTtsPlayer() {
 
       for (const sentence of sentences) {
         await queueSentence(sentence)
+      }
+
+      // Read-aloud has the whole text already, so there's no LLM to wait for — start now.
+      if (serverStreaming && !streamWorkerActive && sentenceQueue.some(item => item.status === 'pending')) {
+        firstStreamBatchStarted = true
+        setTimeout(runStreamWorker, 0)
       }
     } catch (error) {
       console.error('Failed to speak text:', error)
@@ -713,6 +735,7 @@ export function useTtsPlayer() {
     textBuffer = ''
     queueLength.value = 0
     isProcessing = false
+    firstStreamBatchStarted = false
   }
 
   /**
@@ -761,6 +784,7 @@ export function useTtsPlayer() {
     speak,
     feedText,
     flushBuffer,
+    resetFirstBatchGate,
     pause,
     resume,
     stop,
