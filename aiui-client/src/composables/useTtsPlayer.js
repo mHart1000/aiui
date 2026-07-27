@@ -38,7 +38,7 @@ export function useTtsPlayer() {
   let activeSources = [] // Scheduled-ahead sources, silenced by stop()
 
   const PREFETCH_AHEAD = 3 // Non-streaming engines only
-  const STREAM_SEGMENT_SECONDS = 0.5 // Seconds of audio per scheduled segment
+  const STREAM_SEGMENT_SECONDS = 0.25 // Seconds of audio per scheduled segment
   let firstBatchMinSentences = 1 // Per-engine, from /api/tts/status
 
   /**
