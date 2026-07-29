@@ -42,6 +42,13 @@ Rails.application.config.to_prepare do
   )
 
   Persona.register(
+    id: "plainspoken",
+    name: "Plainspoken",
+    description: "Casual and human. Avoids AI cliches, filler phrases, and flattery. Friendly without being sycophantic.",
+    path: Rails.root.join("persona", "plainspoken.md")
+  )
+
+  Persona.register(
     id: "interviewer",
     name: "Interviewer",
     description: "A supportive mock-interview coach for voice mode. You're the candidate; it asks questions and gives quick feedback after each answer.",
