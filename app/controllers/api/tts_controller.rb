@@ -49,13 +49,32 @@ module Api
     # GET /api/tts/status
     # Checks if TTS service is available and whether it streams
     #
-    # Returns: { available: true/false, streaming: true/false }
+    # Returns: { available:, streaming:, first_batch_min_sentences: }
     def status
       available = TextToSpeechService.available?
-      render json: { available: available, streaming: TextToSpeechService.streaming? }
+      render json: {
+        available: available,
+        streaming: TextToSpeechService.streaming?,
+        first_batch_min_sentences: TextToSpeechService.first_batch_min_sentences
+      }
     rescue StandardError => e
       Rails.logger.error "TTS status check failed: #{e.message}"
-      render json: { available: false, streaming: false }
+      render json: { available: false, streaming: false, first_batch_min_sentences: 1 }
+    end
+
+    # POST /api/tts/warmup — throwaway synthesis to pay the engine's one-time cold start early.
+    def warmup
+      if TextToSpeechService.available?
+        if TextToSpeechService.streaming?
+          TextToSpeechService.stream(text: "Warming up.") { |_chunk| }
+        else
+          TextToSpeechService.call(text: "Warming up.")
+        end
+      end
+      head :no_content
+    rescue StandardError => e
+      Rails.logger.warn "TTS warmup failed: #{e.message}"
+      head :no_content
     end
   end
 end

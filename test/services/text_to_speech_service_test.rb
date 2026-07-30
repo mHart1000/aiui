@@ -84,6 +84,20 @@ class TextToSpeechServiceTest < ActiveSupport::TestCase
     refute TtsAdapters::KokoroAdapter.new.streaming?
   end
 
+  test "first_batch_min_sentences is per engine" do
+    assert_equal 5, TtsAdapters::Qwen3Adapter.new.first_batch_min_sentences
+    assert_equal 1, TtsAdapters::ChatterboxAdapter.new.first_batch_min_sentences
+    assert_equal 1, TtsAdapters::KokoroAdapter.new.first_batch_min_sentences
+  end
+
+  test "first_batch_min_sentences delegates to adapter" do
+    @mock_adapter.expect(:first_batch_min_sentences, 5)
+    TtsAdapters::KokoroAdapter.stub(:new, @mock_adapter) do
+      assert_equal 5, TextToSpeechService.first_batch_min_sentences
+    end
+    @mock_adapter.verify
+  end
+
   test "unknown adapter name falls back to KokoroAdapter" do
     @mock_adapter.expect(:available?, true)
     TtsAdapters::KokoroAdapter.stub(:new, @mock_adapter) do

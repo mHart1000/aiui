@@ -29,6 +29,13 @@ module TtsAdapters
       false
     end
 
+    # Sentences to queue before sending the first streamed batch. Engines with spare
+    # throughput can start on the first sentence.
+    # @return [Integer]
+    def first_batch_min_sentences
+      1
+    end
+
     # Streams synthesized audio, yielding chunks as they arrive
     # @param text [String] The text to synthesize
     # @param voice [String, nil] The voice identifier to use

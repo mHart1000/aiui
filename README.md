@@ -103,7 +103,7 @@ docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu
 
 ### Qwen3 TTS (remote GPU, via SSH tunnel)
 
-Served on the GPU machine (like llama.cpp) via [faster-qwen3-tts](https://github.com/andimarafioti/faster-qwen3-tts) — CUDA-graph inference that runs Qwen3-TTS faster than realtime on the 3090 (RTF ≈ 0.32; [spec](docs/faster-qwen3-tts-spec.md)). Its `openai_server.py` only *clones* voices (OpenAI `/v1/audio/speech` + `/health`, no voices endpoint), so we register one reference clip. One-time setup on the remote machine (WSL2):
+Served on the GPU machine (like llama.cpp) via [faster-qwen3-tts](https://github.com/andimarafioti/faster-qwen3-tts) — CUDA-graph inference that runs Qwen3-TTS faster than realtime on the 3090 (RTF ≈ 0.42 measured on the live 0.6B streaming path; [spec](docs/faster-qwen3-tts-spec.md), [latency tuning](docs/qwen3-latency-optimization-spec.md)). Its `openai_server.py` only *clones* voices (OpenAI `/v1/audio/speech` + `/health`, no voices endpoint), so we register one reference clip. One-time setup on the remote machine (WSL2):
 
 ```bash
 sudo apt install -y sox        # for playing/inspecting wavs
@@ -126,8 +126,10 @@ faster-qwen3-tts custom --model Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
 Register it in `voices.json` (the adapter sends `voice: "aiden"`, matching `QWEN3_TTS_VOICES`):
 
 ```json
-{ "aiden": { "ref_audio": "ref_aiden.wav", "ref_text": "Some clean, natural paragraph about ten seconds long when spoken aloud.", "language": "English" } }
+{ "aiden": { "ref_audio": "ref_aiden.wav", "ref_text": "Some clean, natural paragraph about ten seconds long when spoken aloud.", "language": "English", "chunk_size": 4 } }
 ```
+
+`chunk_size` (per voice) sets time-to-first-audio — `N/12`s of audio per flush. Default `12` ≈ 520ms, `4` ≈ 297ms. See [latency tuning](docs/qwen3-latency-optimization-spec.md).
 
 Start the server — 0.6B is the fast clone model; weights download and the CUDA graph captures once on first run:
 
@@ -159,7 +161,7 @@ ffmpeg -i reference-clip.mp4 \
   reference-clip.wav
 ```
 
-1. Add an entry to `voices.json` on the GPU box: `"kerry": { "ref_audio": "kerry.wav", "ref_text": "<exact transcript of the clip>", "language": "English" }`, and restart the server.
+1. Add an entry to `voices.json` on the GPU box: `"kerry": { "ref_audio": "kerry.wav", "ref_text": "<exact transcript of the clip>", "language": "English", "chunk_size": 4 }`, and restart the server.
 2. Append the name to `QWEN3_TTS_VOICES` environment variable. Names must match the `voices.json` keys.
 
 
