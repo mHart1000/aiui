@@ -38,7 +38,8 @@ Rails.application.config.to_prepare do
     id: "voice",
     name: "Voice",
     description: "Purely conversational, for spoken voice mode. Written for the ear and never references anything visual.",
-    path: Rails.root.join("persona", "voice.md")
+    path: Rails.root.join("persona", "voice.md"),
+    skip_modifiers: %w[voice]
   )
 
   Persona.register(
@@ -52,6 +53,13 @@ Rails.application.config.to_prepare do
     id: "interviewer",
     name: "Interviewer",
     description: "A supportive mock-interview coach for voice mode. You're the candidate; it asks questions and gives quick feedback after each answer.",
-    path: Rails.root.join("persona", "interviewer.md")
+    path: Rails.root.join("persona", "interviewer.md"),
+    skip_modifiers: %w[voice]
+  )
+
+  # Layered onto the selected persona when voice mode is active.
+  Persona.register_modifier(
+    id: "voice",
+    path: Rails.root.join("persona", "modifiers", "voice.md")
   )
 end

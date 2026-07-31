@@ -70,6 +70,9 @@ export function useStreamingChat() {
       if (options.regenerating) {
         requestBody.regenerating = true
       }
+      if (options.voiceMode) {
+        requestBody.voice_mode = true
+      }
 
       const response = await fetch(url, {
         method: 'POST',

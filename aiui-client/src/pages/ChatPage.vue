@@ -768,7 +768,8 @@ export default {
         this.conversationId,
         text,
         token,
-        model
+        model,
+        { voiceMode: this.voiceChatMode }
       )
 
       // Update placeholder message with final content from composable
@@ -1083,7 +1084,7 @@ export default {
         userMessageContent,
         token,
         this.modelCode,
-        { regenerating: true }
+        { regenerating: true, voiceMode: this.voiceChatMode }
       )
 
       // Update placeholder with final content
