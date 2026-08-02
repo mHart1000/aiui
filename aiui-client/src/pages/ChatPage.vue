@@ -1,13 +1,29 @@
 <template>
-  <q-page class="column">
-    <div class="row q-ma-md q-gutter-md items-center">
+  <q-page class="column chat-page">
+    <div
+      class="row q-ma-none q-gutter-md items-center toolbar-wrap"
+      :class="{ 'toolbar-collapsed': !toolbarExpanded }"
+      @mouseenter="toolbarHovered = true"
+      @mouseleave="toolbarHovered = false"
+    >
       <q-select
         v-model="modelCode"
         :options="modelOptions"
         label="Model"
         emit-value
         map-options
+        dense
         style="max-width: 380px"
+      />
+      <q-select
+        v-model="personaSelection"
+        :options="personaOptions"
+        label="Persona"
+        emit-value
+        map-options
+        dense
+        style="min-width: 220px"
+        @update:model-value="updatePersonaSelection"
       />
       <q-toggle
         v-model="useScaffolding"
@@ -17,25 +33,67 @@
       />
       <q-toggle
         v-model="ragEnabled"
-        label="Personal Context"
+        label="Context"
         @update:model-value="updateRagEnabled"
         color="primary"
       />
       <TtsControls
-        :is-enabled="ttsPlayer.isEnabled.value"
+        :show="voiceChatMode"
         :is-playing="ttsPlayer.isPlaying.value"
         :is-paused="ttsPlayer.isPaused.value"
-        :is-tts-available="ttsPlayer.isTtsAvailable.value"
         :current-voice="ttsPlayer.currentVoice.value"
         :speed="ttsPlayer.speed.value"
         :available-voices="ttsPlayer.availableVoices.value"
-        @update:enabled="handleTtsEnabledChange"
         @update:voice="handleTtsVoiceChange"
         @update:speed="handleTtsSpeedChange"
         @pause="ttsPlayer.pause()"
         @resume="ttsPlayer.resume()"
         @stop="ttsPlayer.stop()"
       />
+      <div v-if="voiceChatMode" class="row items-center q-gutter-sm" style="min-width: 220px">
+        <span class="text-caption text-grey-7">Pause</span>
+        <q-slider
+          v-model="endOfUtteranceMs"
+          :min="1000"
+          :max="10000"
+          :step="500"
+          color="primary"
+          style="width: 160px"
+        />
+        <span class="text-caption text-grey-7" style="min-width: 34px">
+          {{ (endOfUtteranceMs / 1000).toFixed(1) + 's' }}
+        </span>
+      </div>
+      <div v-if="voiceChatMode" class="row items-center q-gutter-sm" style="min-width: 220px">
+        <span class="text-caption text-grey-7">Timeout</span>
+        <q-slider
+          v-model="inactivityTimeoutSec"
+          :min="5"
+          :max="65"
+          :step="5"
+          color="primary"
+          style="width: 160px"
+        />
+        <span class="text-caption text-grey-7" style="min-width: 34px">
+          {{ inactivityTimeoutSec > 60 ? 'Off' : inactivityTimeoutSec + 's' }}
+        </span>
+      </div>
+      <div v-if="isLlamaModel && hasMessages" class="context-usage">
+        <q-circular-progress
+          :value="contextUsageRatio * 100"
+          size="32px"
+          :thickness="0.2"
+          color="primary"
+          track-color="grey-3"
+          show-value
+          class="text-caption"
+        >
+          {{ Math.round(contextUsageRatio * 100) }}%
+        </q-circular-progress>
+        <div class="text-caption text-grey-7">
+          {{ lastContextTokens.toLocaleString() }} / {{ llamaContextWindow.toLocaleString() }} tokens
+        </div>
+      </div>
     </div>
 
     <q-banner v-if="streamingChat.error.value" class="bg-negative text-white q-mx-md">
@@ -50,13 +108,21 @@
     </q-banner>
 
     <div v-if="!hasMessages" class="new-chat-welcome column items-center q-pa-xl">
-      <q-icon name="chat" size="80px" color="primary" class="q-mb-md" />
+      <video
+        src="/media/15089605_960_540_24fps.mp4"
+        autoplay
+        loop
+        muted
+        playsinline
+        class="q-mb-md welcome-video"
+        @loadedmetadata="$event.target.playbackRate = 3"
+      />
       <p class="text-subtitle1 text-grey-7 text-center" style="max-width: 500px">
         Ask me anything. I'm here to help.
       </p>
     </div>
 
-    <div v-else ref="chatWindow" class="chat-window q-pa-md">
+    <div v-else ref="chatWindow" class="chat-window q-pa-md" @scroll.passive="onChatScroll">
       <div v-for="(msg, i) in displayMessages" :key="msg.id || i" class="q-mb-md">
         <q-expansion-item
           v-if="msg.role === 'assistant' && (msg.thinking || isActivelyStreaming(i))"
@@ -118,12 +184,17 @@
               />
             </div>
           </div>
-          <div v-else v-html="formatMessage(msg.content)" @click="handleMessageContentClick" />
+          <div v-else-if="msg.failed && !msg.content" class="failed-message text-negative">
+            <q-icon name="error_outline" size="18px" class="q-mr-xs" />
+            Failed to generate a response.
+          </div>
+          <div v-else v-html="msg.role === 'user' ? formatUserMessage(msg.content) : formatMessage(msg.content)" @click="handleMessageContentClick" />
           <q-spinner v-if="isActivelyStreaming(i) && msg.content" color="primary" size="20px" class="q-mt-sm" />
 
           <div class="message-footer" v-if="msg.role === 'assistant' || (msg.role === 'user' && !isActivelyStreaming(i) && editingMessageIndex !== i)">
             <template v-if="msg.role === 'assistant'">
               <q-btn
+                v-if="msg.content"
                 flat
                 dense
                 round
@@ -151,13 +222,17 @@
                 dense
                 round
                 size="sm"
-                icon="volume_up"
+                :icon="readingAloudIndex === i ? 'stop' : 'volume_up'"
+                :color="readingAloudIndex === i ? 'negative' : undefined"
                 class="copy-btn"
-                @click="readAloud(msg.content)"
+                @click="readingAloudIndex === i ? stopReadAloud() : readAloud(msg.content, i)"
                 :disable="!msg.content || msg.content.trim().length === 0"
               >
-                <q-tooltip>Read aloud</q-tooltip>
+                <q-tooltip>{{ readingAloudIndex === i ? 'Stop' : 'Read aloud' }}</q-tooltip>
               </q-btn>
+              <span v-if="msg.tokens_per_second" class="message-stats">
+                {{ formatStats(msg) }}
+              </span>
             </template>
             <template v-else-if="msg.role === 'user'">
               <q-btn
@@ -179,9 +254,20 @@
                 icon="edit"
                 class="edit-btn"
                 @click="startEdit(i, msg)"
-                :disable="streamingChat.isStreaming.value"
               >
                 <q-tooltip>Edit message</q-tooltip>
+              </q-btn>
+              <q-btn
+                v-if="i === displayMessages.length - 1"
+                flat
+                dense
+                round
+                size="sm"
+                icon="autorenew"
+                class="copy-btn"
+                @click="regenerateMessage(msg.content, i + 1)"
+              >
+                <q-tooltip>Retry</q-tooltip>
               </q-btn>
             </template>
           </div>
@@ -189,18 +275,50 @@
       </div>
     </div>
 
-    <div class="input-bar q-pa-md row items-end input-centered">
-      <VoskSpeechToText
+    <div class="input-bar q-pa-none row items-end input-centered" :class="{ 'input-bar-centered': !hasMessages }">
+      <SpeechToTextInput
+        v-if="!voiceChatMode"
         v-model="input"
-        :model-url="voskModelUrl"
         :show-new-chat="hasMessages"
+        :is-streaming="streamingChat.isStreaming.value"
+        :expanded="composerExpanded"
+        :context-usage="composerContextPercent"
+        :context-label="composerContextLabel"
+        :voice-mode="voiceChatMode"
         @error="handleSttError"
         @status="handleSttStatus"
         @send-message="sendMessage"
+        @stop="stopStreaming"
         @new-chat="newChat"
+        @toggle-voice-mode="toggleVoiceMode"
+        class="col message-input"
+      />
+      <VoiceChatInput
+        v-else
+        ref="voice"
+        v-model="input"
+        :show-new-chat="hasMessages"
+        :is-streaming="streamingChat.isStreaming.value"
+        :expanded="composerExpanded"
+        :context-usage="composerContextPercent"
+        :context-label="composerContextLabel"
+        :end-of-utterance-ms="endOfUtteranceMs"
+        :inactivity-timeout-ms="inactivityTimeoutMs"
+        :muted="!ttsPlayer.isEnabled.value"
+        :tts-available="ttsPlayer.isTtsAvailable.value"
+        :voice-mode="voiceChatMode"
+        @error="handleSttError"
+        @status="handleSttStatus"
+        @send-message="sendMessage"
+        @stop="stopStreaming"
+        @new-chat="newChat"
+        @toggle-mute="handleToggleMute"
+        @toggle-voice-mode="toggleVoiceMode"
+        @inactivity-timeout="handleVoiceInactivityTimeout"
         class="col message-input"
       />
     </div>
+
   </q-page>
 </template>
 
@@ -209,21 +327,32 @@ import { api } from 'boot/axios'
 import { Marked } from 'marked'
 import hljs from 'highlight.js'
 import 'highlight.js/styles/base16/ashes.css' // highlightjs.org/examples
-import VoskSpeechToText from 'components/VoskSpeechToText.vue'
+import SpeechToTextInput from 'components/SpeechToTextInput.vue'
+import VoiceChatInput from 'components/VoiceChatInput.vue'
 import TtsControls from 'components/TtsControls.vue'
 
-const marked = new Marked({
-  renderer: {
-    code(token) {
-      const rawLanguage = (token.lang || '').trim().toLowerCase()
-      const language = hljs.getLanguage(rawLanguage) ? rawLanguage : 'plaintext'
-      const label = rawLanguage || 'text'
-      const code = token.text || ''
-      const highlighted = hljs.highlight(code, { language }).value
-      const encodedCode = encodeURIComponent(code)
+const codeRenderer = {
+  code(token) {
+    const rawLanguage = (token.lang || '').trim().toLowerCase()
+    const language = hljs.getLanguage(rawLanguage) ? rawLanguage : 'plaintext'
+    const label = rawLanguage || 'text'
+    const code = token.text || ''
+    const highlighted = hljs.highlight(code, { language }).value
+    const encodedCode = encodeURIComponent(code)
 
-      return `<div class="code-block-wrap"><div class="code-block-header"><span class="code-lang-label">${label}</span><button class="code-copy-btn" type="button" data-code="${encodedCode}" aria-label="Copy code" title="Copy code"><span class="material-icons notranslate" aria-hidden="true">content_copy</span></button></div><pre><code class="hljs language-${language}">${highlighted}</code></pre></div>`
-    }
+    return `<div class="code-block-wrap"><div class="code-block-header"><span class="code-lang-label">${label}</span><button class="code-copy-btn" type="button" data-code="${encodedCode}" aria-label="Copy code" title="Copy code"><span class="material-icons notranslate" aria-hidden="true">content_copy</span></button></div><pre><code class="hljs language-${language}">${highlighted}</code></pre></div>`
+  }
+}
+
+const marked = new Marked({ renderer: codeRenderer })
+
+// User messages reuse the same renderer but disable indented code blocks, so
+// pasted prose with indented paragraphs isn't mistaken for a code block.
+// Fenced ``` blocks still work — those go through the separate `fences` tokenizer.
+const markedUser = new Marked({
+  renderer: codeRenderer,
+  tokenizer: {
+    code() { return undefined }
   }
 })
 import { useStreamingChat } from 'src/composables/useStreamingChat'
@@ -231,13 +360,19 @@ import { useTtsPlayer } from 'src/composables/useTtsPlayer'
 import { onBeforeUnmount, onMounted} from 'vue'
 
 const DEFAULT_MODEL_ID = import.meta.env.VITE_DEFAULT_MODEL_ID || null
-const DEFAULT_VOSK_MODEL_URL = import.meta.env.VITE_VOSK_MODEL_URL || '/vosk-models/vosk-model-small-en-us-0.15.zip'
+
+const COMPOSER_EXPAND_AT_PX = 16
+const COMPOSER_COLLAPSE_AT_PX = 140
 
 export default {
   name: 'ChatPage',
   components: {
-    VoskSpeechToText,
+    SpeechToTextInput,
+    VoiceChatInput,
     TtsControls
+  },
+  inject: {
+    refreshConversations: { default: () => () => {} }
   },
   setup() {
     const streamingChat = useStreamingChat()
@@ -260,17 +395,28 @@ export default {
   data: () => ({
     input: '',
     messages: [],
+    atBottom: true,
+    atTop: true,
+    toolbarHovered: false,
     conversationId: null,
     models: [],
     modelCode: null,
-    voskModelUrl: DEFAULT_VOSK_MODEL_URL,
     streamingMessageIndex: null,
     expandedThinking: {},
     useScaffolding: true,
+    usePersona: true,
+    personaId: 'persona1',
+    personas: [],
     ragEnabled: false,
+    llamaContextWindow: 8192,
     editingMessageIndex: null,
     editingContent: '',
-    isSavingEdit: false
+    isSavingEdit: false,
+    voiceChatMode: false,
+    readingAloudIndex: null,
+    endOfUtteranceMs: 2500,
+    inactivityTimeoutSec: 15,
+    armTimer: null
   }),
   async mounted() {
     const modelsRes = await api.get('/api/models')
@@ -281,12 +427,28 @@ export default {
 
     const userRes = await api.get('/api/user')
     this.useScaffolding = userRes.data.use_scaffolding
+    this.usePersona = userRes.data.use_persona
+    this.personaId = userRes.data.persona_id
+    this.personas = userRes.data.personas || []
+    this.llamaContextWindow = userRes.data.llama_context_window || 8192
 
-    this.ttsPlayer.setEnabled(userRes.data.tts_enabled || false)
+    // Live context window from llama.cpp is authoritative; the stored value above is only the fallback.
+    if (this.isLlamaModel) await this.fetchLlamaContext()
+
+    // TTS output now follows voice mode (off until voice mode is enabled).
     this.ttsPlayer.setVoice(userRes.data.tts_voice || 'af_heart')
     this.ttsPlayer.setSpeed(userRes.data.tts_speed || 1.0)
+
+    window.addEventListener('keydown', this.handleVoiceEscape)
+  },
+  beforeUnmount() {
+    window.removeEventListener('keydown', this.handleVoiceEscape)
+    this.cancelArm()
   },
   watch: {
+    modelCode() {
+      if (this.isLlamaModel) this.fetchLlamaContext()
+    },
     '$route.params.id': {
       immediate: true,
       async handler(newId) {
@@ -307,6 +469,10 @@ export default {
         this.$nextTick(() => this.scrollToBottom())
       },
       deep: true
+    },
+    atBottom(val) {
+      // re-pin so the taller composer doesn't hide the last message
+      if (val) this.$nextTick(() => this.scrollToBottom())
     },
     'streamingChat.thinkingText.value'(newThinking) {
       if (this.streamingMessageIndex !== null) {
@@ -332,9 +498,25 @@ export default {
       }
     },
     'streamingChat.isStreaming.value'(isStreaming) {
-      // When streaming ends, flush any remaining buffered text
-      if (!isStreaming && this.ttsPlayer.isEnabled.value) {
+      if (isStreaming) {
+        // New response: re-arm the wait-for-sentences hold.
+        this.ttsPlayer.resetFirstBatchGate()
+      } else if (this.ttsPlayer.isEnabled.value) {
+        // Streaming ended: flush any remaining buffered text.
         this.ttsPlayer.flushBuffer()
+      }
+    },
+
+    'ttsPlayer.isPlaying.value'(playing) {
+      // Revert the per-message read-aloud button once playback stops.
+      if (!playing) this.readingAloudIndex = null
+    },
+    voiceShouldListen(newVal, oldVal) {
+      if (newVal && !oldVal) {
+        this.scheduleArm()
+      } else if (!newVal && oldVal) {
+        this.cancelArm()
+        this.$refs.voice?.stopRecording()
       }
     }
   },
@@ -342,11 +524,38 @@ export default {
     hasMessages() {
       return this.messages.length > 0
     },
+    composerExpanded() {
+      if (!this.hasMessages) return true
+      return this.atBottom && !this.streamingChat.isStreaming.value
+    },
+    toolbarExpanded() {
+      if (!this.hasMessages) return true
+      return this.atTop || this.toolbarHovered
+    },
     modelOptions() {
       return this.models.map(m => ({
         label: String(m.id),
         value: String(m.id)
       }))
+    },
+    personaOptions() {
+      return [
+        { label: 'Off', value: 'off' },
+        ...this.personas.map(p => ({ label: p.name, value: p.id }))
+      ]
+    },
+    personaSelection: {
+      get() {
+        return this.usePersona ? this.personaId : 'off'
+      },
+      set(value) {
+        if (value === 'off') {
+          this.usePersona = false
+        } else {
+          this.usePersona = true
+          this.personaId = value
+        }
+      }
     },
     displayMessages() {
       return this.messages.map((msg, index) => {
@@ -359,6 +568,41 @@ export default {
         }
         return msg
       })
+    },
+    isLlamaModel() {
+      const code = (this.modelCode || '').toLowerCase()
+      return code.includes('llama') || code.includes('local') || code.endsWith('.gguf')
+    },
+    lastContextTokens() {
+      for (let i = this.messages.length - 1; i >= 0; i--) {
+        const msg = this.messages[i]
+        if (msg.role === 'assistant' && msg.total_tokens) {
+          return msg.total_tokens
+        }
+      }
+      return 0
+    },
+    contextUsageRatio() {
+      if (!this.llamaContextWindow) return 0
+      return Math.min(1, Math.max(0, this.lastContextTokens / this.llamaContextWindow))
+    },
+    composerContextPercent() {
+      if (!this.isLlamaModel || !this.hasMessages) return null
+      return Math.round(this.contextUsageRatio * 100)
+    },
+    composerContextLabel() {
+      if (this.composerContextPercent === null) return null
+      return `${this.lastContextTokens.toLocaleString()} / ${this.llamaContextWindow.toLocaleString()}`
+    },
+    assistantBusy() {
+      return this.streamingChat.isStreaming.value || this.ttsPlayer.isPlaying.value
+    },
+    voiceShouldListen() {
+      return this.voiceChatMode && !this.assistantBusy && this.editingMessageIndex === null
+    },
+    inactivityTimeoutMs() {
+      // The slider's top position (> 60 s) means "off" — pass 0 to disable.
+      return this.inactivityTimeoutSec > 60 ? 0 : this.inactivityTimeoutSec * 1000
     }
   },
   methods: {
@@ -373,8 +617,60 @@ export default {
     handleSttStatus(status) {
       console.log('Speech status:', status)
     },
+    // Debounce the start so a brief assistant-busy flicker can't flap the mic.
+    scheduleArm() {
+      this.cancelArm()
+      this.armTimer = setTimeout(() => {
+        this.armTimer = null
+        if (!this.voiceShouldListen) return
+        this.$nextTick(() => {
+          this.$refs.voice?.startRecording().catch((err) => {
+            this.$q?.notify?.({
+              type: 'negative',
+              message: `Mic error: ${err?.message || err}`,
+              timeout: 3000
+            })
+          })
+        })
+      }, 300)
+    },
+    cancelArm() {
+      if (this.armTimer) {
+        clearTimeout(this.armTimer)
+        this.armTimer = null
+      }
+    },
     handleRetry() {
       this.streamingChat.retryLastMessage()
+    },
+    stopStreaming() {
+      // Commit whatever streamed so far before flipping isStreaming off, so the
+      // visible text doesn't briefly flash to empty.
+      if (this.streamingMessageIndex !== null) {
+        const msg = this.messages[this.streamingMessageIndex]
+        msg.thinking = this.streamingChat.thinkingText.value
+        msg.content = this.streamingChat.responseText.value
+      }
+      this.streamingChat.stop()
+    },
+    handleVoiceEscape(event) {
+      if (event.key !== 'Escape') return
+      if (!this.voiceChatMode) return
+      if (this.editingMessageIndex !== null) return
+      if (!this.streamingChat.isStreaming.value && !this.ttsPlayer.isPlaying.value) return
+
+      event.preventDefault()
+      this.streamingChat.stop()
+      this.ttsPlayer.stop()
+      this.$nextTick(() => {
+        this.$refs.voice?.startRecording().catch((err) => {
+          this.$q?.notify?.({
+            type: 'negative',
+            message: `Mic error: ${err?.message || err}`,
+            timeout: 3000
+          })
+        })
+      })
     },
     getLoadingText() {
       const phase = this.streamingChat.loadingPhase.value
@@ -457,7 +753,8 @@ export default {
       this.input = ''
 
       // Add placeholder for incoming stream
-      this.streamingMessageIndex = this.messages.length
+      const myIndex = this.messages.length
+      this.streamingMessageIndex = myIndex
       this.messages.push({
         role: 'assistant',
         content: '',
@@ -475,30 +772,55 @@ export default {
       )
 
       // Update placeholder message with final content from composable
-      const streamedMessage = this.messages[this.streamingMessageIndex]
+      const streamedMessage = this.messages[myIndex]
       streamedMessage.thinking = this.streamingChat.thinkingText.value
       streamedMessage.content = this.streamingChat.responseText.value
-
-      if (this.streamingChat.error.value) {
-        // Remove the failed placeholder message
-        this.messages.splice(this.streamingMessageIndex, 1)
+      const finalStats = this.streamingChat.stats.value
+      if (finalStats) {
+        streamedMessage.total_tokens = finalStats.total_tokens
+        streamedMessage.tokens_per_second = finalStats.tokens_per_second
+        streamedMessage.generation_ms = finalStats.generation_ms
       }
 
-      this.streamingMessageIndex = null
+      if (this.streamingChat.error.value) {
+        // Keep the placeholder for a regenerate button.
+        streamedMessage.failed = true
+      }
+
+      // Only clear the shared index if a newer send hasn't taken it over.
+      if (this.streamingMessageIndex === myIndex) {
+        this.streamingMessageIndex = null
+      }
 
       if (isNew && this.$route.params.id !== String(this.conversationId)) {
         this.$router.replace(`/chat/${this.conversationId}`)
       }
+
+      this.refreshConversations()
     },
     scrollToBottom() {
       const el = this.$refs.chatWindow
       if (el) el.scrollTop = el.scrollHeight
+    },
+    onChatScroll() {
+      const el = this.$refs.chatWindow
+      if (!el) return
+      this.atTop = el.scrollTop <= 8
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      if (this.atBottom && distanceFromBottom > COMPOSER_COLLAPSE_AT_PX) {
+        this.atBottom = false
+      } else if (!this.atBottom && distanceFromBottom <= COMPOSER_EXPAND_AT_PX) {
+        this.atBottom = true
+      }
     },
     isActivelyStreaming(index) {
       return index === this.streamingMessageIndex && this.streamingChat.isStreaming.value
     },
     formatMessage(text) {
       return marked.parse(text)
+    },
+    formatUserMessage(text) {
+      return markedUser.parse(text)
     },
 
     async copyTextWithFallback(text, successMessage) {
@@ -547,6 +869,12 @@ export default {
       await this.copyTextWithFallback(text, toastMessage)
     },
 
+    formatStats(msg) {
+      const total = msg.total_tokens != null ? msg.total_tokens.toLocaleString() : '?'
+      const tps = msg.tokens_per_second != null ? msg.tokens_per_second.toFixed(1) : '?'
+      return `${total} tokens · ${tps} tok/s`
+    },
+
     async updateScaffoldingPreference(value) {
       try {
         await api.patch('/api/user', {
@@ -564,9 +892,62 @@ export default {
       }
     },
 
-    async handleTtsEnabledChange(value) {
+    async fetchLlamaContext() {
+      try {
+        const res = await api.get('/api/models/llama_context')
+        if (res.data.n_ctx) this.llamaContextWindow = res.data.n_ctx
+      } catch (err) {
+        console.error('Error fetching llama context window:', err)
+      }
+    },
+
+    async updatePersonaSelection(value) {
+      const prevUsePersona = value === 'off' ? true : this.usePersona
+      const prevPersonaId = this.personaId
+      const payload = value === 'off'
+        ? { use_persona: false }
+        : { use_persona: true, persona_id: value }
+      try {
+        await api.patch('/api/user', { user: payload })
+      } catch (err) {
+        console.error('Error updating persona preference:', err)
+        this.usePersona = prevUsePersona
+        this.personaId = prevPersonaId
+        this.$q.notify({
+          type: 'negative',
+          message: 'Failed to update preference',
+          position: 'top',
+          timeout: 2000
+        })
+      }
+    },
+
+    // Voice-mode button in the composer.
+    toggleVoiceMode() {
+      const next = !this.voiceChatMode
+      this.voiceChatMode = next
+      this.handleVoiceModeChange(next)
+    },
+
+    // Voice mode owns TTS output: entering it turns voice output on by default.
+    async handleVoiceModeChange(value) {
       this.ttsPlayer.setEnabled(value)
+      // Warm the TTS engine on entry so its one-time cold start doesn't delay the first reply.
+      if (value) api.post('/api/tts/warmup').catch(() => {})
       await this.updateTtsPreference({ tts_enabled: value })
+    },
+
+    // Silence timeout: leave voice mode instead of stranding the mic off in it.
+    handleVoiceInactivityTimeout() {
+      this.voiceChatMode = false
+      this.handleVoiceModeChange(false)
+    },
+
+    // Mute button in the composer: toggle voice output without leaving voice mode.
+    async handleToggleMute() {
+      const enabled = !this.ttsPlayer.isEnabled.value
+      this.ttsPlayer.setEnabled(enabled)
+      await this.updateTtsPreference({ tts_enabled: enabled })
     },
 
     async handleTtsVoiceChange(value) {
@@ -595,13 +976,19 @@ export default {
       }
     },
 
-    async readAloud(text) {
+    async readAloud(text, index) {
       if (!text || text.trim().length === 0) return
+
+      // Stop current playback; the isPlaying watcher clears the old index first.
+      this.ttsPlayer.stop()
+      await this.$nextTick()
+      this.readingAloudIndex = index
 
       try {
         await this.ttsPlayer.speak(text)
       } catch (err) {
         console.error('Error reading aloud:', err)
+        this.readingAloudIndex = null
         this.$q.notify({
           type: 'negative',
           message: 'Failed to read aloud',
@@ -609,6 +996,11 @@ export default {
           timeout: 2000
         })
       }
+    },
+
+    stopReadAloud() {
+      this.ttsPlayer.stop()
+      this.readingAloudIndex = null
     },
 
     startEdit(index, message) {
@@ -624,7 +1016,12 @@ export default {
     async saveEdit() {
       if (!this.editingContent.trim() || this.isSavingEdit) return
 
+      if (this.streamingChat.isStreaming.value) {
+        this.streamingChat.stop()
+      }
+
       const messageIndex = this.editingMessageIndex
+      const newContent = this.editingContent
       let message = this.messages[messageIndex]
 
       if (!message.id) {
@@ -637,19 +1034,8 @@ export default {
       try {
         await api.patch(
           `/api/conversations/${this.conversationId}/messages/${message.id}`,
-          { content: this.editingContent }
+          { content: newContent }
         )
-
-        message.content = this.editingContent
-
-        // Remove all messages after the edited one
-        this.messages = this.messages.slice(0, messageIndex + 1)
-
-        await this.regenerateFromMessage(this.editingContent)
-
-        this.editingMessageIndex = null
-        this.editingContent = ''
-
       } catch (err) {
         console.error('Error updating message:', err)
         this.$q.notify({
@@ -658,9 +1044,20 @@ export default {
           position: 'top',
           timeout: 2000
         })
-      } finally {
         this.isSavingEdit = false
+        return
       }
+
+      message.content = newContent
+
+      // Remove all messages after the edited one
+      this.messages = this.messages.slice(0, messageIndex + 1)
+
+      this.editingMessageIndex = null
+      this.editingContent = ''
+      this.isSavingEdit = false
+
+      this.regenerateFromMessage(newContent)
     },
 
     async regenerateMessage(message, messageIndex) {
@@ -670,7 +1067,8 @@ export default {
     },
     async regenerateFromMessage(userMessageContent) {
       // Add placeholder for incoming stream
-      this.streamingMessageIndex = this.messages.length
+      const myIndex = this.messages.length
+      this.streamingMessageIndex = myIndex
       this.messages.push({
         role: 'assistant',
         content: '',
@@ -689,24 +1087,58 @@ export default {
       )
 
       // Update placeholder with final content
-      const streamedMessage = this.messages[this.streamingMessageIndex]
+      const streamedMessage = this.messages[myIndex]
       streamedMessage.thinking = this.streamingChat.thinkingText.value
       streamedMessage.content = this.streamingChat.responseText.value
 
       if (this.streamingChat.error.value) {
-        this.messages.splice(this.streamingMessageIndex, 1)
+        streamedMessage.failed = true
       }
 
-      this.streamingMessageIndex = null
+      if (this.streamingMessageIndex === myIndex) {
+        this.streamingMessageIndex = null
+      }
+
+      this.refreshConversations()
     }
   }
 }
 </script>
 
 <style scoped>
+.chat-page {
+  height: 100vh;
+  overflow: hidden;
+}
+.toolbar-wrap {
+  overflow: hidden;
+  transition: max-height 0.25s ease;
+  max-height: 300px;
+}
+.toolbar-wrap.toolbar-collapsed {
+  max-height: 12px;
+}
 .chat-window {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.chat-window::-webkit-scrollbar {
+  width: 10px;
+}
+.chat-window::-webkit-scrollbar-track {
+  background: transparent;
+}
+.chat-window::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.chat-window::-webkit-scrollbar-thumb:hover {
+  background: var(--text-subtle);
 }
 .bubble {
   color: var(--text);
@@ -717,9 +1149,20 @@ export default {
 }
 .message-footer {
   display: flex;
+  align-items: center;
   justify-content: flex-start;
   margin-top: 8px;
   padding-top: 4px;
+}
+.message-stats {
+  margin-left: 8px;
+  font-size: 0.75rem;
+  opacity: 0.55;
+  white-space: nowrap;
+}
+.failed-message {
+  display: flex;
+  align-items: center;
 }
 .copy-btn {
   opacity: 0.6;
@@ -782,11 +1225,21 @@ p {
   border-top: none;
   justify-content: center;
 }
+.input-bar-centered {
+  margin-bottom: auto;
+}
 .message-input {
   max-width: 900px;
 }
+.context-usage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 16px;
+}
 .message-input :deep(.q-field__control) {
-  border-radius: 15px;
+  border-radius: 25px;
 }
 .message-input :deep(.q-field__control textarea) {
   font-size: 16px;
@@ -799,6 +1252,11 @@ p {
 }
 .new-chat-welcome {
   text-align: center;
+}
+.welcome-video {
+  width: 280px;
+  height: auto;
+  mix-blend-mode: screen;
 }
 .assistant :deep(.code-block-wrap) {
   margin: 10px 0;

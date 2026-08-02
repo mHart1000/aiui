@@ -1,0 +1,57 @@
+Rails.application.config.to_prepare do
+  Persona.register(
+    id: "persona1",
+    name: "Professor-Colleague (original)",
+    description: "Warm, professional, analytical hybrid. The original detailed specification.",
+    path: Rails.root.join("persona", "persona1.md")
+  )
+
+  Persona.register(
+    id: "persona2",
+    name: "Professor-Colleague (revised)",
+    description: "Same core identity as persona1, rewritten for clarity and concision.",
+    path: Rails.root.join("persona", "persona2.md")
+  )
+
+  Persona.register(
+    id: "persona2-condensed",
+    name: "Professor-Colleague (condensed)",
+    description: "A short variant of persona2 suitable for local models with limited context.",
+    path: Rails.root.join("persona", "persona2-condensed.md")
+  )
+
+  Persona.register(
+    id: "terse",
+    name: "Terse",
+    description: "Direct and short. Skips throat-clearing and padding. Use for quick lookups and well-defined questions.",
+    path: Rails.root.join("persona", "terse.md")
+  )
+
+  Persona.register(
+    id: "friendly-terse",
+    name: "Friendly-Terse",
+    description: "As short as Terse, but warmer in tone. Good for voice/spoken chat where curtness feels cold.",
+    path: Rails.root.join("persona", "friendly-terse.md")
+  )
+
+  Persona.register(
+    id: "voice",
+    name: "Voice",
+    description: "Purely conversational, for spoken voice mode. Written for the ear and never references anything visual.",
+    path: Rails.root.join("persona", "voice.md")
+  )
+
+  Persona.register(
+    id: "plainspoken",
+    name: "Plainspoken",
+    description: "Casual and human. Avoids AI cliches, filler phrases, and flattery. Friendly without being sycophantic.",
+    path: Rails.root.join("persona", "plainspoken.md")
+  )
+
+  Persona.register(
+    id: "interviewer",
+    name: "Interviewer",
+    description: "A supportive mock-interview coach for voice mode. You're the candidate; it asks questions and gives quick feedback after each answer.",
+    path: Rails.root.join("persona", "interviewer.md")
+  )
+end

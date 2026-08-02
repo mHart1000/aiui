@@ -11,6 +11,7 @@ import { ref } from 'vue'
 export function useStreamingChat() {
   const thinkingText = ref('')
   const responseText = ref('')
+  const stats = ref(null) // { total_tokens, tokens_per_second, generation_ms }
   const isStreaming = ref(false)
   const error = ref(null)
   const loadingPhase = ref('idle') // 'idle' | 'connecting' | 'thinking' | 'responding' | 'done'
@@ -42,6 +43,7 @@ export function useStreamingChat() {
     // Reset state
     thinkingText.value = ''
     responseText.value = ''
+    stats.value = null
     error.value = null
     isStreaming.value = true
     loadingPhase.value = 'connecting'
@@ -136,6 +138,14 @@ export function useStreamingChat() {
                   responseText.value += data.content
                   break
 
+                case 'stats':
+                  stats.value = {
+                    total_tokens: data.total_tokens,
+                    tokens_per_second: data.tokens_per_second,
+                    generation_ms: data.generation_ms
+                  }
+                  break
+
                 case 'done':
                   isStreaming.value = false
                   loadingPhase.value = 'done'
@@ -158,8 +168,17 @@ export function useStreamingChat() {
       clearTimeout(streamTimeoutId)
 
     } catch (err) {
-      error.value = err
-      loadingPhase.value = 'idle'
+      clearTimeout(streamTimeoutId)
+      if (err.name === 'AbortError') {
+        // User stop, voice escape, or timeout cleanup — keep partial text;
+        // don't surface an error or let ChatPage splice the message.
+        isStreaming.value = false
+        if (!error.value) loadingPhase.value = 'done' // preserve a timeout error
+      } else {
+        error.value = err
+        loadingPhase.value = 'idle'
+        isStreaming.value = false
+      }
     }
   }
 
@@ -193,10 +212,20 @@ export function useStreamingChat() {
     }
   }
 
+  // Stop streaming on user request: abort the connection and settle state so the
+  // partial response is kept (no error). Distinct from cleanup(), which is a pure
+  // teardown used on unmount and before starting a new stream.
+  function stop() {
+    cleanup()
+    isStreaming.value = false
+    loadingPhase.value = 'done'
+  }
+
   return {
     // Reactive state
     thinkingText,
     responseText,
+    stats,
     isStreaming,
     error,
     loadingPhase,
@@ -205,6 +234,7 @@ export function useStreamingChat() {
     sendMessage,
     retryLastMessage,
     dismissError,
-    cleanup
+    cleanup,
+    stop
   }
 }

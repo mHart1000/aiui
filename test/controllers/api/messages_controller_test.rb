@@ -90,6 +90,7 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
     chunks = [ "Full", " response", " here" ]
     full_stream = lambda do |**_kwargs, &block|
       chunks.each { |chunk| block.call(chunk, :response) }
+      { persona_version: nil }
     end
 
     ChatService.stub(:call, full_stream) do

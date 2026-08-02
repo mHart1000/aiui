@@ -3,6 +3,13 @@ require "test_helper"
 class TextToSpeechServiceTest < ActiveSupport::TestCase
   def setup
     @mock_adapter = Minitest::Mock.new
+    # Tests that stub the default adapter assume Kokoro; a TTS_ADAPTER in the
+    # environment (.env) would otherwise resolve a real adapter and hit the network.
+    @previous_tts_adapter = ENV.delete("TTS_ADAPTER")
+  end
+
+  def teardown
+    ENV["TTS_ADAPTER"] = @previous_tts_adapter if @previous_tts_adapter
   end
 
   test "call delegates to adapter synthesize and returns audio bytes" do
@@ -26,6 +33,67 @@ class TextToSpeechServiceTest < ActiveSupport::TestCase
     @mock_adapter.expect(:voices, %w[af_heart af_nova])
     TtsAdapters::KokoroAdapter.stub(:new, @mock_adapter) do
       assert_equal %w[af_heart af_nova], TextToSpeechService.voices
+    end
+    @mock_adapter.verify
+  end
+
+  test "qwen3 adapter name resolves to Qwen3Adapter" do
+    @mock_adapter.expect(:available?, true)
+    TtsAdapters::Qwen3Adapter.stub(:new, @mock_adapter) do
+      assert TextToSpeechService.available?(adapter: "qwen3")
+    end
+    @mock_adapter.verify
+  end
+
+  test "chatterbox adapter name resolves to ChatterboxAdapter" do
+    @mock_adapter.expect(:available?, true)
+    TtsAdapters::ChatterboxAdapter.stub(:new, @mock_adapter) do
+      assert TextToSpeechService.available?(adapter: "chatterbox")
+    end
+    @mock_adapter.verify
+  end
+
+  test "TTS_ADAPTER env var selects the default adapter" do
+    previous = ENV["TTS_ADAPTER"]
+    ENV["TTS_ADAPTER"] = "qwen3"
+    @mock_adapter.expect(:available?, true)
+    TtsAdapters::Qwen3Adapter.stub(:new, @mock_adapter) do
+      assert TextToSpeechService.available?
+    end
+    @mock_adapter.verify
+  ensure
+    previous.nil? ? ENV.delete("TTS_ADAPTER") : ENV["TTS_ADAPTER"] = previous
+  end
+
+  test "stream delegates chunks to adapter synthesize_stream" do
+    chunks = []
+    fake_adapter = Object.new
+    def fake_adapter.synthesize_stream(text:, voice: nil, speed: nil)
+      yield "chunk1"
+      yield "chunk2"
+    end
+    TtsAdapters::KokoroAdapter.stub(:new, fake_adapter) do
+      TextToSpeechService.stream(text: "Hello") { |c| chunks << c }
+    end
+    assert_equal %w[chunk1 chunk2], chunks
+  end
+
+  test "adapter streaming capability flags" do
+    assert TtsAdapters::ChatterboxAdapter.new.streaming?
+    assert TtsAdapters::Qwen3Adapter.new.streaming?
+    refute TtsAdapters::KokoroAdapter.new.streaming?
+  end
+
+  test "first_batch_min_sentences is per engine" do
+    assert_equal 5, TtsAdapters::Qwen3Adapter.new.first_batch_min_sentences
+    assert_equal 1, TtsAdapters::ChatterboxAdapter.new.first_batch_min_sentences
+    assert_equal 1, TtsAdapters::KokoroAdapter.new.first_batch_min_sentences
+  end
+
+  test "first_batch_min_sentences delegates to adapter" do
+    @mock_adapter.expect(:first_batch_min_sentences, 5)
+    TtsAdapters::KokoroAdapter.stub(:new, @mock_adapter) do
+      assert_equal 5, TextToSpeechService.first_batch_min_sentences
     end
     @mock_adapter.verify
   end

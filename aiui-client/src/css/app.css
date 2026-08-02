@@ -60,7 +60,7 @@ body {
 .assistant h1 {
     font-size: 1.5rem;
 }
-.assistant h2 {
+h2 {
     font-size: 1.25rem;
 }
 .assistant h3 {
@@ -88,4 +88,12 @@ body {
 a {
     color: var(--accent);
     text-decoration: none;
+}
+
+h3 {
+    font-size: 1.4rem;
+}
+
+.chat-window {
+    max-width: 100%;
 }
