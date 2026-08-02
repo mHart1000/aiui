@@ -16,6 +16,7 @@ module Api
         use_persona: current_api_user.use_persona,
         persona_id: current_api_user.persona_id,
         use_scaffolding: current_api_user.use_scaffolding,
+        voice_mode: voice_mode?,
         rag_context: rag_context
       )
 
@@ -88,6 +89,7 @@ module Api
           use_persona: current_api_user.use_persona,
           persona_id: current_api_user.persona_id,
           use_scaffolding: current_api_user.use_scaffolding,
+          voice_mode: voice_mode?,
           stream: true,
           rag_context: rag_context
         ) do |chunk, phase|
@@ -145,6 +147,11 @@ module Api
     end
 
     private
+
+    # Per-request, not a stored preference: the user can leave voice mode mid-conversation.
+    def voice_mode?
+      ActiveModel::Type::Boolean.new.cast(params[:voice_mode]) || false
+    end
 
     def fetch_rag_context(conversation, query)
       unless conversation.rag_enabled
