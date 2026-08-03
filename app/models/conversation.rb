@@ -13,6 +13,22 @@ class Conversation < ApplicationRecord
     messages.order(:created_at).map { |m| { role: m.role, content: m.content } }
   end
 
+  # null on either override column means "inherit from the user".
+  def resolved_use_skills
+    use_skills.nil? ? user.use_skills : use_skills
+  end
+
+  # An explicit [] means no skills here; null falls back to the user's defaults.
+  def resolved_skills
+    return Skill.none unless resolved_use_skills
+
+    if skill_ids.nil?
+      user.skills.where(enabled_by_default: true).order(:id)
+    else
+      user.skills.where(id: skill_ids).order(:id)
+    end
+  end
+
   def apply_model_code(requested_code)
     validated = requested_code if AI_MODELS.map { |m| m["id"] }.include?(requested_code)
     resolved = validated || model_code
@@ -20,7 +36,7 @@ class Conversation < ApplicationRecord
     resolved
   end
 
-  def add_assistant_message(reply:, thinking:, tokens:, stats: nil, persona_version: nil)
+  def add_assistant_message(reply:, thinking:, tokens:, stats: nil, persona_version: nil, skill_versions: nil)
     if tokens&.dig(:planning) && tokens&.dig(:execution)
       total_prompt = tokens[:planning][:prompt_tokens] + tokens[:execution][:prompt_tokens]
       total_completion = tokens[:planning][:completion_tokens] + tokens[:execution][:completion_tokens]
@@ -40,7 +56,8 @@ class Conversation < ApplicationRecord
       total_tokens: total_all,
       generation_ms: stats&.dig(:elapsed_ms),
       tokens_per_second: stats&.dig(:tokens_per_second),
-      persona_version: persona_version
+      persona_version: persona_version,
+      skill_versions: skill_versions
     )
   end
 

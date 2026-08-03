@@ -27,6 +27,7 @@ Rails.application.routes.draw do
       get :llama_context, on: :collection
     end
     resources :rag_documents, only: [ :index, :create, :destroy ]
+    resources :skills, only: [ :index, :create, :update, :destroy ]
 
     get "user", to: "user#show"
     patch "user", to: "user#update"

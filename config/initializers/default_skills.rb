@@ -1,5 +1,4 @@
-# Copied into each user's own rows on signup. Editing these does not affect
-# users who already have their copy.
+# Copied into each user's own rows on signup; edits here don't reach existing users.
 DEFAULT_SKILLS = [
   {
     "name" => "SQL Review",

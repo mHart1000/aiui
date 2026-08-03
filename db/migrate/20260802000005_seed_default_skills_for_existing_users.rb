@@ -1,6 +1,5 @@
 class SeedDefaultSkillsForExistingUsers < ActiveRecord::Migration[8.1]
-  # Migration-local classes so a later change to the Skill model can't alter
-  # what this migration does on replay.
+  # Migration-local so later Skill model changes can't alter this on replay.
   class MigrationUser < ActiveRecord::Base
     self.table_name = "users"
   end
@@ -20,8 +19,7 @@ class SeedDefaultSkillsForExistingUsers < ActiveRecord::Migration[8.1]
     end
   end
 
-  # Intentionally a no-op: by rollback time a seeded row is indistinguishable
-  # from one the user has edited. CreateSkills drops the table anyway.
+  # No-op: a seeded row is indistinguishable from an edited one by rollback time.
   def down
   end
 end

@@ -16,7 +16,8 @@ module Api
         use_persona: current_api_user.use_persona,
         persona_id: current_api_user.persona_id,
         use_scaffolding: current_api_user.use_scaffolding,
-        rag_context: rag_context
+        rag_context: rag_context,
+        skills: fetch_skills(conversation)
       )
 
       if result[:error]
@@ -28,7 +29,8 @@ module Api
           thinking: result[:thinking],
           tokens: result[:tokens],
           stats: result[:stats],
-          persona_version: result[:persona_version]
+          persona_version: result[:persona_version],
+          skill_versions: result[:skill_versions]
         )
         conversation.entitle_async(params[:content])
 
@@ -89,7 +91,8 @@ module Api
           persona_id: current_api_user.persona_id,
           use_scaffolding: current_api_user.use_scaffolding,
           stream: true,
-          rag_context: rag_context
+          rag_context: rag_context,
+          skills: fetch_skills(conversation)
         ) do |chunk, phase|
           if phase == :thinking
             thinking_accumulator += chunk
@@ -138,13 +141,20 @@ module Api
           thinking: thinking_accumulator,
           tokens: stream_result&.dig(:tokens),
           stats: stream_result&.dig(:stats),
-          persona_version: stream_result&.dig(:persona_version)
+          persona_version: stream_result&.dig(:persona_version),
+          skill_versions: stream_result&.dig(:skill_versions)
         )
         conversation.entitle_async(params[:content]) unless client_disconnected
       end
     end
 
     private
+
+    def fetch_skills(conversation)
+      conversation.resolved_skills.map do |skill|
+        { id: skill.id, name: skill.name, content: skill.body, version: skill.version }
+      end
+    end
 
     def fetch_rag_context(conversation, query)
       unless conversation.rag_enabled
