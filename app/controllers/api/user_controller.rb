@@ -30,6 +30,7 @@ module Api
         persona_id: current_api_user.persona_id,
         personas: Persona.all.map { |p| { id: p.id, name: p.name, description: p.description } },
         use_skills: current_api_user.use_skills,
+        default_skill_ids: current_api_user.skills.where(enabled_by_default: true).order(:id).pluck(:id),
         tts_enabled: current_api_user.tts_enabled,
         tts_voice: current_api_user.tts_voice || "af_heart",
         tts_speed: current_api_user.tts_speed,

@@ -330,7 +330,9 @@
     <SkillsDialog
       v-model="skillsOpen"
       :active-ids="activeSkillIds"
+      :enabled="skillsEnabled"
       @update:active-ids="updateActiveSkills"
+      @update:enabled="updateSkillsEnabled"
     />
   </q-page>
 </template>
@@ -424,7 +426,9 @@ export default {
     personas: [],
     ragEnabled: false,
     skillsOpen: false,
+    skillsEnabled: false,
     activeSkillIds: [],
+    defaultSkillIds: [],
     llamaContextWindow: 8192,
     editingMessageIndex: null,
     editingContent: '',
@@ -447,6 +451,9 @@ export default {
     this.usePersona = userRes.data.use_persona
     this.personaId = userRes.data.persona_id
     this.personas = userRes.data.personas || []
+    this.skillsEnabled = userRes.data.use_skills || false
+    this.defaultSkillIds = userRes.data.default_skill_ids || []
+    this.activeSkillIds = this.defaultSkillIds
     this.llamaContextWindow = userRes.data.llama_context_window || 8192
 
     // Live context window from llama.cpp is authoritative; the stored value above is only the fallback.
@@ -562,7 +569,8 @@ export default {
       ]
     },
     skillsLabel() {
-      return this.activeSkillIds.length ? `Skills (${this.activeSkillIds.length})` : 'Skills'
+      const count = this.activeSkillIds.length
+      return this.skillsEnabled && count ? `Skills (${count})` : 'Skills'
     },
     personaSelection: {
       get() {
@@ -713,6 +721,7 @@ export default {
         this.messages = []
         this.input = ''
         this.modelCode = DEFAULT_MODEL_ID
+        this.activeSkillIds = this.defaultSkillIds
       }
     },
     async loadConversation() {
@@ -721,6 +730,7 @@ export default {
         this.messages = res.data.messages
         this.modelCode = res.data.model_code || DEFAULT_MODEL_ID
         this.ragEnabled = res.data.rag_enabled || false
+        this.skillsEnabled = res.data.use_skills || false
         this.activeSkillIds = res.data.skill_ids || []
       } catch (err) {
         console.error('Error loading conversation', err)
@@ -733,7 +743,7 @@ export default {
 
       try {
         await api.patch(`/api/conversations/${this.conversationId}`, {
-          conversation: { use_skills: ids.length > 0, skill_ids: ids }
+          conversation: { skill_ids: ids }
         })
       } catch (err) {
         console.error('Error updating skills:', err)
@@ -741,6 +751,26 @@ export default {
         this.$q.notify({
           type: 'negative',
           message: 'Failed to update skills',
+          position: 'top',
+          timeout: 2000
+        })
+      }
+    },
+    async updateSkillsEnabled(value) {
+      const previous = this.skillsEnabled
+      this.skillsEnabled = value
+      if (!this.conversationId) return  // held locally; applied on first send
+
+      try {
+        await api.patch(`/api/conversations/${this.conversationId}`, {
+          conversation: { use_skills: value }
+        })
+      } catch (err) {
+        console.error('Error updating skills toggle:', err)
+        this.skillsEnabled = previous
+        this.$q.notify({
+          type: 'negative',
+          message: 'Failed to update skills setting',
           position: 'top',
           timeout: 2000
         })
@@ -781,15 +811,9 @@ export default {
         this.conversationId = convRes.data.id
 
         // Toolbar settings chosen before the first send are applied here.
-        const initial = {}
+        const initial = { use_skills: this.skillsEnabled, skill_ids: this.activeSkillIds }
         if (this.ragEnabled) initial.rag_enabled = true
-        if (this.activeSkillIds.length) {
-          initial.use_skills = true
-          initial.skill_ids = this.activeSkillIds
-        }
-        if (Object.keys(initial).length) {
-          await api.patch(`/api/conversations/${this.conversationId}`, { conversation: initial })
-        }
+        await api.patch(`/api/conversations/${this.conversationId}`, { conversation: initial })
       }
 
       // Add user message immediately (optimistic UI)

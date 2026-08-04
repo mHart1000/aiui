@@ -34,7 +34,15 @@
             Instruction modules that layer on top of your persona. Checked skills apply to this chat.
           </p>
 
-          <q-list bordered separator v-if="skills.length">
+          <q-toggle
+            :model-value="enabled"
+            label="Use skills in this chat"
+            color="primary"
+            class="q-mb-md"
+            @update:model-value="$emit('update:enabled', $event)"
+          />
+
+          <q-list bordered separator v-if="skills.length" :class="{ 'skills-off': !enabled }">
             <q-item v-for="skill in skills" :key="skill.id">
               <q-item-section side top>
                 <q-checkbox
@@ -81,9 +89,10 @@ export default {
   name: 'SkillsDialog',
   props: {
     modelValue: { type: Boolean, default: false },
-    activeIds: { type: Array, default: () => [] }
+    activeIds: { type: Array, default: () => [] },
+    enabled: { type: Boolean, default: false }
   },
-  emits: ['update:modelValue', 'update:activeIds'],
+  emits: ['update:modelValue', 'update:activeIds', 'update:enabled'],
   data: () => ({
     skills: [],
     loading: false,
@@ -180,7 +189,7 @@ export default {
             skill: { enabled_by_default: this.activeIds.includes(skill.id) }
           })
         }
-        await api.patch('/api/user', { user: { use_skills: true } })
+        await api.patch('/api/user', { user: { use_skills: this.enabled } })
         await this.fetchSkills()
         this.$q.notify({ type: 'positive', message: 'Defaults saved', position: 'top', timeout: 1500 })
       } catch (err) {
@@ -192,3 +201,9 @@ export default {
   }
 }
 </script>
+
+<style scoped>
+.skills-off {
+  opacity: 0.5;
+}
+</style>
