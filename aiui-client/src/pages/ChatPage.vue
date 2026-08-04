@@ -37,6 +37,14 @@
         @update:model-value="updateRagEnabled"
         color="primary"
       />
+      <q-btn
+        flat
+        dense
+        no-caps
+        icon="extension"
+        :label="skillsLabel"
+        @click="skillsOpen = true"
+      />
       <TtsControls
         :show="voiceChatMode"
         :is-playing="ttsPlayer.isPlaying.value"
@@ -319,6 +327,11 @@
       />
     </div>
 
+    <SkillsDialog
+      v-model="skillsOpen"
+      :active-ids="activeSkillIds"
+      @update:active-ids="updateActiveSkills"
+    />
   </q-page>
 </template>
 
@@ -330,6 +343,7 @@ import 'highlight.js/styles/base16/ashes.css' // highlightjs.org/examples
 import SpeechToTextInput from 'components/SpeechToTextInput.vue'
 import VoiceChatInput from 'components/VoiceChatInput.vue'
 import TtsControls from 'components/TtsControls.vue'
+import SkillsDialog from 'components/SkillsDialog.vue'
 
 const codeRenderer = {
   code(token) {
@@ -369,7 +383,8 @@ export default {
   components: {
     SpeechToTextInput,
     VoiceChatInput,
-    TtsControls
+    TtsControls,
+    SkillsDialog
   },
   inject: {
     refreshConversations: { default: () => () => {} }
@@ -408,6 +423,8 @@ export default {
     personaId: 'persona1',
     personas: [],
     ragEnabled: false,
+    skillsOpen: false,
+    activeSkillIds: [],
     llamaContextWindow: 8192,
     editingMessageIndex: null,
     editingContent: '',
@@ -543,6 +560,9 @@ export default {
         { label: 'Off', value: 'off' },
         ...this.personas.map(p => ({ label: p.name, value: p.id }))
       ]
+    },
+    skillsLabel() {
+      return this.activeSkillIds.length ? `Skills (${this.activeSkillIds.length})` : 'Skills'
     },
     personaSelection: {
       get() {
@@ -701,8 +721,29 @@ export default {
         this.messages = res.data.messages
         this.modelCode = res.data.model_code || DEFAULT_MODEL_ID
         this.ragEnabled = res.data.rag_enabled || false
+        this.activeSkillIds = res.data.skill_ids || []
       } catch (err) {
         console.error('Error loading conversation', err)
+      }
+    },
+    async updateActiveSkills(ids) {
+      const previous = this.activeSkillIds
+      this.activeSkillIds = ids
+      if (!this.conversationId) return  // held locally; applied on first send
+
+      try {
+        await api.patch(`/api/conversations/${this.conversationId}`, {
+          conversation: { use_skills: ids.length > 0, skill_ids: ids }
+        })
+      } catch (err) {
+        console.error('Error updating skills:', err)
+        this.activeSkillIds = previous
+        this.$q.notify({
+          type: 'negative',
+          message: 'Failed to update skills',
+          position: 'top',
+          timeout: 2000
+        })
       }
     },
     async updateRagEnabled(value) {
@@ -738,10 +779,16 @@ export default {
       if (isNew) {
         const convRes = await api.post('/api/conversations')
         this.conversationId = convRes.data.id
-        if (this.ragEnabled) {
-          await api.patch(`/api/conversations/${this.conversationId}`, {
-            conversation: { rag_enabled: true }
-          })
+
+        // Toolbar settings chosen before the first send are applied here.
+        const initial = {}
+        if (this.ragEnabled) initial.rag_enabled = true
+        if (this.activeSkillIds.length) {
+          initial.use_skills = true
+          initial.skill_ids = this.activeSkillIds
+        }
+        if (Object.keys(initial).length) {
+          await api.patch(`/api/conversations/${this.conversationId}`, { conversation: initial })
         }
       }
 
