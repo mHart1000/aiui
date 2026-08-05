@@ -1321,8 +1321,10 @@ p {
 .message-input :deep(.q-field__control:before) {
   display: none;
 }
+/* Opaque backdrop so the video's screen blend still works while a dialog is open. */
 .new-chat-welcome {
   text-align: center;
+  background: var(--page-bg);
 }
 .welcome-video {
   width: 280px;
