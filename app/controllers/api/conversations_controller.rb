@@ -53,6 +53,8 @@ module Api
         title: conversation.title,
         model_code: conversation.model_code,
         rag_enabled: conversation.rag_enabled,
+        use_skills: conversation.resolved_use_skills,
+        skill_ids: conversation.resolved_skills.map(&:id),
         messages: conversation.messages.order(:created_at).map { |m|
           {
             id: m.id,
@@ -79,7 +81,9 @@ module Api
         id: conversation.id,
         title: conversation.title,
         model_code: conversation.model_code,
-        rag_enabled: conversation.rag_enabled
+        rag_enabled: conversation.rag_enabled,
+        use_skills: conversation.resolved_use_skills,
+        skill_ids: conversation.resolved_skills.map(&:id)
       }
     end
 
@@ -103,7 +107,7 @@ module Api
     end
 
     def conversation_params
-      params.require(:conversation).permit(:rag_enabled)
+      params.require(:conversation).permit(:rag_enabled, :use_skills, skill_ids: [])
     end
   end
 end

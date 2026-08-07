@@ -10,49 +10,52 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.2].define(version: 2026_05_17_000001) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_02_000005) do
   # These are extensions that must be enabled in order to support this database
-  enable_extension "plpgsql"
+  enable_extension "pg_catalog.plpgsql"
   enable_extension "vector"
 
   create_table "conversations", force: :cascade do |t|
-    t.string "title"
     t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
-    t.bigint "user_id", null: false
     t.string "model_code"
     t.boolean "rag_enabled", default: false, null: false
+    t.jsonb "skill_ids"
+    t.string "title"
+    t.datetime "updated_at", null: false
+    t.boolean "use_skills"
+    t.bigint "user_id", null: false
     t.index ["user_id"], name: "index_conversations_on_user_id"
   end
 
   create_table "messages", force: :cascade do |t|
-    t.bigint "conversation_id", null: false
-    t.string "role", null: false
-    t.text "content", null: false
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
-    t.text "thinking"
-    t.integer "prompt_tokens"
     t.integer "completion_tokens"
-    t.integer "total_tokens"
-    t.string "persona_version"
+    t.text "content", null: false
+    t.bigint "conversation_id", null: false
+    t.datetime "created_at", null: false
     t.integer "generation_ms"
+    t.string "persona_version"
+    t.integer "prompt_tokens"
+    t.string "role", null: false
+    t.jsonb "skill_versions"
+    t.text "thinking"
     t.float "tokens_per_second"
+    t.integer "total_tokens"
+    t.datetime "updated_at", null: false
     t.index ["conversation_id"], name: "index_messages_on_conversation_id"
   end
 
   create_table "rag_chunks", force: :cascade do |t|
-    t.bigint "rag_document_id", null: false
-    t.bigint "user_id", null: false
-    t.string "source_type", null: false
-    t.text "content", null: false
     t.integer "chunk_index", null: false
+    t.text "content", null: false
+    t.virtual "content_tsv", type: :tsvector, as: "to_tsvector('english'::regconfig, content)", stored: true
+    t.datetime "created_at", null: false
     t.vector "embedding", limit: 1024
     t.string "embedding_model"
     t.jsonb "metadata", default: {}, null: false
-    t.datetime "created_at", null: false
+    t.bigint "rag_document_id", null: false
+    t.string "source_type", null: false
     t.datetime "updated_at", null: false
-    t.virtual "content_tsv", type: :tsvector, as: "to_tsvector('english'::regconfig, content)", stored: true
+    t.bigint "user_id", null: false
     t.index ["content_tsv"], name: "index_rag_chunks_on_content_tsv", using: :gin
     t.index ["embedding"], name: "index_rag_chunks_embedding_hnsw", opclass: :vector_cosine_ops, using: :hnsw
     t.index ["rag_document_id"], name: "index_rag_chunks_on_rag_document_id"
@@ -62,36 +65,49 @@ ActiveRecord::Schema[7.2].define(version: 2026_05_17_000001) do
   end
 
   create_table "rag_documents", force: :cascade do |t|
-    t.bigint "user_id", null: false
-    t.string "source_type", default: "personalization", null: false
-    t.string "title"
-    t.string "original_filename"
-    t.string "file_format"
-    t.string "status", default: "pending", null: false
-    t.text "error_message"
-    t.string "embedding_model"
-    t.jsonb "metadata", default: {}, null: false
     t.datetime "created_at", null: false
+    t.string "embedding_model"
+    t.text "error_message"
+    t.string "file_format"
+    t.jsonb "metadata", default: {}, null: false
+    t.string "original_filename"
+    t.string "source_type", default: "personalization", null: false
+    t.string "status", default: "pending", null: false
+    t.string "title"
     t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
     t.index ["user_id", "source_type"], name: "index_rag_documents_on_user_id_and_source_type"
     t.index ["user_id"], name: "index_rag_documents_on_user_id"
   end
 
+  create_table "skills", force: :cascade do |t|
+    t.text "body", null: false
+    t.datetime "created_at", null: false
+    t.string "description"
+    t.boolean "enabled_by_default", default: false, null: false
+    t.string "name", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["user_id", "name"], name: "index_skills_on_user_id_and_name", unique: true
+    t.index ["user_id"], name: "index_skills_on_user_id"
+  end
+
   create_table "users", force: :cascade do |t|
+    t.datetime "created_at", null: false
     t.string "email", default: "", null: false
     t.string "encrypted_password", default: "", null: false
-    t.string "reset_password_token"
-    t.datetime "reset_password_sent_at"
-    t.datetime "remember_created_at"
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
-    t.boolean "use_scaffolding", default: true, null: false
-    t.boolean "tts_enabled", default: false, null: false
-    t.string "tts_voice"
-    t.float "tts_speed", default: 1.0
-    t.boolean "use_persona", default: true, null: false
-    t.string "persona_id", default: "persona1", null: false
     t.integer "llama_context_window", default: 8192
+    t.string "persona_id", default: "persona1", null: false
+    t.datetime "remember_created_at"
+    t.datetime "reset_password_sent_at"
+    t.string "reset_password_token"
+    t.boolean "tts_enabled", default: false, null: false
+    t.float "tts_speed", default: 1.0
+    t.string "tts_voice"
+    t.datetime "updated_at", null: false
+    t.boolean "use_persona", default: true, null: false
+    t.boolean "use_scaffolding", default: true, null: false
+    t.boolean "use_skills", default: false, null: false
     t.index ["email"], name: "index_users_on_email", unique: true
     t.index ["reset_password_token"], name: "index_users_on_reset_password_token", unique: true
   end
@@ -101,4 +117,5 @@ ActiveRecord::Schema[7.2].define(version: 2026_05_17_000001) do
   add_foreign_key "rag_chunks", "rag_documents"
   add_foreign_key "rag_chunks", "users"
   add_foreign_key "rag_documents", "users"
+  add_foreign_key "skills", "users"
 end

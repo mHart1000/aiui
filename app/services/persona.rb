@@ -56,7 +56,7 @@ class Persona
     cached = @cache[path]
     return cached[:content] if cached && cached[:mtime] == mtime
 
-    content = File.read(path)
+    content = File.read(path, encoding: "UTF-8")
     @cache[path] = { content: content, mtime: mtime }
     content
   rescue Errno::ENOENT, Errno::EACCES => e

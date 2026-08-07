@@ -37,6 +37,14 @@
         @update:model-value="updateRagEnabled"
         color="primary"
       />
+      <q-btn
+        flat
+        dense
+        no-caps
+        icon="extension"
+        :label="skillsLabel"
+        @click="skillsOpen = true"
+      />
       <TtsControls
         :show="voiceChatMode"
         :is-playing="ttsPlayer.isPlaying.value"
@@ -319,6 +327,13 @@
       />
     </div>
 
+    <SkillsDialog
+      v-model="skillsOpen"
+      :active-ids="activeSkillIds"
+      :enabled="skillsEnabled"
+      @update:active-ids="updateActiveSkills"
+      @update:enabled="updateSkillsEnabled"
+    />
   </q-page>
 </template>
 
@@ -330,6 +345,7 @@ import 'highlight.js/styles/base16/ashes.css' // highlightjs.org/examples
 import SpeechToTextInput from 'components/SpeechToTextInput.vue'
 import VoiceChatInput from 'components/VoiceChatInput.vue'
 import TtsControls from 'components/TtsControls.vue'
+import SkillsDialog from 'components/SkillsDialog.vue'
 
 const codeRenderer = {
   code(token) {
@@ -369,7 +385,8 @@ export default {
   components: {
     SpeechToTextInput,
     VoiceChatInput,
-    TtsControls
+    TtsControls,
+    SkillsDialog
   },
   inject: {
     refreshConversations: { default: () => () => {} }
@@ -408,6 +425,10 @@ export default {
     personaId: 'persona1',
     personas: [],
     ragEnabled: false,
+    skillsOpen: false,
+    skillsEnabled: false,
+    activeSkillIds: [],
+    defaultSkillIds: [],
     llamaContextWindow: 8192,
     editingMessageIndex: null,
     editingContent: '',
@@ -430,6 +451,10 @@ export default {
     this.usePersona = userRes.data.use_persona
     this.personaId = userRes.data.persona_id
     this.personas = userRes.data.personas || []
+    this.skillsEnabled = userRes.data.use_skills || false
+    this.defaultSkillIds = userRes.data.default_skill_ids || []
+    if (!this.conversationId) this.activeSkillIds = this.defaultSkillIds
+    this.activeSkillIds = this.defaultSkillIds
     this.llamaContextWindow = userRes.data.llama_context_window || 8192
 
     // Live context window from llama.cpp is authoritative; the stored value above is only the fallback.
@@ -543,6 +568,10 @@ export default {
         { label: 'Off', value: 'off' },
         ...this.personas.map(p => ({ label: p.name, value: p.id }))
       ]
+    },
+    skillsLabel() {
+      const count = this.activeSkillIds.length
+      return this.skillsEnabled && count ? `Skills (${count})` : 'Skills'
     },
     personaSelection: {
       get() {
@@ -693,6 +722,7 @@ export default {
         this.messages = []
         this.input = ''
         this.modelCode = DEFAULT_MODEL_ID
+        this.activeSkillIds = this.defaultSkillIds
       }
     },
     async loadConversation() {
@@ -701,8 +731,58 @@ export default {
         this.messages = res.data.messages
         this.modelCode = res.data.model_code || DEFAULT_MODEL_ID
         this.ragEnabled = res.data.rag_enabled || false
+        this.skillsEnabled = res.data.use_skills || false
+        this.activeSkillIds = res.data.skill_ids || []
       } catch (err) {
         console.error('Error loading conversation', err)
+      }
+    },
+    async updateActiveSkills(ids) {
+      const previousIds = this.activeSkillIds
+      const previousEnabled = this.skillsEnabled
+      // Checking a box turns skills on; unchecking never turns them off.
+      const enabling = ids.length > previousIds.length && !this.skillsEnabled
+
+      this.activeSkillIds = ids
+      if (enabling) this.skillsEnabled = true
+
+      if (!this.conversationId) return  // held locally; applied on first send
+
+      const payload = { skill_ids: ids }
+      if (enabling) payload.use_skills = true
+
+      try {
+        await api.patch(`/api/conversations/${this.conversationId}`, { conversation: payload })
+      } catch (err) {
+        console.error('Error updating skills:', err)
+        this.activeSkillIds = previousIds
+        this.skillsEnabled = previousEnabled
+        this.$q.notify({
+          type: 'negative',
+          message: 'Failed to update skills',
+          position: 'top',
+          timeout: 2000
+        })
+      }
+    },
+    async updateSkillsEnabled(value) {
+      const previous = this.skillsEnabled
+      this.skillsEnabled = value
+      if (!this.conversationId) return  // held locally; applied on first send
+
+      try {
+        await api.patch(`/api/conversations/${this.conversationId}`, {
+          conversation: { use_skills: value }
+        })
+      } catch (err) {
+        console.error('Error updating skills toggle:', err)
+        this.skillsEnabled = previous
+        this.$q.notify({
+          type: 'negative',
+          message: 'Failed to update skills setting',
+          position: 'top',
+          timeout: 2000
+        })
       }
     },
     async updateRagEnabled(value) {
@@ -738,11 +818,11 @@ export default {
       if (isNew) {
         const convRes = await api.post('/api/conversations')
         this.conversationId = convRes.data.id
-        if (this.ragEnabled) {
-          await api.patch(`/api/conversations/${this.conversationId}`, {
-            conversation: { rag_enabled: true }
-          })
-        }
+
+        // Toolbar settings chosen before the first send are applied here.
+        const initial = { use_skills: this.skillsEnabled, skill_ids: this.activeSkillIds }
+        if (this.ragEnabled) initial.rag_enabled = true
+        await api.patch(`/api/conversations/${this.conversationId}`, { conversation: initial })
       }
 
       // Add user message immediately (optimistic UI)
@@ -1110,8 +1190,9 @@ export default {
   height: 100vh;
   overflow: hidden;
 }
+/* clip, not hidden: hidden makes this a scroll container that focus restoration can scroll. */
 .toolbar-wrap {
-  overflow: hidden;
+  overflow: clip;
   transition: max-height 0.25s ease;
   max-height: 300px;
 }
@@ -1250,8 +1331,10 @@ p {
 .message-input :deep(.q-field__control:before) {
   display: none;
 }
+/* Opaque backdrop so the video's screen blend still works while a dialog is open. */
 .new-chat-welcome {
   text-align: center;
+  background: var(--page-bg);
 }
 .welcome-video {
   width: 280px;

@@ -15,11 +15,12 @@ class ChatService
     6. Response Strategy: If answerable, how should the response be structured?
   PROMPT
 
-  def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil, rag_context: nil, persona_id: nil, log_stats: true, &block)
-    new(messages: messages, model: model, use_persona: use_persona, use_scaffolding: use_scaffolding, stream: stream, max_tokens: max_tokens, rag_context: rag_context, persona_id: persona_id, log_stats: log_stats).call(&block)
+  def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil, rag_context: nil, persona_id: nil, skills: [], log_stats: true, &block)
+    new(messages: messages, model: model, use_persona: use_persona, use_scaffolding: use_scaffolding, stream: stream, max_tokens: max_tokens, rag_context: rag_context, persona_id: persona_id, skills: skills, log_stats: log_stats).call(&block)
   end
 
-  def initialize(messages:, model:, use_persona:, use_scaffolding:, stream:, max_tokens:, rag_context: nil, persona_id: nil, log_stats: true)
+  # skills is an array of { id:, name:, content:, version: } hashes resolved by the caller.
+  def initialize(messages:, model:, use_persona:, use_scaffolding:, stream:, max_tokens:, rag_context: nil, persona_id: nil, skills: [], log_stats: true)
     @messages = messages
     @model_id = model.presence || FALLBACK_MODEL
     @use_persona = use_persona
@@ -28,6 +29,7 @@ class ChatService
     @max_tokens = max_tokens || DEFAULT_MAX_TOKENS
     @rag_context = rag_context.presence
     @persona_id = persona_id.presence
+    @skills = skills.presence || []
     @log_stats = log_stats
     @adapter = select_adapter(@model_id)
   end
@@ -68,7 +70,7 @@ class ChatService
 
   def single_pass_call(&block)
     persona = load_persona
-    messages_to_send = prepend_persona(@messages, persona)
+    messages_to_send = prepend_system(@messages, build_system_content(persona))
     messages_to_send = inject_rag_context(messages_to_send)
 
     if @stream && block_given?
@@ -90,7 +92,8 @@ class ChatService
       {
         tokens: adapter_result.is_a?(Hash) ? adapter_result[:tokens] : nil,
         stats: adapter_result.is_a?(Hash) ? adapter_result[:stats] : nil,
-        persona_version: persona&.dig(:version)
+        persona_version: persona&.dig(:version),
+        skill_versions: skill_versions
       }
     else
       response = @adapter.chat(messages: messages_to_send, stream: false, max_tokens: @max_tokens)
@@ -99,13 +102,15 @@ class ChatService
         thinking: response[:reasoning],
         tokens: response[:tokens],
         stats: response[:stats],
-        persona_version: persona&.dig(:version)
+        persona_version: persona&.dig(:version),
+        skill_versions: skill_versions
       }
     end
   end
 
   def two_pass_call(&block)
     persona = load_persona
+    system_content = build_system_content(persona)
 
     # Pass 1: Planning
     # Only use planning prompt - persona during analysis can confuse the model
@@ -138,14 +143,14 @@ class ChatService
     end
 
     # Pass 2: Execution via assistant-prefill
-    # System message stays clean (just persona). Planning output goes in the
+    # System message stays clean (persona and skills only). Planning output goes in the
     # assistant role as a prior turn. The model continues from its own analysis
     # into the final response without a stylized intro that would compete
     # with the persona voice.
     prefill = "#{thinking}\n\n---\n\n"
 
     execution_messages = [
-      *(persona ? [ { role: "system", content: persona[:content] } ] : []),
+      *(system_content ? [ { role: "system", content: system_content } ] : []),
       *inject_rag_context(@messages),
       { role: "assistant", content: prefill }
     ]
@@ -175,7 +180,8 @@ class ChatService
         thinking: thinking,
         tokens: total_tokens,
         stats: combined_stats,
-        persona_version: persona&.dig(:version)
+        persona_version: persona&.dig(:version),
+        skill_versions: skill_versions
       }
     else
       response = @adapter.chat(messages: execution_messages, stream: false, max_tokens: @max_tokens)
@@ -191,7 +197,8 @@ class ChatService
         thinking: thinking,
         tokens: total_tokens,
         stats: combined_stats,
-        persona_version: persona&.dig(:version)
+        persona_version: persona&.dig(:version),
+        skill_versions: skill_versions
       }
     end
   end
@@ -241,10 +248,32 @@ class ChatService
     result
   end
 
-  def prepend_persona(messages, persona)
-    return messages unless persona
+  def prepend_system(messages, content)
+    return messages if content.nil?
     return messages if messages.first&.dig(:role) == "system"
-    [ { role: "system", content: persona[:content] } ] + messages
+    [ { role: "system", content: content } ] + messages
+  end
+
+  # Persona and skills share one system message; local models handle that better than several.
+  def build_system_content(persona)
+    parts = [ persona&.dig(:content), format_skills ].compact
+    return nil if parts.empty?
+
+    parts.join("\n\n")
+  end
+
+  def format_skills
+    return nil if @skills.blank?
+
+    Rails.logger.info("Skills: ids=#{@skills.map { |s| s[:id] }.inspect}")
+    sections = @skills.map { |s| "### #{s[:name]}\n\n#{s[:content]}" }
+    "## Skills\n\n#{sections.join("\n\n")}"
+  end
+
+  def skill_versions
+    return nil if @skills.blank?
+
+    @skills.to_h { |s| [ s[:id].to_s, s[:version] ] }
   end
 
   # Inject retrieved RAG context by prepending it to the content of the first

@@ -155,4 +155,66 @@ class ConversationTest < ActiveSupport::TestCase
     end
     assert_equal "a" * 41, @conversation.reload.title
   end
+
+  # skill resolution
+  test "resolved_use_skills inherits from the user when null" do
+    @conversation.save!
+    @user.update!(use_skills: true)
+    assert @conversation.reload.resolved_use_skills
+
+    @user.update!(use_skills: false)
+    assert_not @conversation.reload.resolved_use_skills
+  end
+
+  test "resolved_use_skills overrides the user when set" do
+    @user.update!(use_skills: true)
+    @conversation.use_skills = false
+    @conversation.save!
+    assert_not @conversation.resolved_use_skills
+  end
+
+  test "null skill_ids falls back to the user's enabled defaults" do
+    @user.update!(use_skills: true)
+    sql = @user.skills.create!(name: "SQL", body: "SQL BODY", enabled_by_default: true)
+    @user.skills.create!(name: "Docs", body: "DOCS BODY")
+    @conversation.save!
+
+    assert_equal [ sql.id ], @conversation.resolved_skills.map(&:id)
+  end
+
+  test "explicit skill_ids override the defaults" do
+    @user.update!(use_skills: true)
+    @user.skills.create!(name: "SQL", body: "SQL BODY", enabled_by_default: true)
+    docs = @user.skills.create!(name: "Docs", body: "DOCS BODY")
+    @conversation.skill_ids = [ docs.id ]
+    @conversation.save!
+
+    assert_equal [ docs.id ], @conversation.resolved_skills.map(&:id)
+  end
+
+  test "an empty skill_ids array means none here, not inherit" do
+    @user.update!(use_skills: true)
+    @user.skills.create!(name: "SQL", body: "SQL BODY", enabled_by_default: true)
+    @conversation.skill_ids = []
+    @conversation.save!
+
+    assert_empty @conversation.resolved_skills
+  end
+
+  test "ids of deleted skills are dropped" do
+    @user.update!(use_skills: true)
+    sql = @user.skills.create!(name: "SQL", body: "SQL BODY")
+    @conversation.skill_ids = [ sql.id, 999_999 ]
+    @conversation.save!
+
+    assert_equal [ sql.id ], @conversation.resolved_skills.map(&:id)
+  end
+
+  test "nothing resolves when use_skills is off" do
+    @user.update!(use_skills: false)
+    @user.skills.create!(name: "SQL", body: "SQL BODY", enabled_by_default: true)
+    @conversation.save!
+
+    assert_empty @conversation.reload.resolved_skills
+  end
 end
