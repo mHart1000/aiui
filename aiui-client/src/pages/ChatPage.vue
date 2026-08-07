@@ -453,6 +453,7 @@ export default {
     this.personas = userRes.data.personas || []
     this.skillsEnabled = userRes.data.use_skills || false
     this.defaultSkillIds = userRes.data.default_skill_ids || []
+    if (!this.conversationId) this.activeSkillIds = this.defaultSkillIds
     this.activeSkillIds = this.defaultSkillIds
     this.llamaContextWindow = userRes.data.llama_context_window || 8192
 
@@ -737,17 +738,25 @@ export default {
       }
     },
     async updateActiveSkills(ids) {
-      const previous = this.activeSkillIds
+      const previousIds = this.activeSkillIds
+      const previousEnabled = this.skillsEnabled
+      // Checking a box turns skills on; unchecking never turns them off.
+      const enabling = ids.length > previousIds.length && !this.skillsEnabled
+
       this.activeSkillIds = ids
+      if (enabling) this.skillsEnabled = true
+
       if (!this.conversationId) return  // held locally; applied on first send
 
+      const payload = { skill_ids: ids }
+      if (enabling) payload.use_skills = true
+
       try {
-        await api.patch(`/api/conversations/${this.conversationId}`, {
-          conversation: { skill_ids: ids }
-        })
+        await api.patch(`/api/conversations/${this.conversationId}`, { conversation: payload })
       } catch (err) {
         console.error('Error updating skills:', err)
-        this.activeSkillIds = previous
+        this.activeSkillIds = previousIds
+        this.skillsEnabled = previousEnabled
         this.$q.notify({
           type: 'negative',
           message: 'Failed to update skills',
@@ -1181,8 +1190,9 @@ export default {
   height: 100vh;
   overflow: hidden;
 }
+/* clip, not hidden: hidden makes this a scroll container that focus restoration can scroll. */
 .toolbar-wrap {
-  overflow: hidden;
+  overflow: clip;
   transition: max-height 0.25s ease;
   max-height: 300px;
 }
