@@ -49,6 +49,13 @@ Rails.application.config.to_prepare do
   )
 
   Persona.register(
+    id: "teacher",
+    name: "Teacher",
+    description: "Breaks down complex topics in plain language without oversimplifying. Explains new terms, keeps the nuance, and picks whatever format shows the idea best.",
+    path: Rails.root.join("persona", "teacher.md")
+  )
+
+  Persona.register(
     id: "interviewer",
     name: "Interviewer",
     description: "A supportive mock-interview coach for voice mode. You're the candidate; it asks questions and gives quick feedback after each answer.",
