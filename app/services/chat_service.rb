@@ -249,14 +249,17 @@ class ChatService
   end
 
   def prepend_system(messages, content)
-    return messages if content.blank?
+    return messages if content.nil?
     return messages if messages.first&.dig(:role) == "system"
     [ { role: "system", content: content } ] + messages
   end
 
   # Persona and skills share one system message; local models handle that better than several.
   def build_system_content(persona)
-    [ persona&.dig(:content), format_skills ].compact_blank.join("\n\n").presence
+    parts = [ persona&.dig(:content), format_skills ].compact
+    return nil if parts.empty?
+
+    parts.join("\n\n")
   end
 
   def format_skills
