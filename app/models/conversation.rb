@@ -1,6 +1,13 @@
 class Conversation < ApplicationRecord
   PLACEHOLDER_TITLE = "New Chat".freeze
 
+  # Message columns carried over by a fork. Explicit so new columns have to opt in.
+  COPIED_MESSAGE_COLUMNS = %w[
+    role content thinking prompt_tokens completion_tokens total_tokens
+    generation_ms tokens_per_second persona_version skill_versions
+    created_at updated_at
+  ].freeze
+
   has_many :messages, dependent: :destroy
   belongs_to :user
 
@@ -11,6 +18,29 @@ class Conversation < ApplicationRecord
 
   def messages_for_ai
     messages.order(:created_at).map { |m| { role: m.role, content: m.content } }
+  end
+
+  # Copies this conversation and its messages up to and including `message`.
+  def fork_at(message)
+    ordered = messages.order(:created_at, :id).to_a
+    # Cut by position, not by created_at, so identical timestamps stay unambiguous.
+    cutoff = ordered.index { |m| m.id == message.id }
+    return nil if cutoff.nil?
+
+    transaction do
+      forked = user.conversations.create!(
+        title: fork_title,
+        model_code: model_code,
+        rag_enabled: rag_enabled,
+        use_skills: use_skills,
+        skill_ids: skill_ids
+      )
+      # insert_all! skips the touch callback, so the source keeps its sidebar position.
+      Message.insert_all!(ordered[0..cutoff].map { |m|
+        m.attributes.slice(*COPIED_MESSAGE_COLUMNS).merge("conversation_id" => forked.id)
+      })
+      forked
+    end
   end
 
   # null on either override column means "inherit from the user".
@@ -87,5 +117,12 @@ class Conversation < ApplicationRecord
       Rails.logger.warn("Failed to generate title: #{e.message}")
       update!(title: content[0..40])
     end
+  end
+
+  private
+
+  def fork_title
+    return PLACEHOLDER_TITLE if title.blank? || placeholder_title?
+    "(fork) #{title.sub(/\A\(fork\) /, '')}"
   end
 end

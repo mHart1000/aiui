@@ -225,6 +225,20 @@
                 <q-tooltip>Regenerate response</q-tooltip>
               </q-btn>
               <q-btn
+                v-if="msg.content"
+                flat
+                dense
+                round
+                size="sm"
+                icon="call_split"
+                class="copy-btn"
+                :loading="forkingIndex === i"
+                :disable="streamingChat.isStreaming.value"
+                @click="forkConversation(i)"
+              >
+                <q-tooltip>Fork conversation</q-tooltip>
+              </q-btn>
+              <q-btn
                 v-if="ttsPlayer.isTtsAvailable.value"
                 flat
                 dense
@@ -433,6 +447,7 @@ export default {
     editingMessageIndex: null,
     editingContent: '',
     isSavingEdit: false,
+    forkingIndex: null,
     voiceChatMode: false,
     readingAloudIndex: null,
     endOfUtteranceMs: 2500,
@@ -1180,6 +1195,37 @@ export default {
       }
 
       this.refreshConversations()
+    },
+
+    async forkConversation(index) {
+      if (this.forkingIndex !== null) return
+      this.forkingIndex = index
+
+      try {
+        // Streamed messages have no id until the conversation is reloaded.
+        if (!this.messages[index].id) await this.loadConversation()
+
+        const messageId = this.messages[index]?.id
+        if (!messageId) throw new Error('Message has no id')
+
+        const res = await api.post(
+          `/api/conversations/${this.conversationId}/fork`,
+          { message_id: messageId }
+        )
+
+        this.refreshConversations()
+        this.$router.push(`/chat/${res.data.id}`)
+      } catch (err) {
+        console.error('Error forking conversation', err)
+        this.$q.notify({
+          type: 'negative',
+          message: 'Failed to fork conversation',
+          position: 'top',
+          timeout: 2000
+        })
+      } finally {
+        this.forkingIndex = null
+      }
     }
   }
 }

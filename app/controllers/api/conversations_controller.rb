@@ -74,6 +74,13 @@ module Api
       render json: { id: conversation.id }
     end
 
+    def create_fork
+      conversation = current_api_user.conversations.find(params[:id])
+      message = conversation.messages.find(params[:message_id])
+      forked = conversation.fork_at(message)
+      render json: { id: forked.id }, status: :created
+    end
+
     def update
       conversation = current_api_user.conversations.find(params[:id])
       conversation.update!(conversation_params)
