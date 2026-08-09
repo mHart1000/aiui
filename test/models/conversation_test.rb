@@ -217,4 +217,104 @@ class ConversationTest < ActiveSupport::TestCase
 
     assert_empty @conversation.reload.resolved_skills
   end
+
+  # fork_at
+  test "fork_at copies messages up to and including the given one" do
+    @conversation.save!
+    first = @conversation.messages.create!(role: "user", content: "one")
+    second = @conversation.messages.create!(role: "assistant", content: "two")
+    @conversation.messages.create!(role: "user", content: "three")
+    @conversation.messages.create!(role: "assistant", content: "four")
+
+    copied = @conversation.fork_at(second).messages.order(:created_at)
+
+    assert_equal [ "one", "two" ], copied.map(&:content)
+    assert_equal [ "user", "assistant" ], copied.map(&:role)
+    assert_equal first.reload.created_at, copied.first.created_at
+  end
+
+  test "fork_at carries over message metadata" do
+    @conversation.save!
+    @conversation.messages.create!(role: "user", content: "q")
+    answer = @conversation.messages.create!(
+      role: "assistant",
+      content: "a",
+      thinking: "hmm",
+      prompt_tokens: 10,
+      completion_tokens: 20,
+      total_tokens: 30,
+      generation_ms: 1500,
+      tokens_per_second: 13.3,
+      persona_version: "abc12345",
+      skill_versions: { "1" => "def67890" }
+    )
+
+    copy = @conversation.fork_at(answer).messages.order(:created_at).last
+
+    assert_equal "hmm", copy.thinking
+    assert_equal 30, copy.total_tokens
+    assert_equal 13.3, copy.tokens_per_second
+    assert_equal 1500, copy.generation_ms
+    assert_equal "abc12345", copy.persona_version
+    assert_equal({ "1" => "def67890" }, copy.skill_versions)
+  end
+
+  test "fork_at leaves the source conversation untouched" do
+    @conversation.save!
+    @conversation.messages.create!(role: "user", content: "one")
+    target = @conversation.messages.create!(role: "assistant", content: "two")
+    @conversation.messages.create!(role: "user", content: "three")
+    stamp = @conversation.reload.updated_at
+
+    @conversation.fork_at(target)
+
+    assert_equal 3, @conversation.reload.messages.count
+    assert_equal stamp, @conversation.updated_at
+  end
+
+  test "fork_at copies conversation settings and keeps skills inheriting" do
+    @conversation.model_code = "llama"
+    @conversation.rag_enabled = true
+    @conversation.save!
+    message = @conversation.messages.create!(role: "user", content: "one")
+
+    forked = @conversation.fork_at(message)
+
+    assert_equal @user.id, forked.user_id
+    assert_equal "llama", forked.model_code
+    assert forked.rag_enabled
+    assert_nil forked.use_skills
+    assert_nil forked.skill_ids
+  end
+
+  test "fork_at prefixes the title" do
+    @conversation.title = "Debugging Rails"
+    @conversation.save!
+    message = @conversation.messages.create!(role: "user", content: "one")
+
+    assert_equal "(fork) Debugging Rails", @conversation.fork_at(message).title
+  end
+
+  test "fork_at does not stack the prefix when forking a fork" do
+    @conversation.title = "(fork) Debugging Rails"
+    @conversation.save!
+    message = @conversation.messages.create!(role: "user", content: "one")
+
+    assert_equal "(fork) Debugging Rails", @conversation.fork_at(message).title
+  end
+
+  test "fork_at keeps the placeholder title so the fork can still be auto-titled" do
+    @conversation.save!
+    message = @conversation.messages.create!(role: "user", content: "one")
+
+    assert @conversation.fork_at(message).placeholder_title?
+  end
+
+  test "fork_at returns nil for a message from another conversation" do
+    @conversation.save!
+    other = @user.conversations.create!(title: "Other")
+    stranger = other.messages.create!(role: "user", content: "one")
+
+    assert_nil @conversation.fork_at(stranger)
+  end
 end
