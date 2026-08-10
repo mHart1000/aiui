@@ -49,6 +49,13 @@ Rails.application.config.to_prepare do
   )
 
   Persona.register(
+    id: "professional-casual",
+    name: "Professional-Casual",
+    description: "Natural, friendly, and casual like Plainspoken, but keeps a professional register. No jokes, slang, or quips.",
+    path: Rails.root.join("persona", "professional-casual.md")
+  )
+
+  Persona.register(
     id: "teacher",
     name: "Teacher",
     description: "Breaks down complex topics in plain language without oversimplifying. Explains new terms, keeps the nuance, and picks whatever format shows the idea best.",
