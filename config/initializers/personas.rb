@@ -49,10 +49,10 @@ Rails.application.config.to_prepare do
   )
 
   Persona.register(
-    id: "plain-professional",
-    name: "Plain Professional",
+    id: "professional-casual",
+    name: "Professional-Casual",
     description: "Natural, friendly, and casual like Plainspoken, but keeps a professional register. No jokes, slang, or quips.",
-    path: Rails.root.join("persona", "plain-professional.md")
+    path: Rails.root.join("persona", "professional-casual.md")
   )
 
   Persona.register(
