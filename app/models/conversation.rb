@@ -43,6 +43,15 @@ class Conversation < ApplicationRecord
     end
   end
 
+  # Destroys message and everything after it; position-based like fork_at.
+  def truncate_from_message(message)
+    ordered = messages.order(:created_at, :id).to_a
+    cutoff = ordered.index { |m| m.id == message.id }
+    return if cutoff.nil?
+
+    Message.where(id: ordered[cutoff..].map(&:id)).destroy_all
+  end
+
   # null on either override column means "inherit from the user".
   def resolved_use_skills
     use_skills.nil? ? user.use_skills : use_skills

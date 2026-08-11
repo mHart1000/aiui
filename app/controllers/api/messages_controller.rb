@@ -64,9 +64,14 @@ module Api
       safe_model_code = conversation.apply_model_code(params[:model_code])
 
       if params[:regenerating]
-        # Drop any trailing assistant messages
-        while (last_msg = conversation.messages.order(:created_at).last)&.role == "assistant"
-          last_msg.destroy
+        if params[:message_id].present?
+          # Mid-thread regenerate: drop this message and everything after it.
+          conversation.truncate_from_message(conversation.messages.find(params[:message_id]))
+        else
+          # Drop any trailing assistant messages
+          while (last_msg = conversation.messages.order(:created_at).last)&.role == "assistant"
+            last_msg.destroy
+          end
         end
       else
         conversation.messages.create!(role: "user", content: params[:content])
