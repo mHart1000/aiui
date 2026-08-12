@@ -120,7 +120,7 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
       controller.create_streaming
     end
 
-    assert_equal [{ role: "user", content: "Hello" }], captured
+    assert_equal [ { role: "user", content: "Hello" } ], captured
     assert_equal [ "Hello", "Regenerated" ],
       @conversation.messages.reload.order(:created_at, :id).map(&:content)
   end
