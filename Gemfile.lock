@@ -213,11 +213,10 @@ GEM
     parser (3.3.10.0)
       ast (~> 2.4.1)
       racc
-    pdf-reader (2.15.1)
+    pdf-reader (2.16.0)
       Ascii85 (>= 1.0, < 3.0, != 2.0.0)
       afm (>= 0.2.1, < 2)
       hashery (~> 2.0)
-      ruby-rc4
       ttfunk
     pg (1.6.3)
     pg (1.6.3-aarch64-linux)
@@ -330,7 +329,6 @@ GEM
       faraday (>= 1)
       faraday-multipart (>= 1)
     ruby-progressbar (1.13.0)
-    ruby-rc4 (0.1.5)
     rubyzip (3.2.2)
     securerandom (0.4.1)
     thor (1.5.0)
@@ -382,7 +380,7 @@ DEPENDENCIES
   httparty (~> 0.24.2)
   minitest (~> 5.22)
   neighbor (~> 0.5)
-  pdf-reader (~> 2.12)
+  pdf-reader (~> 2.16)
   pg (~> 1.6)
   pry-rails
   puma (>= 5.0)
