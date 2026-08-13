@@ -14,6 +14,7 @@ Full-feature, local-first AI chat app interfacing with Llama.cpp with the option
 - 🔍 Robust RAG system
 - 💾 Conversation history
 - 📄 Document upload
+- 🖼️ Image attachments for vision-capable models
 - 🔒 Privacy-focused (all inference happens locally by default, zero telemetry)
 - ☁️ Option to connect to cloud models with API keys
 
@@ -91,6 +92,29 @@ LLAMA_API_URL: http://localhost:8080/v1
 
 ```
 
+## Image attachments
+
+Server-side downscaling needs libvips:
+
+```bash
+sudo apt install libvips42
+```
+
+To attach images to the **local** model, start `llama-server` with a multimodal projector and set `LLAMA_VISION=true` in `.env`:
+
+```bash
+./build/bin/llama-server \
+  -m "$MODEL_DIR/$MODEL_NAME" \
+  --mmproj "$MODEL_DIR/$MMPROJ_NAME" \
+  --port 8080 \
+  --host 0.0.0.0
+```
+
+The `local-llama` id is a sentinel that can't tell which gguf is loaded, hence the explicit flag. Cloud models are opted in by id in `AiModels::VISION_MODEL_IDS` ([config/initializers/ai_models.rb](config/initializers/ai_models.rb)); anything unlisted simply hides the attach option.
+
+Images above `users.image_max_pixels` (default 6,000,000) are downscaled to that budget on upload — smaller ones are stored untouched, so screenshots keep their text legible. See [docs/image-attachments-spec.md](docs/image-attachments-spec.md) §2.2 before changing the value.
+
+---
 ## TTS setup:
 The TTS engine is selected with `TTS_ADAPTER` in `.env` (`kokoro`, `qwen3`, or `chatterbox`; default `kokoro`). Restart the backend after switching.
 

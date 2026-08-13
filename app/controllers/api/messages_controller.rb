@@ -6,12 +6,17 @@ module Api
     def create
       conversation = Conversation.find(params[:conversation_id])
       safe_model_code = conversation.apply_model_code(params[:model_code])
-      conversation.messages.create!(role: "user", content: params[:content])
+      multimodal = AiModels.vision?(safe_model_code)
+      conversation.messages.create!(
+        role: "user",
+        content: params[:content].to_s,
+        images: attached_image_ids(multimodal)
+      )
 
       current_api_user.reload
       rag_context = fetch_rag_context(conversation, params[:content])
       result = ChatService.call(
-        messages: conversation.messages_for_ai,
+        messages: conversation.messages_for_ai(multimodal: multimodal),
         model: safe_model_code,
         use_persona: current_api_user.use_persona,
         persona_id: current_api_user.persona_id,
@@ -62,6 +67,7 @@ module Api
 
       conversation = current_api_user.conversations.find(params[:conversation_id])
       safe_model_code = conversation.apply_model_code(params[:model_code])
+      multimodal = AiModels.vision?(safe_model_code)
 
       if params[:regenerating]
         if params[:message_id].present?
@@ -74,7 +80,11 @@ module Api
           end
         end
       else
-        conversation.messages.create!(role: "user", content: params[:content])
+        conversation.messages.create!(
+          role: "user",
+          content: params[:content].to_s,
+          images: attached_image_ids(multimodal)
+        )
       end
 
       # Track the answered turn so we can skip persisting if it's edited mid-stream.
@@ -90,7 +100,7 @@ module Api
       # Stream the response
       begin
         stream_result = ChatService.call(
-          messages: conversation.messages_for_ai,
+          messages: conversation.messages_for_ai(multimodal: multimodal),
           model: safe_model_code,
           use_persona: current_api_user.use_persona,
           persona_id: current_api_user.persona_id,
@@ -154,6 +164,12 @@ module Api
     end
 
     private
+
+    # Dropped server-side for text-only models rather than trusted from the client.
+    def attached_image_ids(multimodal)
+      return [] unless multimodal
+      Array(params[:image_signed_ids])
+    end
 
     def fetch_skills(conversation)
       conversation.resolved_skills.map do |skill|

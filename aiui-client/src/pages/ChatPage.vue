@@ -156,6 +156,16 @@
         </q-expansion-item>
 
         <div :class="msg.role" class="bubble q-pa-sm q-rounded-borders">
+          <div v-if="msg.images && msg.images.length" class="message-images">
+            <img
+              v-for="image in msg.images"
+              :key="image.id || image.url"
+              :src="image.url"
+              :alt="image.filename"
+              class="message-image"
+              @click="lightboxImage = image"
+            />
+          </div>
           <div v-if="!msg.content && isActivelyStreaming(i) && streamingChat.loadingPhase.value === 'connecting'" class="loading-placeholder">
             <div class="typing-indicator">
               <span class="dot"></span>
@@ -307,12 +317,17 @@
         :context-usage="composerContextPercent"
         :context-label="composerContextLabel"
         :voice-mode="voiceChatMode"
+        :attachments="pendingAttachments"
+        :vision-supported="visionSupported"
+        :model-label="modelLabel"
         @error="handleSttError"
         @status="handleSttStatus"
         @send-message="sendMessage"
         @stop="stopStreaming"
         @new-chat="newChat"
         @toggle-voice-mode="toggleVoiceMode"
+        @files-selected="onFilesSelected"
+        @remove-attachment="removeAttachment"
         class="col message-input"
       />
       <VoiceChatInput
@@ -329,6 +344,9 @@
         :muted="!ttsPlayer.isEnabled.value"
         :tts-available="ttsPlayer.isTtsAvailable.value"
         :voice-mode="voiceChatMode"
+        :attachments="pendingAttachments"
+        :vision-supported="visionSupported"
+        :model-label="modelLabel"
         @error="handleSttError"
         @status="handleSttStatus"
         @send-message="sendMessage"
@@ -337,6 +355,8 @@
         @toggle-mute="handleToggleMute"
         @toggle-voice-mode="toggleVoiceMode"
         @inactivity-timeout="handleVoiceInactivityTimeout"
+        @files-selected="onFilesSelected"
+        @remove-attachment="removeAttachment"
         class="col message-input"
       />
     </div>
@@ -348,6 +368,12 @@
       @update:active-ids="updateActiveSkills"
       @update:enabled="updateSkillsEnabled"
     />
+
+    <q-dialog :model-value="!!lightboxImage" @update:model-value="lightboxImage = null">
+      <q-card class="lightbox-card">
+        <img v-if="lightboxImage" :src="lightboxImage.url" :alt="lightboxImage.filename" class="lightbox-image" />
+      </q-card>
+    </q-dialog>
   </q-page>
 </template>
 
@@ -390,6 +416,8 @@ import { useTtsPlayer } from 'src/composables/useTtsPlayer'
 import { onBeforeUnmount, onMounted} from 'vue'
 
 const DEFAULT_MODEL_ID = import.meta.env.VITE_DEFAULT_MODEL_ID || null
+// Mirrors Message::MAX_IMAGES on the server.
+const MAX_ATTACHMENTS = 4
 
 const COMPOSER_EXPAND_AT_PX = 16
 const COMPOSER_COLLAPSE_AT_PX = 140
@@ -432,6 +460,8 @@ export default {
     conversationId: null,
     models: [],
     modelCode: null,
+    pendingAttachments: [],
+    lightboxImage: null,
     streamingMessageIndex: null,
     expandedThinking: {},
     useScaffolding: true,
@@ -617,6 +647,18 @@ export default {
       const code = (this.modelCode || '').toLowerCase()
       return code.includes('llama') || code.includes('local') || code.endsWith('.gguf')
     },
+    selectedModel() {
+      return this.models.find(m => String(m.id) === String(this.modelCode)) || null
+    },
+    visionSupported() {
+      return !!(this.selectedModel && this.selectedModel.vision)
+    },
+    modelLabel() {
+      return this.selectedModel ? String(this.selectedModel.id).split('/').pop() : 'This model'
+    },
+    readyAttachmentIds() {
+      return this.pendingAttachments.filter(a => a.signedId).map(a => a.signedId)
+    },
     lastContextTokens() {
       for (let i = this.messages.length - 1; i >= 0; i--) {
         const msg = this.messages[i]
@@ -730,6 +772,7 @@ export default {
       }
     },
     newChat() {
+      this.clearAttachments()
       if (this.$route.params.id) {
         this.$router.push('/chat')
       } else {
@@ -738,6 +781,61 @@ export default {
         this.input = ''
         this.modelCode = DEFAULT_MODEL_ID
         this.activeSkillIds = this.defaultSkillIds
+      }
+    },
+    onFilesSelected(files) {
+      const room = Math.max(0, MAX_ATTACHMENTS - this.pendingAttachments.length)
+      if (files.length > room) {
+        this.$q.notify({
+          message: `You can attach up to ${MAX_ATTACHMENTS} images`,
+          position: 'top',
+          timeout: 2000
+        })
+      }
+
+      files.slice(0, room).forEach((file) => {
+        this.pendingAttachments.push({
+          filename: file.name,
+          url: URL.createObjectURL(file),
+          isPreview: true,
+          uploading: true,
+          failed: false,
+          signedId: null
+        })
+        // Re-read through the reactive proxy so upload progress actually renders.
+        this.uploadAttachment(file, this.pendingAttachments[this.pendingAttachments.length - 1])
+      })
+    },
+    async uploadAttachment(file, entry) {
+      const form = new FormData()
+      form.append('file', file)
+
+      try {
+        const res = await api.post('/api/attachments', form, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        })
+        this.revokePreview(entry)
+        entry.signedId = res.data.signed_id
+        entry.url = res.data.url
+      } catch (err) {
+        entry.failed = true
+        entry.error = err.response?.data?.error || 'Upload failed'
+      } finally {
+        entry.uploading = false
+      }
+    },
+    removeAttachment(index) {
+      const [removed] = this.pendingAttachments.splice(index, 1)
+      if (removed) this.revokePreview(removed)
+    },
+    clearAttachments() {
+      this.pendingAttachments.forEach(a => this.revokePreview(a))
+      this.pendingAttachments = []
+    },
+    revokePreview(entry) {
+      if (entry.isPreview && entry.url) {
+        URL.revokeObjectURL(entry.url)
+        entry.isPreview = false
       }
     },
     async loadConversation() {
@@ -820,8 +918,18 @@ export default {
     async sendMessage() {
       const text = this.input.trim()
       const model = this.modelCode
+      const attachments = this.pendingAttachments.filter(a => !a.failed)
 
-      if (!text) return
+      if (!text && !attachments.length) return
+      if (attachments.some(a => a.uploading)) {
+        this.$q.notify({
+          message: 'Waiting for images to finish uploading',
+          position: 'top',
+          timeout: 2000
+        })
+        return
+      }
+      const imageSignedIds = this.readyAttachmentIds
 
       // Stop any current TTS playback
       if (this.ttsPlayer.isEnabled.value) {
@@ -843,9 +951,11 @@ export default {
       // Add user message immediately (optimistic UI)
       this.messages.push({
         role: 'user',
-        content: text
+        content: text,
+        images: attachments.map(a => ({ url: a.url, filename: a.filename }))
       })
       this.input = ''
+      this.pendingAttachments = []
 
       // Add placeholder for incoming stream
       const myIndex = this.messages.length
@@ -863,7 +973,8 @@ export default {
         this.conversationId,
         text,
         token,
-        model
+        model,
+        { imageSignedIds }
       )
 
       // Update placeholder message with final content from composable
@@ -1275,6 +1386,29 @@ export default {
   line-height: 1.5;
   border-radius: 5px;
   position: relative;
+}
+.message-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.message-image {
+  max-width: 220px;
+  max-height: 220px;
+  border-radius: 6px;
+  cursor: zoom-in;
+  display: block;
+}
+.lightbox-card {
+  background: transparent;
+  box-shadow: none;
+  max-width: 90vw;
+}
+.lightbox-image {
+  max-width: 100%;
+  max-height: 85vh;
+  display: block;
 }
 .message-footer {
   display: flex;

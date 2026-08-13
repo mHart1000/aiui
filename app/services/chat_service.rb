@@ -286,12 +286,30 @@ class ChatService
     return messages unless first_user_idx
 
     original = messages[first_user_idx]
-    updated = original.merge(content: "#{@rag_context}\n\n#{original[:content]}")
+    updated = original.merge(content: prepend_rag(original[:content]))
     messages.each_with_index.map { |m, i| i == first_user_idx ? updated : m }
   end
 
+  # Content is an Array when the turn carries images; the context belongs on the
+  # text part, not stringified over the whole payload.
+  def prepend_rag(content)
+    return "#{@rag_context}\n\n#{content}" unless content.is_a?(Array)
+
+    text_idx = content.find_index { |part| part[:type] == "text" }
+    return [ { type: "text", text: @rag_context } ] + content if text_idx.nil?
+
+    content.each_with_index.map do |part, i|
+      i == text_idx ? part.merge(text: "#{@rag_context}\n\n#{part[:text]}") : part
+    end
+  end
+
+  def text_of(content)
+    return content.to_s unless content.is_a?(Array)
+    content.select { |part| part[:type] == "text" }.pluck(:text).join("\n\n")
+  end
+
   def dev_mode_response(&block)
-    last_content = @messages.empty? ? "" : @messages.last[:content].to_s
+    last_content = @messages.empty? ? "" : text_of(@messages.last[:content])
     response_text = "[DEV MODE] Echo: #{last_content}"
 
     if @stream && block_given?

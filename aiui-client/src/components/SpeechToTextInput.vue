@@ -1,6 +1,7 @@
 <template>
   <div class="stt-input">
     <div class="input-wrapper">
+      <AttachmentStrip :attachments="attachments" @remove="$emit('remove-attachment', $event)" />
       <q-input
         ref="inputField"
         filled
@@ -15,16 +16,14 @@
 
       <div class="button-overlay" :class="{ 'overlay-centered': !expanded }">
         <div class="left-buttons">
-          <q-btn
-            v-if="showNewChat"
-            icon="add"
-            color="secondary"
-            round
-            flat
-            @click="$emit('new-chat')"
-          >
-            <q-tooltip>New chat</q-tooltip>
-          </q-btn>
+          <AttachmentButton
+            v-if="showNewChat || visionSupported"
+            :vision-supported="visionSupported"
+            :show-new-chat="showNewChat"
+            :model-label="modelLabel"
+            @files-selected="$emit('files-selected', $event)"
+            @new-chat="$emit('new-chat')"
+          />
           <span v-if="contextUsage !== null" class="context-ring">
             <q-circular-progress
               :value="contextUsage"
@@ -81,6 +80,8 @@
 
 <script>
 import { api } from 'boot/axios'
+import AttachmentButton from './AttachmentButton.vue'
+import AttachmentStrip from './AttachmentStrip.vue'
 
 const PREFERRED_MIME_TYPES = [
   'audio/webm;codecs=opus',
@@ -109,10 +110,24 @@ function extForMimeType (mime) {
 export default {
   name: 'SpeechToTextInput',
 
+  components: { AttachmentButton, AttachmentStrip },
+
   props: {
     modelValue: {
       type: String,
       required: true
+    },
+    attachments: {
+      type: Array,
+      default: () => []
+    },
+    visionSupported: {
+      type: Boolean,
+      default: false
+    },
+    modelLabel: {
+      type: String,
+      default: 'This model'
     },
     isStreaming: {
       type: Boolean,
@@ -155,7 +170,7 @@ export default {
       default: 250
     }
   },
-  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat', 'stop', 'toggle-voice-mode'],
+  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat', 'stop', 'toggle-voice-mode', 'files-selected', 'remove-attachment'],
   data () {
     return {
       isLoading: false,

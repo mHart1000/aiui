@@ -73,6 +73,9 @@ export function useStreamingChat() {
           requestBody.message_id = options.regeneratingMessageId
         }
       }
+      if (options.imageSignedIds?.length) {
+        requestBody.image_signed_ids = options.imageSignedIds
+      }
 
       const response = await fetch(url, {
         method: 'POST',

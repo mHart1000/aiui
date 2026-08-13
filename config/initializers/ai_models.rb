@@ -130,3 +130,30 @@ AI_MODELS = [
  { "id"=>"whisper-1", "object"=>"model", "created"=>1677532384, "owned_by"=>"openai-internal" },
  { "id"=>"text-embedding-ada-002", "object"=>"model", "created"=>1671217299, "owned_by"=>"openai-internal" }
 ].freeze
+
+module AiModels
+  # Models that accept images via the OpenAI-compatible content array. Deliberately
+  # conservative: unlisted means the attach button is hidden, which is harmless,
+  # whereas a wrong entry means a failed request. Verify before adding a model here
+  # — see docs/image-attachments-spec.md §2.1.
+  VISION_MODEL_IDS = %w[
+    openrouter/google/gemma-4-31b-it:free
+    openrouter/google/gemma-4-26b-a4b-it:free
+    openrouter/google/gemma-3-27b-it:free
+    openrouter/nvidia/nemotron-nano-12b-v2-vl:free
+  ].freeze
+
+  LOCAL_MODEL_ID = "local-llama".freeze
+
+  def self.vision?(model_id)
+    return false if model_id.blank?
+    # The local sentinel hides whichever gguf is loaded, so this has to be declared.
+    return ENV["LLAMA_VISION"] == "true" if model_id == LOCAL_MODEL_ID
+
+    VISION_MODEL_IDS.include?(model_id)
+  end
+
+  def self.catalogue
+    AI_MODELS.map { |model| model.merge("vision" => vision?(model["id"])) }
+  end
+end

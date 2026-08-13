@@ -55,7 +55,7 @@ module Api
         rag_enabled: conversation.rag_enabled,
         use_skills: conversation.resolved_use_skills,
         skill_ids: conversation.resolved_skills.map(&:id),
-        messages: conversation.messages.order(:created_at).map { |m|
+        messages: conversation.messages.order(:created_at).includes(images_attachments: :blob).map { |m|
           {
             id: m.id,
             role: m.role,
@@ -63,7 +63,10 @@ module Api
             thinking: m.thinking,
             total_tokens: m.total_tokens,
             tokens_per_second: m.tokens_per_second,
-            generation_ms: m.generation_ms
+            generation_ms: m.generation_ms,
+            images: m.images.attachments.map { |a|
+              { id: a.id, url: rails_blob_path(a.blob, only_path: true), filename: a.blob.filename.to_s }
+            }
           }
         }
       }

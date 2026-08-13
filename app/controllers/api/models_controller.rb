@@ -3,7 +3,7 @@ require "net/http"
 module Api
   class ModelsController < ApplicationController
     def index
-      render json: { models: AI_MODELS }
+      render json: { models: AiModels.catalogue }
     end
 
     def llama_context

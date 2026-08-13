@@ -79,6 +79,11 @@ export default defineConfig((/* ctx */) => {
         '/api': {
           target: 'http://127.0.0.1:3100',
           changeOrigin: true
+        },
+        // Active Storage serves attachment blobs from /rails, outside /api.
+        '/rails': {
+          target: 'http://127.0.0.1:3100',
+          changeOrigin: true
         }
       }
     },
