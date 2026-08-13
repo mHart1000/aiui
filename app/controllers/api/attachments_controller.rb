@@ -61,8 +61,9 @@ module Api
       return pipeline unless oversized
 
       # Scale to the cap, not below it — shrinking further loses detail for nothing.
+      # Floor rather than round: rounding both dimensions up overshoots the cap.
       scale = Math.sqrt(cap.to_f / (image.width * image.height))
-      pipeline.resize_to_limit((image.width * scale).round, (image.height * scale).round)
+      pipeline.resize_to_limit((image.width * scale).floor, (image.height * scale).floor)
     end
 
     def exif_orientation(image)

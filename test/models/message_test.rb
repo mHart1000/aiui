@@ -11,6 +11,7 @@ class MessageTest < ActiveSupport::TestCase
     ActiveStorage::Blob.delete_all
     Message.delete_all
     Conversation.delete_all
+    Skill.delete_all
     User.delete_all
   end
 
