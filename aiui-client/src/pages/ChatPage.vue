@@ -1157,10 +1157,12 @@ export default {
 
     async regenerateMessage(message, messageIndex) {
       if (!message) return
+      // Id anchors the server-side truncation; absent falls back to dropping trailing messages.
+      const messageId = this.messages[messageIndex]?.id
       this.messages = this.messages.slice(0, messageIndex)
-      this.regenerateFromMessage(message)
+      this.regenerateFromMessage(message, messageId)
     },
-    async regenerateFromMessage(userMessageContent) {
+    async regenerateFromMessage(userMessageContent, messageId = null) {
       // Add placeholder for incoming stream
       const myIndex = this.messages.length
       this.streamingMessageIndex = myIndex
@@ -1178,7 +1180,7 @@ export default {
         userMessageContent,
         token,
         this.modelCode,
-        { regenerating: true }
+        { regenerating: true, regeneratingMessageId: messageId }
       )
 
       // Update placeholder with final content

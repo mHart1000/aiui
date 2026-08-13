@@ -23,7 +23,7 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
 
   # Build a minimal controller instance with enough stubbing to run
   # create_streaming without a real request or response stream.
-  def build_controller(conversation)
+  def build_controller(conversation, extra_params = {})
     controller = Api::MessagesController.new
     user = @user
 
@@ -34,9 +34,7 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
     # Stub params
     controller.define_singleton_method(:params) do
       ActionController::Parameters.new(
-        conversation_id: conversation.id,
-        content: "Hello",
-        regenerating: true
+        { conversation_id: conversation.id, content: "Hello", regenerating: true }.merge(extra_params)
       )
     end
 
@@ -102,5 +100,28 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
 
     saved = @conversation.messages.where(role: "assistant").last
     assert_equal "Full response here", saved.content
+  end
+
+  test "regenerating with message_id truncates the conversation to that message" do
+    first_answer = @conversation.messages.create!(role: "assistant", content: "First answer")
+    @conversation.messages.create!(role: "user", content: "Follow-up")
+    @conversation.messages.create!(role: "assistant", content: "Second answer")
+
+    captured = nil
+    capturing_service = lambda do |**kwargs, &block|
+      captured = kwargs[:messages]
+      block.call("Regenerated", :response)
+      { persona_version: nil }
+    end
+
+    controller = build_controller(@conversation, message_id: first_answer.id)
+
+    ChatService.stub(:call, capturing_service) do
+      controller.create_streaming
+    end
+
+    assert_equal [ { role: "user", content: "Hello" } ], captured
+    assert_equal [ "Hello", "Regenerated" ],
+      @conversation.messages.reload.order(:created_at, :id).map(&:content)
   end
 end

@@ -317,4 +317,40 @@ class ConversationTest < ActiveSupport::TestCase
 
     assert_nil @conversation.fork_at(stranger)
   end
+
+  # truncate_from_message
+  test "truncate_from_message destroys the message and everything after it" do
+    @conversation.save!
+    @conversation.messages.create!(role: "user", content: "one")
+    second = @conversation.messages.create!(role: "assistant", content: "two")
+    @conversation.messages.create!(role: "user", content: "three")
+    @conversation.messages.create!(role: "assistant", content: "four")
+
+    @conversation.truncate_from_message(second)
+
+    assert_equal [ "one" ], @conversation.messages.reload.order(:created_at, :id).map(&:content)
+  end
+
+  test "truncate_from_message keeps earlier messages in order" do
+    @conversation.save!
+    @conversation.messages.create!(role: "user", content: "one")
+    @conversation.messages.create!(role: "assistant", content: "two")
+    third = @conversation.messages.create!(role: "user", content: "three")
+    @conversation.messages.create!(role: "assistant", content: "four")
+
+    @conversation.truncate_from_message(third)
+
+    assert_equal [ "one", "two" ], @conversation.messages.reload.order(:created_at, :id).map(&:content)
+  end
+
+  test "truncate_from_message is a no-op for a message from another conversation" do
+    @conversation.save!
+    @conversation.messages.create!(role: "user", content: "one")
+    other = @user.conversations.create!(title: "Other")
+    stranger = other.messages.create!(role: "user", content: "two")
+
+    @conversation.truncate_from_message(stranger)
+
+    assert_equal 1, @conversation.messages.reload.count
+  end
 end

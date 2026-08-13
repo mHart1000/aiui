@@ -69,6 +69,9 @@ export function useStreamingChat() {
       }
       if (options.regenerating) {
         requestBody.regenerating = true
+        if (options.regeneratingMessageId) {
+          requestBody.message_id = options.regeneratingMessageId
+        }
       }
 
       const response = await fetch(url, {
