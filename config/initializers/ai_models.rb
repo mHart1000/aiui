@@ -143,14 +143,25 @@ module AiModels
     openrouter/nvidia/nemotron-nano-12b-v2-vl:free
   ].freeze
 
-  LOCAL_MODEL_ID = "local-llama".freeze
-
   def self.vision?(model_id)
     return false if model_id.blank?
-    # The local sentinel hides whichever gguf is loaded, so this has to be declared.
-    return ENV["LLAMA_VISION"] == "true" if model_id == LOCAL_MODEL_ID
+    return local_vision? if local?(model_id)
 
     VISION_MODEL_IDS.include?(model_id)
+  end
+
+  # Keyed off the catalogue rather than the id string, so a second local entry
+  # is picked up without duplicating ChatService's adapter-routing rules.
+  def self.local?(model_id)
+    AI_MODELS.find { |model| model["id"] == model_id }&.dig("owned_by") == "local"
+  end
+
+  # The local id is a sentinel that hides whichever gguf is loaded, so ask the
+  # server. LLAMA_VISION overrides it when set.
+  def self.local_vision?
+    return ENV["LLAMA_VISION"] == "true" if ENV["LLAMA_VISION"].present?
+
+    LlamaCapabilities.vision?
   end
 
   def self.catalogue

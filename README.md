@@ -100,7 +100,7 @@ Server-side downscaling needs libvips:
 sudo apt install libvips42
 ```
 
-To attach images to the **local** model, start `llama-server` with a multimodal projector and set `LLAMA_VISION=true` in `.env`:
+To attach images to the **local** model, just start `llama-server` with a multimodal projector:
 
 ```bash
 ./build/bin/llama-server \
@@ -110,7 +110,9 @@ To attach images to the **local** model, start `llama-server` with a multimodal 
   --host 0.0.0.0
 ```
 
-The `local-llama` id is a sentinel that can't tell which gguf is loaded, hence the explicit flag. Cloud models are opted in by id in `AiModels::VISION_MODEL_IDS` ([config/initializers/ai_models.rb](config/initializers/ai_models.rb)); anything unlisted simply hides the attach option.
+No configuration needed — the app reads `modalities.vision` from llama.cpp's `/props` endpoint (cached 60s), so swapping ggufs is picked up automatically. If the server can't be reached the app assumes vision is available, since a visible error beats a silently missing button. Set `LLAMA_VISION=true|false` in `.env` only to force the answer.
+
+Cloud models are opted in by id in `AiModels::VISION_MODEL_IDS` ([config/initializers/ai_models.rb](config/initializers/ai_models.rb)); anything unlisted simply hides the attach option.
 
 Images above `users.image_max_pixels` (default 6,000,000) are downscaled to that budget on upload — smaller ones are stored untouched, so screenshots keep their text legible. See [docs/image-attachments-spec.md](docs/image-attachments-spec.md) §2.2 before changing the value.
 
