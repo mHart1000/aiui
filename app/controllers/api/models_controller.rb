@@ -2,6 +2,8 @@ require "net/http"
 
 module Api
   class ModelsController < ApplicationController
+    before_action :authenticate_api_user!, only: :image_capability
+
     def index
       render json: { models: AI_MODELS }
     end
@@ -17,6 +19,14 @@ module Api
       render json: { n_ctx: meta["n_ctx"], n_ctx_train: meta["n_ctx_train"] }
     rescue => e
       render json: { error: e.message }, status: :bad_gateway
+    end
+
+    def image_capability
+      result = ImageCapabilityService.call(
+        model_code: params[:model_code],
+        refresh: ActiveModel::Type::Boolean.new.cast(params[:refresh])
+      )
+      render json: result
     end
   end
 end

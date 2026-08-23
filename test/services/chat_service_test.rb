@@ -168,6 +168,66 @@ class ChatServiceTest < ActiveSupport::TestCase
     assert_equal "hello", user_msg[:content]
   end
 
+  test "rag context is prepended to the text block of a multimodal message" do
+    content = [
+      { type: "text", text: "What is this?" },
+      { type: "image_url", image_url: { url: "data:image/png;base64,abc" } }
+    ]
+    captured = nil
+    service = ChatService.new(
+      messages: [ { role: "user", content: content } ],
+      model: "local-llama",
+      use_persona: false,
+      use_scaffolding: false,
+      stream: false,
+      max_tokens: nil,
+      rag_context: "[Context]\nvisual notes\n[/Context]"
+    )
+    adapter = service.instance_variable_get(:@adapter)
+    adapter.stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) { service.call }
+
+    parts = captured.find { |message| message[:role] == "user" }[:content]
+    assert parts.first[:text].start_with?("[Context]")
+    assert_equal "image_url", parts.second[:type]
+  end
+
+  test "rag context adds a text block before images on an image-only message" do
+    content = [ { type: "image_url", image_url: { url: "data:image/png;base64,abc" } } ]
+    captured = nil
+    service = ChatService.new(
+      messages: [ { role: "user", content: content } ],
+      model: "local-llama",
+      use_persona: false,
+      use_scaffolding: false,
+      stream: false,
+      max_tokens: nil,
+      rag_context: "retrieved context"
+    )
+    adapter = service.instance_variable_get(:@adapter)
+    adapter.stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) { service.call }
+
+    parts = captured.find { |message| message[:role] == "user" }[:content]
+    assert_equal({ type: "text", text: "retrieved context" }, parts.first)
+    assert_equal "image_url", parts.second[:type]
+  end
+
+  test "dev mode reports image count without stringifying content blocks" do
+    messages = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Describe" },
+          { type: "image_url", image_url: { url: "data:image/png;base64,abc" } }
+        ]
+      }
+    ]
+
+    with_env("AI_ENABLED" => "false") do
+      result = ChatService.call(messages: messages, model: "local-llama")
+      assert_equal "[DEV MODE] Echo: Describe · 1 image", result[:reply]
+    end
+  end
+
   # two pass
   test "two pass returns reply, thinking, and combined tokens" do
     planning_response = { content: "my analysis", tokens: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 } }

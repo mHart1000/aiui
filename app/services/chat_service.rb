@@ -286,13 +286,37 @@ class ChatService
     return messages unless first_user_idx
 
     original = messages[first_user_idx]
-    updated = original.merge(content: "#{@rag_context}\n\n#{original[:content]}")
+    updated = original.merge(content: content_with_rag(original[:content]))
     messages.each_with_index.map { |m, i| i == first_user_idx ? updated : m }
   end
 
+  def content_with_rag(content)
+    return "#{@rag_context}\n\n#{content}" unless content.is_a?(Array)
+
+    parts = content.map(&:deep_dup)
+    text_index = parts.find_index { |part| part[:type] == "text" || part["type"] == "text" }
+    if text_index
+      text_part = parts[text_index]
+      key = text_part.key?(:text) ? :text : "text"
+      text_part[key] = "#{@rag_context}\n\n#{text_part[key]}"
+    else
+      parts.unshift(type: "text", text: @rag_context)
+    end
+    parts
+  end
+
   def dev_mode_response(&block)
-    last_content = @messages.empty? ? "" : @messages.last[:content].to_s
-    response_text = "[DEV MODE] Echo: #{last_content}"
+    content = @messages.empty? ? "" : @messages.last[:content]
+    if content.is_a?(Array)
+      text = content.filter_map do |part|
+        part[:text] || part["text"] if (part[:type] || part["type"]) == "text"
+      end.join(" ")
+      image_count = content.count { |part| (part[:type] || part["type"]) == "image_url" }
+      description = [ text.presence, "#{image_count} #{'image'.pluralize(image_count)}" ].compact.join(" · ")
+      response_text = "[DEV MODE] Echo: #{description}"
+    else
+      response_text = "[DEV MODE] Echo: #{content}"
+    end
 
     if @stream && block_given?
       response_text.chars.each do |char|

@@ -156,6 +156,18 @@
         </q-expansion-item>
 
         <div :class="msg.role" class="bubble q-pa-sm q-rounded-borders">
+          <div v-if="msg.images?.length" class="message-images">
+            <a
+              v-for="image in msg.images"
+              :key="image.id || image.key || image.filename"
+              :href="image.object_url || image.previewUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="message-image-link"
+            >
+              <img :src="image.object_url || image.previewUrl" :alt="image.filename">
+            </a>
+          </div>
           <div v-if="!msg.content && isActivelyStreaming(i) && streamingChat.loadingPhase.value === 'connecting'" class="loading-placeholder">
             <div class="typing-indicator">
               <span class="dot"></span>
@@ -220,7 +232,7 @@
                 size="sm"
                 icon="autorenew"
                 class="copy-btn"
-                @click="regenerateMessage(displayMessages[i - 1]?.content, i)"
+                @click="regenerateMessage(displayMessages[i - 1], i)"
               >
                 <q-tooltip>Regenerate response</q-tooltip>
               </q-btn>
@@ -258,6 +270,7 @@
             </template>
             <template v-else-if="msg.role === 'user'">
               <q-btn
+                v-if="msg.content"
                 flat
                 dense
                 round
@@ -287,7 +300,7 @@
                 size="sm"
                 icon="autorenew"
                 class="copy-btn"
-                @click="regenerateMessage(msg.content, i + 1)"
+                @click="regenerateMessage(msg, i + 1)"
               >
                 <q-tooltip>Retry</q-tooltip>
               </q-btn>
@@ -297,21 +310,39 @@
       </div>
     </div>
 
+    <q-banner v-if="imageSendBlocked" dense class="image-capability-banner q-mx-auto q-mb-sm">
+      {{ imageCapabilityMessage }}
+      <template v-slot:action>
+        <q-btn
+          v-if="imageCapability === 'unknown'"
+          flat
+          dense
+          label="Retry"
+          @click="fetchImageCapability(true)"
+        />
+      </template>
+    </q-banner>
+
     <div class="input-bar q-pa-none row items-end input-centered" :class="{ 'input-bar-centered': !hasMessages }">
       <SpeechToTextInput
         v-if="!voiceChatMode"
         v-model="input"
-        :show-new-chat="hasMessages"
         :is-streaming="streamingChat.isStreaming.value"
         :expanded="composerExpanded"
         :context-usage="composerContextPercent"
         :context-label="composerContextLabel"
         :voice-mode="voiceChatMode"
+        :pending-images="pendingImages"
+        :image-capability="imageCapability"
+        :is-processing-images="isProcessingImages"
+        :send-disabled="composerSendDisabled"
         @error="handleSttError"
         @status="handleSttStatus"
         @send-message="sendMessage"
+        @select-images="selectImages"
+        @remove-image="removePendingImage"
+        @retry-image-capability="fetchImageCapability(true)"
         @stop="stopStreaming"
-        @new-chat="newChat"
         @toggle-voice-mode="toggleVoiceMode"
         class="col message-input"
       />
@@ -319,7 +350,6 @@
         v-else
         ref="voice"
         v-model="input"
-        :show-new-chat="hasMessages"
         :is-streaming="streamingChat.isStreaming.value"
         :expanded="composerExpanded"
         :context-usage="composerContextPercent"
@@ -329,11 +359,17 @@
         :muted="!ttsPlayer.isEnabled.value"
         :tts-available="ttsPlayer.isTtsAvailable.value"
         :voice-mode="voiceChatMode"
+        :pending-images="pendingImages"
+        :image-capability="imageCapability"
+        :is-processing-images="isProcessingImages"
+        :send-disabled="composerSendDisabled"
         @error="handleSttError"
         @status="handleSttStatus"
         @send-message="sendMessage"
+        @select-images="selectImages"
+        @remove-image="removePendingImage"
+        @retry-image-capability="fetchImageCapability(true)"
         @stop="stopStreaming"
-        @new-chat="newChat"
         @toggle-mute="handleToggleMute"
         @toggle-voice-mode="toggleVoiceMode"
         @inactivity-timeout="handleVoiceInactivityTimeout"
@@ -387,7 +423,8 @@ const markedUser = new Marked({
 })
 import { useStreamingChat } from 'src/composables/useStreamingChat'
 import { useTtsPlayer } from 'src/composables/useTtsPlayer'
-import { onBeforeUnmount, onMounted} from 'vue'
+import { imageSignature, MAX_IMAGE_ATTACHMENTS, normalizeImage } from 'src/utils/imageAttachments'
+import { onBeforeUnmount, onMounted } from 'vue'
 
 const DEFAULT_MODEL_ID = import.meta.env.VITE_DEFAULT_MODEL_ID || null
 
@@ -452,7 +489,11 @@ export default {
     readingAloudIndex: null,
     endOfUtteranceMs: 2500,
     inactivityTimeoutSec: 15,
-    armTimer: null
+    armTimer: null,
+    pendingImages: [],
+    isProcessingImages: false,
+    imageCapability: 'unknown',
+    messageImageUrls: new Set()
   }),
   async mounted() {
     const modelsRes = await api.get('/api/models')
@@ -484,18 +525,24 @@ export default {
   beforeUnmount() {
     window.removeEventListener('keydown', this.handleVoiceEscape)
     this.cancelArm()
+    this.clearPendingImages()
+    this.clearMessageImageUrls()
   },
   watch: {
     modelCode() {
       if (this.isLlamaModel) this.fetchLlamaContext()
+      this.fetchImageCapability()
     },
     '$route.params.id': {
       immediate: true,
       async handler(newId) {
         if (newId) {
+          this.clearPendingImages()
           this.conversationId = newId
           await this.loadConversation()
         } else {
+          this.clearPendingImages()
+          this.clearMessageImageUrls()
           this.conversationId = null
           this.messages = []
           this.input = ''
@@ -644,6 +691,22 @@ export default {
     voiceShouldListen() {
       return this.voiceChatMode && !this.assistantBusy && this.editingMessageIndex === null
     },
+    conversationHasImages() {
+      return this.messages.some(message => message.images?.length)
+    },
+    imageSendBlocked() {
+      return (this.pendingImages.length > 0 || this.conversationHasImages) && this.imageCapability !== 'supported'
+    },
+    imageCapabilityMessage() {
+      if (this.imageCapability === 'unsupported') {
+        return 'The selected model does not accept images. Select an image-capable model to continue this conversation.'
+      }
+      return 'Image support could not be verified for the selected model.'
+    },
+    composerSendDisabled() {
+      const hasContent = this.input.trim().length > 0 || this.pendingImages.length > 0
+      return this.isProcessingImages || !hasContent || this.imageSendBlocked
+    },
     inactivityTimeoutMs() {
       // The slider's top position (> 60 s) means "off" — pass 0 to disable.
       return this.inactivityTimeoutSec > 60 ? 0 : this.inactivityTimeoutSec * 1000
@@ -660,6 +723,83 @@ export default {
     },
     handleSttStatus(status) {
       console.log('Speech status:', status)
+    },
+    async fetchImageCapability(refresh = false) {
+      const modelCode = this.modelCode
+      if (!modelCode) {
+        this.imageCapability = 'unknown'
+        return
+      }
+
+      this.imageCapability = 'unknown'
+      try {
+        const res = await api.get('/api/models/image_capability', {
+          params: { model_code: modelCode, ...(refresh ? { refresh: 1 } : {}) }
+        })
+        if (this.modelCode === modelCode) this.imageCapability = res.data.image_input
+      } catch (err) {
+        console.error('Error checking image capability:', err)
+        if (this.modelCode === modelCode) this.imageCapability = 'unknown'
+      }
+    },
+    async selectImages(files) {
+      const remaining = MAX_IMAGE_ATTACHMENTS - this.pendingImages.length
+      if (remaining <= 0) {
+        this.notifyImageError('A message may contain at most four images.')
+        return
+      }
+      if (files.length > remaining) {
+        this.notifyImageError('Only the first images that fit the four-image limit were selected.')
+      }
+
+      this.isProcessingImages = true
+      try {
+        for (const file of files) {
+          if (this.pendingImages.length >= MAX_IMAGE_ATTACHMENTS) break
+          const key = imageSignature(file)
+          if (this.pendingImages.some(image => image.key === key)) continue
+          try {
+            this.pendingImages.push(await normalizeImage(file))
+          } catch (err) {
+            this.notifyImageError(err.message)
+          }
+        }
+      } finally {
+        this.isProcessingImages = false
+      }
+    },
+    removePendingImage(key) {
+      const index = this.pendingImages.findIndex(image => image.key === key)
+      if (index < 0) return
+      URL.revokeObjectURL(this.pendingImages[index].previewUrl)
+      this.pendingImages.splice(index, 1)
+    },
+    clearPendingImages() {
+      this.pendingImages.forEach(image => URL.revokeObjectURL(image.previewUrl))
+      this.pendingImages = []
+    },
+    retainSentImageUrls(images) {
+      images.forEach(image => this.messageImageUrls.add(image.previewUrl))
+    },
+    clearMessageImageUrls() {
+      this.messageImageUrls.forEach(url => URL.revokeObjectURL(url))
+      this.messageImageUrls.clear()
+    },
+    async loadMessageImages() {
+      const requests = this.messages.flatMap(message => (message.images || []).map(async image => {
+        try {
+          const response = await api.get(image.download_url, { responseType: 'blob' })
+          const objectUrl = URL.createObjectURL(response.data)
+          this.messageImageUrls.add(objectUrl)
+          image.object_url = objectUrl
+        } catch (err) {
+          console.error('Error loading message image:', err)
+        }
+      }))
+      await Promise.all(requests)
+    },
+    notifyImageError(message) {
+      this.$q.notify({ type: 'warning', message, position: 'top', timeout: 3000 })
     },
     // Debounce the start so a brief assistant-busy flicker can't flap the mic.
     scheduleArm() {
@@ -684,8 +824,19 @@ export default {
         this.armTimer = null
       }
     },
-    handleRetry() {
-      this.streamingChat.retryLastMessage()
+    async handleRetry() {
+      const currentError = this.streamingChat.error.value
+      this.streamingChat.dismissError()
+      if ([422, 503].includes(currentError?.status)) {
+        if (currentError?.code === 'image_capability_unknown') await this.fetchImageCapability(true)
+        return
+      }
+      await this.loadConversation()
+      const userIndex = this.messages.findLastIndex(message => message.role === 'user')
+      if (userIndex < 0) return
+      const userMessage = this.messages[userIndex]
+      this.messages = this.messages.slice(0, userIndex + 1)
+      await this.regenerateFromMessage(userMessage.content)
     },
     stopStreaming() {
       // Commit whatever streamed so far before flipping isStreaming off, so the
@@ -730,6 +881,8 @@ export default {
       }
     },
     newChat() {
+      this.clearPendingImages()
+      this.clearMessageImageUrls()
       if (this.$route.params.id) {
         this.$router.push('/chat')
       } else {
@@ -743,11 +896,13 @@ export default {
     async loadConversation() {
       try {
         const res = await api.get(`/api/conversations/${this.conversationId}`)
+        this.clearMessageImageUrls()
         this.messages = res.data.messages
         this.modelCode = res.data.model_code || DEFAULT_MODEL_ID
         this.ragEnabled = res.data.rag_enabled || false
         this.skillsEnabled = res.data.use_skills || false
         this.activeSkillIds = res.data.skill_ids || []
+        await this.loadMessageImages()
       } catch (err) {
         console.error('Error loading conversation', err)
       }
@@ -820,8 +975,18 @@ export default {
     async sendMessage() {
       const text = this.input.trim()
       const model = this.modelCode
+      const images = this.pendingImages.slice()
 
-      if (!text) return
+      if (!text && images.length === 0) return
+      if (this.imageSendBlocked || this.isProcessingImages) {
+        this.$q.notify({
+          type: 'warning',
+          message: this.imageCapabilityMessage,
+          position: 'top',
+          timeout: 3000
+        })
+        return
+      }
 
       // Stop any current TTS playback
       if (this.ttsPlayer.isEnabled.value) {
@@ -841,9 +1006,15 @@ export default {
       }
 
       // Add user message immediately (optimistic UI)
+      const userIndex = this.messages.length
       this.messages.push({
         role: 'user',
-        content: text
+        content: text,
+        images: images.map(image => ({
+          key: image.key,
+          filename: image.filename,
+          previewUrl: image.previewUrl
+        }))
       })
       this.input = ''
 
@@ -863,7 +1034,8 @@ export default {
         this.conversationId,
         text,
         token,
-        model
+        model,
+        { images }
       )
 
       // Update placeholder message with final content from composable
@@ -878,8 +1050,18 @@ export default {
       }
 
       if (this.streamingChat.error.value) {
-        // Keep the placeholder for a regenerate button.
-        streamedMessage.failed = true
+        const prePersistenceError = [422, 503].includes(this.streamingChat.error.value.status)
+        if (prePersistenceError) {
+          this.messages = this.messages.slice(0, userIndex)
+          if (!this.input) this.input = text
+        } else {
+          streamedMessage.failed = true
+          this.retainSentImageUrls(images)
+          this.pendingImages = []
+        }
+      } else {
+        this.retainSentImageUrls(images)
+        this.pendingImages = []
       }
 
       // Only clear the shared index if a newer send hasn't taken it over.
@@ -1109,7 +1291,7 @@ export default {
     },
 
     async saveEdit() {
-      if (!this.editingContent.trim() || this.isSavingEdit) return
+      if (this.isSavingEdit) return
 
       if (this.streamingChat.isStreaming.value) {
         this.streamingChat.stop()
@@ -1118,6 +1300,7 @@ export default {
       const messageIndex = this.editingMessageIndex
       const newContent = this.editingContent
       let message = this.messages[messageIndex]
+      if (!newContent.trim() && !message.images?.length) return
 
       if (!message.id) {
         await this.loadConversation()
@@ -1160,9 +1343,13 @@ export default {
       // Id anchors the server-side truncation; absent falls back to dropping trailing messages.
       const messageId = this.messages[messageIndex]?.id
       this.messages = this.messages.slice(0, messageIndex)
-      this.regenerateFromMessage(message, messageId)
+      this.regenerateFromMessage(message.content, messageId)
     },
     async regenerateFromMessage(userMessageContent, messageId = null) {
+      if (this.imageSendBlocked) {
+        this.notifyImageError(this.imageCapabilityMessage)
+        return
+      }
       // Add placeholder for incoming stream
       const myIndex = this.messages.length
       this.streamingMessageIndex = myIndex
@@ -1275,6 +1462,28 @@ export default {
   line-height: 1.5;
   border-radius: 5px;
   position: relative;
+}
+.message-images {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 160px));
+  margin-bottom: 8px;
+}
+.message-image-link {
+  display: block;
+}
+.message-image-link img {
+  border-radius: 8px;
+  display: block;
+  height: 140px;
+  object-fit: cover;
+  width: 100%;
+}
+.image-capability-banner {
+  background: var(--bubble-user);
+  border: 1px solid var(--border);
+  max-width: 900px;
+  width: calc(100% - 32px);
 }
 .message-footer {
   display: flex;

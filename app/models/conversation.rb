@@ -1,3 +1,5 @@
+require "stringio"
+
 class Conversation < ApplicationRecord
   PLACEHOLDER_TITLE = "New Chat".freeze
 
@@ -17,7 +19,13 @@ class Conversation < ApplicationRecord
   end
 
   def messages_for_ai
-    messages.order(:created_at).map { |m| { role: m.role, content: m.content } }
+    messages.includes(images_attachments: :blob).order(:created_at, :id).map do |message|
+      { role: message.role, content: message.content_for_ai }
+    end
+  end
+
+  def has_images?
+    messages.joins(:images_attachments).exists?
   end
 
   # Copies this conversation and its messages up to and including `message`.
@@ -35,10 +43,10 @@ class Conversation < ApplicationRecord
         use_skills: use_skills,
         skill_ids: skill_ids
       )
-      # insert_all! skips the touch callback, so the source keeps its sidebar position.
-      Message.insert_all!(ordered[0..cutoff].map { |m|
-        m.attributes.slice(*COPIED_MESSAGE_COLUMNS).merge("conversation_id" => forked.id)
-      })
+      ordered[0..cutoff].each do |source_message|
+        copied_message = forked.messages.create!(source_message.attributes.slice(*COPIED_MESSAGE_COLUMNS))
+        copy_images(source_message, copied_message)
+      end
       forked
     end
   end
@@ -50,6 +58,14 @@ class Conversation < ApplicationRecord
     return if cutoff.nil?
 
     Message.where(id: ordered[cutoff..].map(&:id)).destroy_all
+  end
+
+  def truncate_after_message(message)
+    ordered = messages.order(:created_at, :id).to_a
+    cutoff = ordered.index { |candidate| candidate.id == message.id }
+    return if cutoff.nil?
+
+    Message.where(id: ordered.drop(cutoff + 1).map(&:id)).destroy_all
   end
 
   # null on either override column means "inherit from the user".
@@ -129,6 +145,18 @@ class Conversation < ApplicationRecord
   end
 
   private
+
+  def copy_images(source_message, copied_message)
+    source_message.ordered_images.each do |attachment|
+      copied_message.images.attach(
+        io: StringIO.new(attachment.download),
+        filename: attachment.filename.to_s,
+        content_type: attachment.blob.content_type,
+        metadata: attachment.blob.metadata,
+        identify: false
+      )
+    end
+  end
 
   def fork_title
     return PLACEHOLDER_TITLE if title.blank? || placeholder_title?

@@ -1,6 +1,30 @@
 <template>
   <div class="voice-chat-input">
     <div class="input-wrapper">
+      <div v-if="pendingImages.length" class="image-tray">
+        <div v-for="image in pendingImages" :key="image.key" class="image-preview">
+          <img :src="image.previewUrl" :alt="image.filename">
+          <q-tooltip>{{ image.filename }}</q-tooltip>
+          <q-btn
+            class="image-remove"
+            icon="close"
+            round
+            dense
+            size="xs"
+            color="negative"
+            aria-label="Remove image"
+            @click="$emit('remove-image', image.key)"
+          />
+        </div>
+      </div>
+      <input
+        ref="imagePicker"
+        class="image-picker-input"
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        multiple
+        @change="handleImageSelection"
+      >
       <q-input
         ref="inputField"
         filled
@@ -16,14 +40,27 @@
       <div class="button-overlay" :class="{ 'overlay-centered': !expanded }">
         <div class="left-buttons">
           <q-btn
-            v-if="showNewChat"
             icon="add"
             color="secondary"
             round
             flat
-            @click="$emit('new-chat')"
+            :loading="isProcessingImages"
+            :disable="imageCapability !== 'supported' || isProcessingImages || isStreaming"
+            aria-label="Add images"
+            @click="openImagePicker"
           >
-            <q-tooltip>New chat</q-tooltip>
+            <q-tooltip>{{ imageTooltip }}</q-tooltip>
+          </q-btn>
+          <q-btn
+            v-if="imageCapability === 'unknown'"
+            icon="refresh"
+            round
+            flat
+            dense
+            aria-label="Retry image capability check"
+            @click="$emit('retry-image-capability')"
+          >
+            <q-tooltip>Retry image capability check</q-tooltip>
           </q-btn>
           <q-btn
             v-if="ttsAvailable"
@@ -80,6 +117,7 @@
             :color="isStreaming ? 'negative' : 'primary'"
             round
             flat
+            :disable="!isStreaming && sendDisabled"
             @click="handleSend"
           >
             <q-tooltip>{{ sendTooltip }}</q-tooltip>
@@ -141,7 +179,19 @@ export default {
       type: String,
       default: null
     },
-    showNewChat: {
+    pendingImages: {
+      type: Array,
+      default: () => []
+    },
+    imageCapability: {
+      type: String,
+      default: 'unknown'
+    },
+    isProcessingImages: {
+      type: Boolean,
+      default: false
+    },
+    sendDisabled: {
       type: Boolean,
       default: false
     },
@@ -178,7 +228,7 @@ export default {
       default: 15000
     }
   },
-  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat', 'stop', 'toggle-mute', 'inactivity-timeout', 'toggle-voice-mode'],
+  emits: ['update:modelValue', 'error', 'status', 'send-message', 'select-images', 'remove-image', 'retry-image-capability', 'stop', 'toggle-mute', 'inactivity-timeout', 'toggle-voice-mode'],
   data () {
     return {
       isLoading: false,
@@ -216,6 +266,11 @@ export default {
     },
     sendTooltip () {
       return this.isStreaming ? 'Stop generating' : 'Send message'
+    },
+    imageTooltip () {
+      if (this.imageCapability === 'supported') return 'Add images'
+      if (this.imageCapability === 'unsupported') return 'The selected model does not accept images'
+      return 'Image support has not been verified'
     },
     inputStyle () {
       if (this.expanded) {
@@ -268,7 +323,18 @@ export default {
         this.tryAutoSubmit({ requireText: false })
         return
       }
+      if (this.sendDisabled) return
       this.$emit('send-message')
+    },
+
+    openImagePicker () {
+      this.$refs.imagePicker?.click()
+    },
+
+    handleImageSelection (event) {
+      const files = Array.from(event.target.files || [])
+      event.target.value = ''
+      if (files.length) this.$emit('select-images', files)
     },
 
     handleInput (value) {
@@ -481,7 +547,7 @@ export default {
             if (this.mediaStream === stream) this.mediaStream = null
           }
           const text = (this.modelValue || '').trim()
-          if (text || !requireText) {
+          if ((text || !requireText) && !this.sendDisabled) {
             this.$emit('send-message')
           }
         })
@@ -657,6 +723,35 @@ export default {
 .input-wrapper {
   position: relative;
   margin-bottom: 16px;
+}
+
+.image-picker-input {
+  display: none;
+}
+
+.image-tray {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px 4px;
+}
+
+.image-preview {
+  height: 64px;
+  position: relative;
+  width: 64px;
+}
+
+.image-preview img {
+  border-radius: 8px;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.image-remove {
+  position: absolute;
+  right: -6px;
+  top: -6px;
 }
 
 .button-overlay {

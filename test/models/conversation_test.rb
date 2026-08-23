@@ -1,4 +1,5 @@
 require "test_helper"
+require "stringio"
 
 class ConversationTest < ActiveSupport::TestCase
   include ActiveJob::TestHelper
@@ -259,6 +260,22 @@ class ConversationTest < ActiveSupport::TestCase
     assert_equal({ "1" => "def67890" }, copy.skill_versions)
   end
 
+  test "fork_at creates independent copies of image blobs" do
+    @conversation.save!
+    message = @conversation.messages.create!(role: "user", content: "look")
+    message.images.attach(
+      io: StringIO.new("image bytes"),
+      filename: "look.png",
+      content_type: "image/png",
+      identify: false
+    )
+
+    forked_message = @conversation.fork_at(message).messages.first
+
+    assert_equal "image bytes", forked_message.images.first.download
+    refute_equal message.images.first.blob_id, forked_message.images.first.blob_id
+  end
+
   test "fork_at leaves the source conversation untouched" do
     @conversation.save!
     @conversation.messages.create!(role: "user", content: "one")
@@ -352,5 +369,33 @@ class ConversationTest < ActiveSupport::TestCase
     @conversation.truncate_from_message(stranger)
 
     assert_equal 1, @conversation.messages.reload.count
+  end
+
+  test "truncate_after_message retains the edited message and removes later messages" do
+    @conversation.save!
+    first = @conversation.messages.create!(role: "user", content: "one")
+    @conversation.messages.create!(role: "assistant", content: "two")
+    @conversation.messages.create!(role: "user", content: "three")
+
+    @conversation.truncate_after_message(first)
+
+    assert_equal [ "one" ], @conversation.messages.reload.map(&:content)
+  end
+
+  test "truncation purges blobs owned by removed messages" do
+    @conversation.save!
+    first = @conversation.messages.create!(role: "user", content: "one")
+    later = @conversation.messages.create!(role: "user", content: "image")
+    later.images.attach(
+      io: StringIO.new("later image"),
+      filename: "later.png",
+      content_type: "image/png",
+      identify: false
+    )
+    blob_id = later.images.first.blob_id
+
+    perform_enqueued_jobs { @conversation.truncate_after_message(first) }
+
+    assert_not ActiveStorage::Blob.exists?(blob_id)
   end
 end

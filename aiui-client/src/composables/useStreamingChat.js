@@ -15,7 +15,6 @@ export function useStreamingChat() {
   const isStreaming = ref(false)
   const error = ref(null)
   const loadingPhase = ref('idle') // 'idle' | 'connecting' | 'thinking' | 'responding' | 'done'
-  const lastRequest = ref(null) // Store for retry
 
   let currentAbortController = null
   let currentReader = null
@@ -34,9 +33,6 @@ export function useStreamingChat() {
    * @returns {Promise<void>}
    */
   async function sendMessage(conversationId, content, token, modelCode = null, options = {}) {
-    // Store request for potential retry
-    lastRequest.value = { conversationId, content, token, modelCode, options }
-
     // Cancel any existing stream
     cleanup()
 
@@ -63,29 +59,39 @@ export function useStreamingChat() {
 
     try {
       const url = `/api/conversations/${conversationId}/messages/stream`
-      const requestBody = { content }
-      if (modelCode) {
-        requestBody.model_code = modelCode
+      const images = options.images || []
+      const useMultipart = images.length > 0
+      const requestBody = useMultipart ? new FormData() : { content }
+      if (useMultipart) requestBody.append('content', content)
+
+      const setField = (key, value) => {
+        if (useMultipart) requestBody.append(key, String(value))
+        else requestBody[key] = value
       }
+
+      if (modelCode) setField('model_code', modelCode)
       if (options.regenerating) {
-        requestBody.regenerating = true
-        if (options.regeneratingMessageId) {
-          requestBody.message_id = options.regeneratingMessageId
-        }
+        setField('regenerating', true)
+        if (options.regeneratingMessageId) setField('message_id', options.regeneratingMessageId)
       }
+      if (useMultipart) images.forEach(image => requestBody.append('images[]', image.file, image.file.name))
+
+      const headers = { 'Authorization': `Bearer ${token}` }
+      if (!useMultipart) headers['Content-Type'] = 'application/json'
 
       const response = await fetch(url, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(requestBody),
+        headers,
+        body: useMultipart ? requestBody : JSON.stringify(requestBody),
         signal: currentAbortController.signal
       })
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+        const payload = await response.json().catch(() => null)
+        const requestError = new Error(payload?.error?.message || `Request failed with status ${response.status}`)
+        requestError.code = payload?.error?.code
+        requestError.status = response.status
+        throw requestError
       }
 
       if (!response.body) {
@@ -95,6 +101,7 @@ export function useStreamingChat() {
       currentReader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+      let sawDone = false
 
       while (true) {
         const { done, value } = await currentReader.read()
@@ -119,51 +126,52 @@ export function useStreamingChat() {
           }
 
           if (line.startsWith('data: ')) {
+            let data
             try {
-              const data = JSON.parse(line.substring(6))
-
-              switch (data.type) {
-                case 'thinking':
-                  if (loadingPhase.value === 'connecting') {
-                    loadingPhase.value = 'thinking'
-                  }
-                  thinkingText.value += data.content
-                  break
-
-                case 'phase_change':
-                  loadingPhase.value = data.phase || 'responding'
-                  break
-
-                case 'response':
-                  if (loadingPhase.value !== 'responding') {
-                    loadingPhase.value = 'responding'
-                  }
-                  responseText.value += data.content
-                  break
-
-                case 'stats':
-                  stats.value = {
-                    total_tokens: data.total_tokens,
-                    tokens_per_second: data.tokens_per_second,
-                    generation_ms: data.generation_ms
-                  }
-                  break
-
-                case 'done':
-                  isStreaming.value = false
-                  loadingPhase.value = 'done'
-                  clearTimeout(streamTimeoutId)
-                  break
-
-                case 'error':
-                  throw new Error(data.content)
-              }
+              data = JSON.parse(line.substring(6))
             } catch (parseError) {
               console.warn('Failed to parse SSE event:', line, parseError)
+              continue
+            }
+
+            switch (data.type) {
+              case 'thinking':
+                if (loadingPhase.value === 'connecting') loadingPhase.value = 'thinking'
+                thinkingText.value += data.content
+                break
+
+              case 'phase_change':
+                loadingPhase.value = data.phase || 'responding'
+                break
+
+              case 'response':
+                if (loadingPhase.value !== 'responding') loadingPhase.value = 'responding'
+                responseText.value += data.content
+                break
+
+              case 'stats':
+                stats.value = {
+                  total_tokens: data.total_tokens,
+                  tokens_per_second: data.tokens_per_second,
+                  generation_ms: data.generation_ms
+                }
+                break
+
+              case 'done':
+                sawDone = true
+                isStreaming.value = false
+                loadingPhase.value = 'done'
+                clearTimeout(streamTimeoutId)
+                break
+
+              case 'error':
+                throw new Error(data.content)
             }
           }
         }
       }
+
+      if (!sawDone) throw new Error('The response stream ended before completion.')
 
       // Stream completed successfully
       isStreaming.value = false
@@ -182,13 +190,6 @@ export function useStreamingChat() {
         loadingPhase.value = 'idle'
         isStreaming.value = false
       }
-    }
-  }
-
-  async function retryLastMessage() {
-    if (lastRequest.value) {
-      const { conversationId, content, token, modelCode, options } = lastRequest.value
-      await sendMessage(conversationId, content, token, modelCode, options)
     }
   }
 
@@ -235,7 +236,6 @@ export function useStreamingChat() {
 
     // Methods
     sendMessage,
-    retryLastMessage,
     dismissError,
     cleanup,
     stop

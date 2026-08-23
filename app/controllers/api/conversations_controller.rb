@@ -46,7 +46,9 @@ module Api
     end
 
     def show
-      conversation = current_api_user.conversations.includes(:messages).find(params[:id])
+      conversation = current_api_user.conversations
+        .includes(messages: { images_attachments: :blob })
+        .find(params[:id])
 
       render json: {
         id: conversation.id,
@@ -55,17 +57,7 @@ module Api
         rag_enabled: conversation.rag_enabled,
         use_skills: conversation.resolved_use_skills,
         skill_ids: conversation.resolved_skills.map(&:id),
-        messages: conversation.messages.order(:created_at).map { |m|
-          {
-            id: m.id,
-            role: m.role,
-            content: m.content,
-            thinking: m.thinking,
-            total_tokens: m.total_tokens,
-            tokens_per_second: m.tokens_per_second,
-            generation_ms: m.generation_ms
-          }
-        }
+        messages: conversation.messages.order(:created_at, :id).map(&:api_json)
       }
     end
 

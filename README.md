@@ -13,6 +13,7 @@ Full-feature, local-first AI chat app interfacing with Llama.cpp with the option
 - 🎭 Optional personalization
 - 🔍 Robust RAG system
 - 💾 Conversation history
+- 🖼️ Private image attachments for verified multimodal llama.cpp and OpenRouter models
 - 📄 Document upload
 - 🔒 Privacy-focused (all inference happens locally by default, zero telemetry)
 - ☁️ Option to connect to cloud models with API keys
@@ -90,6 +91,10 @@ Point the application to the local end of the SSH tunnel. No API key is required
 LLAMA_API_URL: http://localhost:8080/v1
 
 ```
+
+## Image attachment storage
+
+Uploaded chat images are stored privately under `storage/`. Production deployments must mount that directory on persistent storage and back it up together with PostgreSQL; a database-only backup does not include attachments. The runtime also requires libvips (already included in the project Docker image).
 
 ## TTS setup:
 The TTS engine is selected with `TTS_ADAPTER` in `.env` (`kokoro`, `qwen3`, or `chatterbox`; default `kokoro`). Restart the backend after switching.
@@ -221,4 +226,4 @@ Start the server (keep it running alongside the Rails app):
   --convert --no-gpu -nt -sns
 ```
 
-`-sns` (suppress non-speech tokens) 
+`-sns` (suppress non-speech tokens)
