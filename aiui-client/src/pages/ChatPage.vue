@@ -426,7 +426,7 @@ import { useTtsPlayer } from 'src/composables/useTtsPlayer'
 import { imageSignature, MAX_IMAGE_ATTACHMENTS, normalizeImage } from 'src/utils/imageAttachments'
 import { onBeforeUnmount, onMounted } from 'vue'
 
-const DEFAULT_MODEL_ID = import.meta.env.VITE_DEFAULT_MODEL_ID || null
+const DEFAULT_MODEL_ID = import.meta.env.VITE_DEFAULT_MODEL_ID || 'local-llama'
 
 const COMPOSER_EXPAND_AT_PX = 16
 const COMPOSER_COLLAPSE_AT_PX = 140
