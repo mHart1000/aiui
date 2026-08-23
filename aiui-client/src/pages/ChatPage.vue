@@ -156,6 +156,9 @@
         </q-expansion-item>
 
         <div :class="msg.role" class="bubble q-pa-sm q-rounded-borders">
+          <div v-if="msg.role === 'user' && msg.image_data && msg.image_data.length" class="message-images">
+            <img v-for="(uri, j) in msg.image_data" :key="j" :src="uri" class="message-image" alt="Attached image" />
+          </div>
           <div v-if="!msg.content && isActivelyStreaming(i) && streamingChat.loadingPhase.value === 'connecting'" class="loading-placeholder">
             <div class="typing-indicator">
               <span class="dot"></span>
@@ -306,9 +309,12 @@
         :expanded="composerExpanded"
         :context-usage="composerContextPercent"
         :context-label="composerContextLabel"
+        :is-llama-model="isLlamaModel"
+        :pending-images="pendingImages"
         :voice-mode="voiceChatMode"
         @error="handleSttError"
         @status="handleSttStatus"
+        @update:pending-images="pendingImages = $event"
         @send-message="sendMessage"
         @stop="stopStreaming"
         @new-chat="newChat"
@@ -448,6 +454,7 @@ export default {
     editingContent: '',
     isSavingEdit: false,
     forkingIndex: null,
+    pendingImages: [],
     voiceChatMode: false,
     readingAloudIndex: null,
     endOfUtteranceMs: 2500,
@@ -499,6 +506,7 @@ export default {
           this.conversationId = null
           this.messages = []
           this.input = ''
+          this.pendingImages = []
           this.modelCode = DEFAULT_MODEL_ID
         }
       }
@@ -819,9 +827,10 @@ export default {
     },
     async sendMessage() {
       const text = this.input.trim()
+      const images = this.pendingImages.slice()
       const model = this.modelCode
 
-      if (!text) return
+      if (!text && images.length === 0) return
 
       // Stop any current TTS playback
       if (this.ttsPlayer.isEnabled.value) {
@@ -843,9 +852,11 @@ export default {
       // Add user message immediately (optimistic UI)
       this.messages.push({
         role: 'user',
-        content: text
+        content: text,
+        image_data: images
       })
       this.input = ''
+      this.pendingImages = []
 
       // Add placeholder for incoming stream
       const myIndex = this.messages.length
@@ -863,7 +874,8 @@ export default {
         this.conversationId,
         text,
         token,
-        model
+        model,
+        images.length ? { images } : {}
       )
 
       // Update placeholder message with final content from composable
@@ -1486,6 +1498,19 @@ p {
   color: #1c1c1c !important;
   border-radius: 5px;
   padding: 10px;
+}
+.message-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.message-image {
+  max-width: 256px;
+  max-height: 256px;
+  border-radius: 6px;
+  object-fit: contain;
+  display: block;
 }
 @keyframes pulse {
   0%, 60%, 100% {

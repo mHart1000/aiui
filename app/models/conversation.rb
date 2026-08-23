@@ -5,7 +5,7 @@ class Conversation < ApplicationRecord
   COPIED_MESSAGE_COLUMNS = %w[
     role content thinking prompt_tokens completion_tokens total_tokens
     generation_ms tokens_per_second persona_version skill_versions
-    created_at updated_at
+    image_data created_at updated_at
   ].freeze
 
   has_many :messages, dependent: :destroy
@@ -17,7 +17,7 @@ class Conversation < ApplicationRecord
   end
 
   def messages_for_ai
-    messages.order(:created_at).map { |m| { role: m.role, content: m.content } }
+    messages.order(:created_at).map { |m| { role: m.role, content: m.multimodal_content } }
   end
 
   # Copies this conversation and its messages up to and including `message`.

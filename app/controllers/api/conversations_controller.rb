@@ -63,7 +63,8 @@ module Api
             thinking: m.thinking,
             total_tokens: m.total_tokens,
             tokens_per_second: m.tokens_per_second,
-            generation_ms: m.generation_ms
+            generation_ms: m.generation_ms,
+            image_data: m.image_data
           }
         }
       }

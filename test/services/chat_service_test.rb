@@ -376,6 +376,100 @@ class ChatServiceTest < ActiveSupport::TestCase
     end
   end
 
+  # multimodal
+  test "rag_context is prepended to the first text part of a multimodal message" do
+    captured = nil
+    image = "data:image/jpeg;base64,abc"
+    service = ChatService.new(
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "What is in this image?" },
+            { type: "image_url", image_url: { url: image } }
+          ]
+        }
+      ],
+      model: "gpt-4o",
+      use_persona: false,
+      use_scaffolding: false,
+      stream: false,
+      max_tokens: nil,
+      rag_context: "[Context]\nretrieved fact\n[/Context]"
+    )
+    adapter = service.instance_variable_get(:@adapter)
+    adapter.stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) do
+      service.call
+    end
+
+    user_msg = captured.find { |m| m[:role] == "user" }
+    parts = user_msg[:content]
+    text_part = parts.find { |p| p[:type] == "text" }
+    image_part = parts.find { |p| p[:type] == "image_url" }
+
+    assert_includes text_part[:text], "[Context]"
+    assert_includes text_part[:text], "retrieved fact"
+    assert_includes text_part[:text], "What is in this image?"
+    assert text_part[:text].start_with?("[Context]")
+    assert_equal image, image_part[:image_url][:url], "image part must be preserved unchanged"
+  end
+
+  test "two-pass planning pass strips images to a text placeholder" do
+    planning_captured = nil
+    execution_captured = nil
+    image = "data:image/jpeg;base64,abc"
+    planning_response = { content: "analysis", tokens: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 } }
+    execution_response = { content: "reply", tokens: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 } }
+
+    service = ChatService.new(
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Describe this" },
+            { type: "image_url", image_url: { url: image } }
+          ]
+        }
+      ],
+      model: "gpt-4o",
+      use_persona: false,
+      use_scaffolding: true,
+      stream: false,
+      max_tokens: nil
+    )
+    adapter = service.instance_variable_get(:@adapter)
+
+    call_count = 0
+    adapter.stub(:chat, ->(**kwargs) {
+      if call_count == 0
+        planning_captured = kwargs[:messages]
+        call_count += 1
+        planning_response
+      else
+        execution_captured = kwargs[:messages]
+        execution_response
+      end
+    }) do
+      service.call
+    end
+
+    planning_user = planning_captured.find { |m| m[:role] == "user" }
+    planning_parts = planning_user[:content]
+    refute planning_parts.any? { |p| p[:type] == "image_url" }, "planning pass must not carry image_url parts"
+    assert_includes planning_parts.map { |p| p[:text] }, "[image attached]"
+
+    execution_user = execution_captured.find { |m| m[:role] == "user" }
+    execution_image = execution_user[:content].find { |p| p[:type] == "image_url" }
+    assert_not_nil execution_image, "execution pass must keep the full image"
+    assert_equal image, execution_image[:image_url][:url]
+  end
+
+  test "strip_images_for_planning leaves plain-string messages untouched" do
+    service = ChatService.new(messages: MESSAGES, model: "gpt-4o", use_persona: false, use_scaffolding: true, stream: false, max_tokens: nil)
+    result = service.send(:strip_images_for_planning, MESSAGES)
+    assert_equal MESSAGES, result
+  end
+
   private
 
   def capture_rails_logs

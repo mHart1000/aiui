@@ -259,6 +259,25 @@ class ConversationTest < ActiveSupport::TestCase
     assert_equal({ "1" => "def67890" }, copy.skill_versions)
   end
 
+  test "fork_at preserves image_data on messages" do
+    @conversation.save!
+    image = "data:image/jpeg;base64,abc"
+    @conversation.messages.create!(role: "user", content: "q", image_data: [ image ])
+    answer = @conversation.messages.create!(role: "assistant", content: "a")
+
+    forked = @conversation.fork_at(answer)
+
+    copied_user = forked.messages.find { |m| m.role == "user" }
+    assert_equal [ image ], copied_user.image_data
+    assert_equal(
+      [
+        { type: "text", text: "q" },
+        { type: "image_url", image_url: { url: image } }
+      ],
+      copied_user.multimodal_content
+    )
+  end
+
   test "fork_at leaves the source conversation untouched" do
     @conversation.save!
     @conversation.messages.create!(role: "user", content: "one")
