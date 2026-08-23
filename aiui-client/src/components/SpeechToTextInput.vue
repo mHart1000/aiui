@@ -10,10 +10,10 @@
         @keydown.enter.exact.prevent="handleSend"
         placeholder="Send a message..."
         type="textarea"
-        :input-style="{ minHeight: '120px', paddingBottom: '45px' }"
+        :input-style="inputStyle"
       />
 
-      <div class="button-overlay">
+      <div class="button-overlay" :class="{ 'overlay-centered': !expanded }">
         <div class="left-buttons">
           <q-btn
             v-if="showNewChat"
@@ -25,9 +25,33 @@
           >
             <q-tooltip>New chat</q-tooltip>
           </q-btn>
+          <span v-if="contextUsage !== null" class="context-ring">
+            <q-circular-progress
+              :value="contextUsage"
+              size="28px"
+              :thickness="0.2"
+              font-size="9px"
+              color="primary"
+              track-color="grey-3"
+              show-value
+            >
+              {{ contextUsage }}%
+            </q-circular-progress>
+            <q-tooltip v-if="contextLabel">{{ contextLabel }}</q-tooltip>
+          </span>
         </div>
 
         <div class="right-buttons">
+          <q-btn
+            round
+            flat
+            icon="record_voice_over"
+            :color="voiceMode ? 'primary' : 'grey-7'"
+            @click="$emit('toggle-voice-mode')"
+          >
+            <q-tooltip>{{ voiceMode ? 'Turn voice mode off' : 'Turn voice mode on' }}</q-tooltip>
+          </q-btn>
+
           <q-btn
             round
             flat
@@ -41,13 +65,13 @@
           </q-btn>
 
           <q-btn
-            icon="send"
-            color="primary"
+            :icon="isStreaming ? 'stop' : 'send'"
+            :color="isStreaming ? 'negative' : 'primary'"
             round
             flat
             @click="handleSend"
           >
-            <q-tooltip>Send message</q-tooltip>
+            <q-tooltip>{{ sendTooltip }}</q-tooltip>
           </q-btn>
         </div>
       </div>
@@ -90,7 +114,27 @@ export default {
       type: String,
       required: true
     },
+    isStreaming: {
+      type: Boolean,
+      default: false
+    },
+    expanded: {
+      type: Boolean,
+      default: true
+    },
+    contextUsage: {
+      type: Number,
+      default: null
+    },
+    contextLabel: {
+      type: String,
+      default: null
+    },
     showNewChat: {
+      type: Boolean,
+      default: false
+    },
+    voiceMode: {
       type: Boolean,
       default: false
     },
@@ -111,7 +155,7 @@ export default {
       default: 250
     }
   },
-  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat'],
+  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat', 'stop', 'toggle-voice-mode'],
   data () {
     return {
       isLoading: false,
@@ -140,6 +184,16 @@ export default {
     micIcon () {
       return this.isRecording ? 'stop' : 'mic'
     },
+    sendTooltip () {
+      return this.isStreaming ? 'Stop generating' : 'Send message'
+    },
+    inputStyle () {
+      if (this.expanded) {
+        return { minHeight: '120px', maxHeight: '40vh', paddingBottom: '45px' }
+      }
+      const paddingLeft = this.contextUsage !== null ? '88px' : '52px'
+      return { minHeight: '0', maxHeight: '40vh', paddingLeft, paddingRight: '100px' }
+    },
     showSpinner () {
       return this.isTranscribing && !this.isRecording
     },
@@ -150,11 +204,26 @@ export default {
       return 'Start recording'
     }
   },
+  watch: {
+    expanded () {
+      this.$nextTick(() => {
+        const el = this.$refs.inputField?.getNativeElement?.()
+        if (!el) return
+        // autogrow caches a fixed height; re-measure so the new min-height applies
+        el.style.height = '1px'
+        el.style.height = el.scrollHeight + 'px'
+      })
+    }
+  },
   beforeUnmount () {
     this.teardownCapture()
   },
   methods: {
     handleSend () {
+      if (this.isStreaming) {
+        this.$emit('stop')
+        return
+      }
       if (this.isRecording) {
         // Trigger stop+transcribe, then let the user send after the text lands
         this.stopRecording()
@@ -533,10 +602,21 @@ export default {
   pointer-events: none;
 }
 
+.button-overlay.overlay-centered {
+  top: 0;
+  bottom: 0;
+}
+
 .left-buttons,
 .right-buttons {
   display: flex;
   gap: 4px;
+  align-items: center;
   pointer-events: auto;
+}
+
+.context-ring {
+  display: inline-flex;
+  align-items: center;
 }
 </style>

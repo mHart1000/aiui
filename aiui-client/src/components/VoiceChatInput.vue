@@ -8,12 +8,12 @@
         :model-value="modelValue"
         @update:model-value="handleInput"
         @keydown.enter.exact.prevent="handleSend"
-        placeholder="Listening…"
+        :placeholder="statusText"
         type="textarea"
-        :input-style="{ minHeight: '120px', paddingBottom: '45px' }"
+        :input-style="inputStyle"
       />
 
-      <div class="button-overlay">
+      <div class="button-overlay" :class="{ 'overlay-centered': !expanded }">
         <div class="left-buttons">
           <q-btn
             v-if="showNewChat"
@@ -25,10 +25,44 @@
           >
             <q-tooltip>New chat</q-tooltip>
           </q-btn>
+          <q-btn
+            v-if="ttsAvailable"
+            round
+            flat
+            :icon="muted ? 'volume_off' : 'volume_up'"
+            :color="muted ? 'negative' : 'primary'"
+            @click="$emit('toggle-mute')"
+          >
+            <q-tooltip>{{ muted ? 'Unmute voice output' : 'Mute voice output' }}</q-tooltip>
+          </q-btn>
+          <span v-if="contextUsage !== null" class="context-ring">
+            <q-circular-progress
+              :value="contextUsage"
+              size="28px"
+              :thickness="0.2"
+              font-size="9px"
+              color="primary"
+              track-color="grey-3"
+              show-value
+            >
+              {{ contextUsage }}%
+            </q-circular-progress>
+            <q-tooltip v-if="contextLabel">{{ contextLabel }}</q-tooltip>
+          </span>
           <div class="status-text text-caption text-grey-7">{{ statusText }}</div>
         </div>
 
         <div class="right-buttons">
+          <q-btn
+            round
+            flat
+            icon="record_voice_over"
+            :color="voiceMode ? 'primary' : 'grey-7'"
+            @click="$emit('toggle-voice-mode')"
+          >
+            <q-tooltip>{{ voiceMode ? 'Turn voice mode off' : 'Turn voice mode on' }}</q-tooltip>
+          </q-btn>
+
           <q-btn
             round
             flat
@@ -42,13 +76,13 @@
           </q-btn>
 
           <q-btn
-            icon="send"
-            color="primary"
+            :icon="isStreaming ? 'stop' : 'send'"
+            :color="isStreaming ? 'negative' : 'primary'"
             round
             flat
             @click="handleSend"
           >
-            <q-tooltip>Send message</q-tooltip>
+            <q-tooltip>{{ sendTooltip }}</q-tooltip>
           </q-btn>
         </div>
       </div>
@@ -91,7 +125,35 @@ export default {
       type: String,
       required: true
     },
+    isStreaming: {
+      type: Boolean,
+      default: false
+    },
+    expanded: {
+      type: Boolean,
+      default: true
+    },
+    contextUsage: {
+      type: Number,
+      default: null
+    },
+    contextLabel: {
+      type: String,
+      default: null
+    },
     showNewChat: {
+      type: Boolean,
+      default: false
+    },
+    muted: {
+      type: Boolean,
+      default: false
+    },
+    ttsAvailable: {
+      type: Boolean,
+      default: false
+    },
+    voiceMode: {
       type: Boolean,
       default: false
     },
@@ -116,7 +178,7 @@ export default {
       default: 15000
     }
   },
-  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat'],
+  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat', 'stop', 'toggle-mute', 'inactivity-timeout', 'toggle-voice-mode'],
   data () {
     return {
       isLoading: false,
@@ -152,6 +214,16 @@ export default {
     micIcon () {
       return this.isRecording ? 'stop' : 'mic'
     },
+    sendTooltip () {
+      return this.isStreaming ? 'Stop generating' : 'Send message'
+    },
+    inputStyle () {
+      if (this.expanded) {
+        return { minHeight: '120px', maxHeight: '40vh', paddingBottom: '45px' }
+      }
+      const paddingLeft = this.contextUsage !== null ? '88px' : '52px'
+      return { minHeight: '0', maxHeight: '40vh', paddingLeft, paddingRight: '100px' }
+    },
     showSpinner () {
       return this.isTranscribing && !this.isRecording
     },
@@ -170,11 +242,26 @@ export default {
       return 'Mic off'
     }
   },
+  watch: {
+    expanded () {
+      this.$nextTick(() => {
+        const el = this.$refs.inputField?.getNativeElement?.()
+        if (!el) return
+        // autogrow caches a fixed height; re-measure so the new min-height applies
+        el.style.height = '1px'
+        el.style.height = el.scrollHeight + 'px'
+      })
+    }
+  },
   beforeUnmount () {
     this.teardownCapture()
   },
   methods: {
     handleSend () {
+      if (this.isStreaming) {
+        this.$emit('stop')
+        return
+      }
       if (this.isRecording) {
         // Manual send while listening: stop the mic, then submit after the
         // pipeline drains. Reuse the auto-submit path so behavior is uniform.
@@ -352,10 +439,12 @@ export default {
         } catch { /* ignore */ }
       }
 
+      // Stop only the stream this teardown owns, not one a later start acquired.
+      const stream = this.mediaStream
       this.transcribePipeline.finally(() => {
-        if (this.mediaStream) {
-          try { this.mediaStream.getTracks().forEach(t => t.stop()) } catch { /* ignore */ }
-          this.mediaStream = null
+        if (stream) {
+          try { stream.getTracks().forEach(t => t.stop()) } catch { /* ignore */ }
+          if (this.mediaStream === stream) this.mediaStream = null
         }
       })
     },
@@ -385,10 +474,11 @@ export default {
       // onto transcribePipeline (which happens inside the recorder's 'stop'
       // event handler below).
       const finalize = () => {
+        const stream = this.mediaStream
         this.transcribePipeline.finally(() => {
-          if (this.mediaStream) {
-            try { this.mediaStream.getTracks().forEach(t => t.stop()) } catch { /* ignore */ }
-            this.mediaStream = null
+          if (stream) {
+            try { stream.getTracks().forEach(t => t.stop()) } catch { /* ignore */ }
+            if (this.mediaStream === stream) this.mediaStream = null
           }
           const text = (this.modelValue || '').trim()
           if (text || !requireText) {
@@ -548,7 +638,8 @@ export default {
       // user pauses long enough to auto-submit, or stops it manually.
       if (!this.inactivityTimeoutMs || this.inactivityTimeoutMs <= 0) return
       this.inactivityTimer = setTimeout(() => {
-        if (this.isRecording) this.stopRecording()
+        // Silence timeout exits voice mode; ChatPage stops the mic via its watcher.
+        if (this.isRecording) this.$emit('inactivity-timeout')
       }, this.inactivityTimeoutMs)
     },
 
@@ -579,12 +670,22 @@ export default {
   pointer-events: none;
 }
 
+.button-overlay.overlay-centered {
+  top: 0;
+  bottom: 0;
+}
+
 .left-buttons,
 .right-buttons {
   display: flex;
   gap: 4px;
   align-items: center;
   pointer-events: auto;
+}
+
+.context-ring {
+  display: inline-flex;
+  align-items: center;
 }
 
 .status-text {

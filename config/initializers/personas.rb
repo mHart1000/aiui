@@ -33,4 +33,39 @@ Rails.application.config.to_prepare do
     description: "As short as Terse, but warmer in tone. Good for voice/spoken chat where curtness feels cold.",
     path: Rails.root.join("persona", "friendly-terse.md")
   )
+
+  Persona.register(
+    id: "voice",
+    name: "Voice",
+    description: "Purely conversational, for spoken voice mode. Written for the ear and never references anything visual.",
+    path: Rails.root.join("persona", "voice.md")
+  )
+
+  Persona.register(
+    id: "plainspoken",
+    name: "Plainspoken",
+    description: "Casual and human. Avoids AI cliches, filler phrases, and flattery. Friendly without being sycophantic.",
+    path: Rails.root.join("persona", "plainspoken.md")
+  )
+
+  Persona.register(
+    id: "professional-casual",
+    name: "Professional-Casual",
+    description: "Natural, friendly, and casual like Plainspoken, but keeps a professional register. No jokes, slang, or quips.",
+    path: Rails.root.join("persona", "professional-casual.md")
+  )
+
+  Persona.register(
+    id: "teacher",
+    name: "Teacher",
+    description: "Breaks down complex topics in plain language without oversimplifying. Explains new terms, keeps the nuance, and picks whatever format shows the idea best.",
+    path: Rails.root.join("persona", "teacher.md")
+  )
+
+  Persona.register(
+    id: "interviewer",
+    name: "Interviewer",
+    description: "A supportive mock-interview coach for voice mode. You're the candidate; it asks questions and gives quick feedback after each answer.",
+    path: Rails.root.join("persona", "interviewer.md")
+  )
 end

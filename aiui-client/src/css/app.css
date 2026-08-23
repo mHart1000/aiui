@@ -18,7 +18,8 @@
 
 /* Dark mode */
 .body--dark {
-  background: #22211c !important;
+  --page-bg: #22211c;
+  background: var(--page-bg) !important;
   --q-dark: #171717;
 
   --bg: #0D0E11;
@@ -41,7 +42,8 @@ body {
     font-size: 18px;
 }
 .body--light {
-  background: #a5b4ce !important;
+  --page-bg: #a5b4ce;
+  background: var(--page-bg) !important;
 }
 .user p {
     margin-bottom: 0 !important;

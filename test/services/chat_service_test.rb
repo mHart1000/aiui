@@ -228,6 +228,74 @@ class ChatServiceTest < ActiveSupport::TestCase
     end
   end
 
+  # skills
+  SKILLS = [
+    { id: 1, name: "SQL Review", content: "SQL BODY", version: "aaaa1111" },
+    { id: 2, name: "Code Explainer", content: "CODE BODY", version: "bbbb2222" }
+  ].freeze
+
+  test "skills become the system message when no persona is active" do
+    captured = nil
+    service = ChatService.new(messages: MESSAGES, model: "gpt-4o", use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil, skills: SKILLS)
+    adapter = service.instance_variable_get(:@adapter)
+    adapter.stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) do
+      service.call
+      system_msgs = captured.select { |m| m[:role] == "system" }
+      assert_equal 1, system_msgs.length
+      assert_includes system_msgs.first[:content], "## Skills"
+      assert_includes system_msgs.first[:content], "SQL BODY"
+      assert_includes system_msgs.first[:content], "CODE BODY"
+    end
+  end
+
+  test "skills append to the persona system message instead of adding a second" do
+    persona = Persona.find("persona1")
+    persona.stub(:load, { content: "PERSONA CONTENT", version: "abcd1234" }) do
+      captured = nil
+      service = ChatService.new(messages: MESSAGES, model: "claude-sonnet-4-5", use_persona: true, use_scaffolding: false, stream: false, max_tokens: nil, persona_id: "persona1", skills: SKILLS)
+      adapter = service.instance_variable_get(:@adapter)
+      adapter.stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) do
+        service.call
+        system_msgs = captured.select { |m| m[:role] == "system" }
+        assert_equal 1, system_msgs.length
+        assert_includes system_msgs.first[:content], "PERSONA CONTENT"
+        assert_includes system_msgs.first[:content], "## Skills"
+      end
+    end
+  end
+
+  test "skill_versions maps each skill id to its version" do
+    service = ChatService.new(messages: MESSAGES, model: "gpt-4o", use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil, skills: SKILLS)
+    service.instance_variable_get(:@adapter).stub(:chat, FAKE_RESPONSE) do
+      assert_equal({ "1" => "aaaa1111", "2" => "bbbb2222" }, service.call[:skill_versions])
+    end
+  end
+
+  test "no skills leaves skill_versions nil and produces no system message" do
+    captured = nil
+    service = ChatService.new(messages: MESSAGES, model: "gpt-4o", use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil)
+    adapter = service.instance_variable_get(:@adapter)
+    adapter.stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) do
+      assert_nil service.call[:skill_versions]
+      assert_nil captured.find { |m| m[:role] == "system" }
+    end
+  end
+
+  test "two-pass keeps the planning pass clean and puts skills in the execution pass" do
+    calls = []
+    service = ChatService.new(messages: MESSAGES, model: "gpt-4o", use_persona: false, use_scaffolding: true, stream: false, max_tokens: nil, skills: SKILLS)
+    adapter = service.instance_variable_get(:@adapter)
+    adapter.stub(:chat, ->(**kwargs) { calls << kwargs[:messages]; FAKE_RESPONSE }) do
+      service.call
+
+      planning_system = calls.first.find { |m| m[:role] == "system" }
+      assert_equal ChatService::PLANNING_PROMPT, planning_system[:content]
+
+      execution_system = calls.last.find { |m| m[:role] == "system" }
+      assert_includes execution_system[:content], "## Skills"
+    end
+  end
+
   test "unknown persona_id falls back to default and logs a warning" do
     captured = nil
     service = ChatService.new(messages: MESSAGES, model: "gpt-4o", use_persona: true, use_scaffolding: false, stream: false, max_tokens: nil, persona_id: "does-not-exist")

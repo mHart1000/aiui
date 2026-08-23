@@ -19,12 +19,36 @@
               flat
               icon="folder"
               label="Knowledge"
-              class="full-width q-mb-md"
+              class="full-width q-mb-sm"
               @click="knowledgeOpen = true"
             />
+            <q-btn
+              v-if="!searchActive"
+              flat
+              icon="search"
+              label="Search"
+              class="full-width q-mb-md"
+              @click="openSearch"
+            />
+            <q-input
+              v-else
+              ref="searchInput"
+              v-model="searchQuery"
+              dense
+              outlined
+              clearable
+              placeholder="Search conversations"
+              class="search-input q-mb-md"
+              @keyup.esc="closeSearch"
+              @blur="onSearchBlur"
+            >
+              <template #prepend>
+                <q-icon name="search" />
+              </template>
+            </q-input>
             <q-list dense>
               <q-item
-                v-for="c in conversations"
+                v-for="c in filteredConversations"
                 :key="c.id"
                 clickable
                 @click="$router.push(`/chat/${c.id}`)"
@@ -32,6 +56,9 @@
                 <q-item-section class="conversation-title" :style="{ maxWidth: titleMaxWidth }">
                   <q-item-label class="ellipsis">
                     {{ c.title }}
+                  </q-item-label>
+                  <q-item-label v-if="c.snippet" caption class="snippet-line">
+                    <span class="snippet-side snippet-before"><bdi>{{ c.snippet.before }}</bdi></span><mark class="snippet-match">{{ c.snippet.match }}</mark><span class="snippet-side snippet-after">{{ c.snippet.after }}</span>
                   </q-item-label>
                 </q-item-section>
               </q-item>
@@ -77,6 +104,9 @@ export default {
   data: () => ({
     conversations: [],
     knowledgeOpen: false,
+    searchActive: false,
+    searchQuery: '',
+    searchResults: [],
     sidebarWidth: 280,
     resizeOffset: 0,
     scrollThumbStyle: {
@@ -96,12 +126,22 @@ export default {
   computed: {
     titleMaxWidth () {
       return `${this.sidebarWidth - 40}px`
+    },
+    filteredConversations () {
+      return this.searchQuery?.trim() ? this.searchResults : this.conversations
+    }
+  },
+  watch: {
+    searchQuery () {
+      clearTimeout(this.searchTimer)
+      this.searchTimer = setTimeout(this.runSearch, 200)
     }
   },
   mounted() {
     this.getUserConversations()
   },
   beforeUnmount() {
+    clearTimeout(this.searchTimer)
     document.removeEventListener('mousemove', this.onResize)
     document.removeEventListener('mouseup', this.stopResize)
     document.body.classList.remove('drawer-resizing')
@@ -109,6 +149,30 @@ export default {
   methods: {
     toggleDark() {
       Dark.toggle();
+    },
+    openSearch() {
+      this.searchActive = true
+      this.$nextTick(() => this.$refs.searchInput?.focus())
+    },
+    closeSearch() {
+      this.searchQuery = ''
+      this.searchResults = []
+      this.searchActive = false
+    },
+    runSearch() {
+      const q = this.searchQuery?.trim()
+      if (!q) {
+        this.searchResults = []
+        return
+      }
+      api.get('/api/conversations/search', { params: { q } })
+        .then(response => {
+          if (this.searchQuery?.trim() === q) this.searchResults = response.data
+        })
+        .catch(error => console.error('Error searching conversations:', error))
+    },
+    onSearchBlur() {
+      if (!this.searchQuery?.trim()) this.closeSearch()
     },
     logout() {
       localStorage.removeItem('jwt')
@@ -153,6 +217,37 @@ export default {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.search-input {
+  width: calc(100% - 14px);
+}
+/* 3-part snippet: keyword stays centered, text clips on both sides. */
+.snippet-line {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+}
+.snippet-side {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.snippet-before {
+  /* clip/ellipsis on the left so the text nearest the keyword stays visible */
+  direction: rtl;
+  text-align: right;
+}
+.snippet-after {
+  text-align: left;
+}
+.snippet-match {
+  flex: 0 0 auto;
+  background-color: rgba(255, 213, 79, 0.45);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
 }
 .drawer-scroll {
   position: absolute;

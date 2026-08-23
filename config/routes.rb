@@ -19,11 +19,16 @@ Rails.application.routes.draw do
     }
 
     resources :conversations, only: [ :index, :create, :show, :update ] do
+      collection { get :search }
+      member { post :fork, action: :create_fork }
       resources :messages, only: [ :create, :update ]
       post "messages/stream", to: "messages#create_streaming"
     end
-    resources :models, only: [ :index ]
+    resources :models, only: [ :index ] do
+      get :llama_context, on: :collection
+    end
     resources :rag_documents, only: [ :index, :create, :destroy ]
+    resources :skills, only: [ :index, :create, :update, :destroy ]
 
     get "user", to: "user#show"
     patch "user", to: "user#update"
@@ -32,7 +37,9 @@ Rails.application.routes.draw do
       post :synthesize
       get :voices
       get :status
+      post :warmup
     end
+    post "tts/stream", to: "tts_stream#stream"
 
     resource :stt, only: [], controller: "stt" do
       post :transcribe
