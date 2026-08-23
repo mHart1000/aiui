@@ -1,5 +1,12 @@
 <template>
   <div class="stt-input">
+    <input ref="fileInput" type="file" accept="image/*" multiple class="hidden-file-input" @change="onFilesSelected" />
+    <div v-if="pendingImages.length" class="pending-images">
+      <div v-for="(uri, index) in pendingImages" :key="index" class="pending-image-wrap">
+        <img :src="uri" class="pending-image" alt="Attached image" />
+        <button class="pending-image-remove" @click="removeImage(index)" aria-label="Remove image">×</button>
+      </div>
+    </div>
     <div class="input-wrapper">
       <q-input
         ref="inputField"
@@ -16,7 +23,17 @@
       <div class="button-overlay" :class="{ 'overlay-centered': !expanded }">
         <div class="left-buttons">
           <q-btn
-            v-if="showNewChat"
+            v-if="isLlamaModel"
+            icon="image"
+            color="secondary"
+            round
+            flat
+            @click="openFilePicker"
+          >
+            <q-tooltip>Attach image</q-tooltip>
+          </q-btn>
+          <q-btn
+            v-else-if="showNewChat"
             icon="add"
             color="secondary"
             round
@@ -134,6 +151,14 @@ export default {
       type: Boolean,
       default: false
     },
+    isLlamaModel: {
+      type: Boolean,
+      default: false
+    },
+    pendingImages: {
+      type: Array,
+      default: () => []
+    },
     voiceMode: {
       type: Boolean,
       default: false
@@ -155,7 +180,7 @@ export default {
       default: 250
     }
   },
-  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat', 'stop', 'toggle-voice-mode'],
+  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat', 'stop', 'toggle-voice-mode', 'update:pending-images'],
   data () {
     return {
       isLoading: false,
@@ -219,6 +244,58 @@ export default {
     this.teardownCapture()
   },
   methods: {
+    openFilePicker () {
+      this.$refs.fileInput?.click()
+    },
+    onFilesSelected (event) {
+      const files = Array.from(event.target.files || [])
+      event.target.value = ''
+      if (!files.length) return
+      Promise.all(files.map(file => this.processImage(file)))
+        .then(images => this.$emit('update:pending-images', [...this.pendingImages, ...images]))
+        .catch(err => this.$emit('error', err))
+    },
+    removeImage (index) {
+      const updated = this.pendingImages.slice()
+      updated.splice(index, 1)
+      this.$emit('update:pending-images', updated)
+    },
+    async processImage (file) {
+      const original = await this.readAsDataURL(file)
+      const img = await this.loadImage(original)
+      return this.downscaleToCanvas(img, 2048).toDataURL('image/jpeg', 0.85)
+    },
+    readAsDataURL (file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result)
+        reader.onerror = () => reject(new Error('Failed to read image file'))
+        reader.readAsDataURL(file)
+      })
+    },
+    loadImage (src) {
+      return new Promise((resolve, reject) => {
+        const img = new Image()
+        img.onload = () => resolve(img)
+        img.onerror = () => reject(new Error('Failed to load image'))
+        img.src = src
+      })
+    },
+    downscaleToCanvas (img, maxDim) {
+      const w = img.naturalWidth
+      const h = img.naturalHeight
+      const scale = Math.min(1, maxDim / Math.max(w, h))
+      const width = Math.round(w * scale)
+      const height = Math.round(h * scale)
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, width, height)
+      ctx.drawImage(img, 0, 0, width, height)
+      return canvas
+    },
     handleSend () {
       if (this.isStreaming) {
         this.$emit('stop')
@@ -615,8 +692,43 @@ export default {
   pointer-events: auto;
 }
 
-.context-ring {
-  display: inline-flex;
-  align-items: center;
-}
-</style>
+ .context-ring {
+   display: inline-flex;
+   align-items: center;
+ }
+ .hidden-file-input {
+   display: none;
+ }
+ .pending-images {
+   display: flex;
+   flex-wrap: wrap;
+   gap: 6px;
+   margin-bottom: 8px;
+ }
+ .pending-image-wrap {
+   position: relative;
+ }
+ .pending-image {
+   width: 64px;
+   height: 64px;
+   object-fit: cover;
+   border-radius: 6px;
+   border: 1px solid var(--border, #ccc);
+   display: block;
+ }
+ .pending-image-remove {
+   position: absolute;
+   top: -6px;
+   right: -6px;
+   width: 18px;
+   height: 18px;
+   border-radius: 50%;
+   border: none;
+   background: var(--q-primary, #1976d2);
+   color: #fff;
+   font-size: 13px;
+   line-height: 18px;
+   cursor: pointer;
+   padding: 0;
+ }
+ </style>

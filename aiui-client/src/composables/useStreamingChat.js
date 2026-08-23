@@ -67,6 +67,9 @@ export function useStreamingChat() {
       if (modelCode) {
         requestBody.model_code = modelCode
       }
+      if (options.images && options.images.length) {
+        requestBody.images = options.images
+      }
       if (options.regenerating) {
         requestBody.regenerating = true
         if (options.regeneratingMessageId) {

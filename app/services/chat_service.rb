@@ -113,10 +113,12 @@ class ChatService
     system_content = build_system_content(persona)
 
     # Pass 1: Planning
-    # Only use planning prompt - persona during analysis can confuse the model
+    # Only use planning prompt - persona during analysis can confuse the model.
+    # Images are stripped (replaced with a placeholder) so the planning pass doesn't
+    # pay the image token cost; the execution pass gets the full images.
     planning_messages = [
       { role: "system", content: PLANNING_PROMPT },
-      *@messages
+      *strip_images_for_planning(@messages)
     ]
 
     thinking = ""
@@ -276,6 +278,18 @@ class ChatService
     @skills.to_h { |s| [ s[:id].to_s, s[:version] ] }
   end
 
+  # Replaces image_url parts in a multimodal content array with a single text
+  # placeholder, so the planning pass skips re-encoding every image.
+  def strip_images_for_planning(messages)
+    messages.map do |m|
+      content = m[:content]
+      next m unless content.is_a?(Array)
+
+      parts = content.map { |part| part[:type] == "image_url" ? { type: "text", text: "[image attached]" } : part }
+      m.merge(content: parts)
+    end
+  end
+
   # Inject retrieved RAG context by prepending it to the content of the first
   # user message. We intentionally do NOT add a second system message: local
   # models struggle with long multi-purpose system messages (see the execution
@@ -286,7 +300,16 @@ class ChatService
     return messages unless first_user_idx
 
     original = messages[first_user_idx]
-    updated = original.merge(content: "#{@rag_context}\n\n#{original[:content]}")
+    content = original[:content]
+
+    updated = if content.is_a?(Array)
+      # Multimodal: prepend to the first text part instead of string-interpolating.
+      parts = content.map { |part| part[:type] == "text" ? { type: "text", text: "#{@rag_context}\n\n#{part[:text]}" } : part }
+      original.merge(content: parts)
+    else
+      original.merge(content: "#{@rag_context}\n\n#{content}")
+    end
+
     messages.each_with_index.map { |m, i| i == first_user_idx ? updated : m }
   end
 

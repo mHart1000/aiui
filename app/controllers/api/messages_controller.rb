@@ -6,7 +6,7 @@ module Api
     def create
       conversation = Conversation.find(params[:conversation_id])
       safe_model_code = conversation.apply_model_code(params[:model_code])
-      conversation.messages.create!(role: "user", content: params[:content])
+      conversation.messages.create!(role: "user", content: params[:content], image_data: Array(params[:images]))
 
       current_api_user.reload
       rag_context = fetch_rag_context(conversation, params[:content])
@@ -74,7 +74,7 @@ module Api
           end
         end
       else
-        conversation.messages.create!(role: "user", content: params[:content])
+        conversation.messages.create!(role: "user", content: params[:content], image_data: Array(params[:images]))
       end
 
       # Track the answered turn so we can skip persisting if it's edited mid-stream.
