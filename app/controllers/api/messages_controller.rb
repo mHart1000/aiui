@@ -87,12 +87,12 @@ module Api
       response.headers["Cache-Control"] = "no-cache"
       response.headers["X-Accel-Buffering"] = "no"
 
-      answering_id = answering_message.id
-      answering_stamp = answering_message.updated_at
+      answering_signature = prompt_signature(answering_message)
       thinking_accumulator = ""
       reply_accumulator = ""
       client_disconnected = false
       generation_failed = false
+      response_persisted = false
       stream_result = nil
 
       current_api_user.reload
@@ -123,6 +123,16 @@ module Api
           response.stream.write("data: #{event_data.to_json}\n\n")
         end
 
+        response_persisted = persist_streamed_response(
+          conversation,
+          answering_message,
+          answering_signature,
+          reply: reply_accumulator,
+          thinking: thinking_accumulator,
+          result: stream_result,
+          entitle: true
+        )
+
         if stream_result&.dig(:stats)
           stats_event = {
             type: "stats",
@@ -145,19 +155,16 @@ module Api
         response.stream.close
       end
 
-      current_stamp = conversation.messages.where(id: answering_id).pick(:updated_at)
-      superseded = current_stamp.nil? || current_stamp != answering_stamp
-
-      if !generation_failed && !superseded && (reply_accumulator.present? || thinking_accumulator.present?)
-        conversation.add_assistant_message(
+      if client_disconnected && !generation_failed && !response_persisted
+        persist_streamed_response(
+          conversation,
+          answering_message,
+          answering_signature,
           reply: reply_accumulator,
           thinking: thinking_accumulator,
-          tokens: stream_result&.dig(:tokens),
-          stats: stream_result&.dig(:stats),
-          persona_version: stream_result&.dig(:persona_version),
-          skill_versions: stream_result&.dig(:skill_versions)
+          result: stream_result,
+          entitle: false
         )
-        conversation.entitle_async(title_seed(answering_message)) unless client_disconnected
       end
     rescue RequestError, ImageAttachmentProcessor::Error => e
       render_request_error(e)
@@ -186,6 +193,30 @@ module Api
         end
         message
       end
+    end
+
+    def persist_streamed_response(conversation, answering_message, answering_signature, reply:, thinking:, result:, entitle:)
+      current_message = conversation.messages.find_by(id: answering_message.id)
+      superseded = current_message.nil? || prompt_signature(current_message) != answering_signature
+      return false if superseded || (reply.blank? && thinking.blank?)
+
+      conversation.add_assistant_message(
+        reply: reply,
+        thinking: thinking,
+        tokens: result&.dig(:tokens),
+        stats: result&.dig(:stats),
+        persona_version: result&.dig(:persona_version),
+        skill_versions: result&.dig(:skill_versions)
+      )
+      conversation.entitle_async(title_seed(answering_message)) if entitle
+      true
+    end
+
+    def prompt_signature(message)
+      [
+        message.content,
+        message.images_attachments.order(:id).pluck(:blob_id)
+      ]
     end
 
     def create_user_message!(conversation, content, uploads, model_code:)

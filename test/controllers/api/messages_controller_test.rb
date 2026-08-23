@@ -23,7 +23,7 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
 
   # Build a minimal controller instance with enough stubbing to run
   # create_streaming without a real request or response stream.
-  def build_controller(conversation, extra_params = {})
+  def build_controller(conversation, on_stream_write: nil, **extra_params)
     controller = Api::MessagesController.new
     user = @user
 
@@ -40,7 +40,7 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
 
     # Stub response stream — writes are no-ops, close is a no-op
     fake_stream = Object.new
-    fake_stream.define_singleton_method(:write) { |_data| }
+    fake_stream.define_singleton_method(:write) { |data| on_stream_write&.call(data) }
     fake_stream.define_singleton_method(:close) { }
 
     fake_response = Object.new
@@ -100,6 +100,63 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
 
     saved = @conversation.messages.where(role: "assistant").last
     assert_equal "Full response here", saved.content
+  end
+
+  test "create_streaming persists the response before signaling completion" do
+    persisted_at_done = false
+    on_stream_write = lambda do |data|
+      next unless data.include?('"type":"done"')
+
+      persisted_at_done = @conversation.messages.where(role: "assistant").exists?
+    end
+    controller = build_controller(@conversation, on_stream_write: on_stream_write)
+
+    streaming_service = lambda do |**_kwargs, &block|
+      block.call("Durable response", :response)
+      { persona_version: nil }
+    end
+
+    ChatService.stub(:call, streaming_service) do
+      controller.create_streaming
+    end
+
+    assert persisted_at_done
+  end
+
+  test "create_streaming persists after the prompt timestamp changes" do
+    prompt = @conversation.messages.find_by!(role: "user")
+    controller = build_controller(@conversation)
+
+    touching_service = lambda do |**_kwargs, &block|
+      block.call("Response after analysis", :response)
+      prompt.touch
+      { persona_version: nil }
+    end
+
+    ChatService.stub(:call, touching_service) do
+      assert_difference "@conversation.messages.reload.count", 1 do
+        controller.create_streaming
+      end
+    end
+
+    assert_equal "Response after analysis", @conversation.messages.where(role: "assistant").last.content
+  end
+
+  test "create_streaming does not persist after the prompt content changes" do
+    prompt = @conversation.messages.find_by!(role: "user")
+    controller = build_controller(@conversation)
+
+    editing_service = lambda do |**_kwargs, &block|
+      block.call("Stale response", :response)
+      prompt.update!(content: "Edited while generating")
+      { persona_version: nil }
+    end
+
+    ChatService.stub(:call, editing_service) do
+      assert_no_difference "@conversation.messages.reload.count" do
+        controller.create_streaming
+      end
+    end
   end
 
   test "regenerating with message_id truncates the conversation to that message" do
