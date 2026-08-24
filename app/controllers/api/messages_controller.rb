@@ -3,20 +3,29 @@ module Api
     before_action :authenticate_api_user!
     include ActionController::Live
 
+    class RequestError < StandardError
+      attr_reader :code, :status
+
+      def initialize(code, message, status: :unprocessable_content)
+        @code = code
+        @status = status
+        super(message)
+      end
+    end
+
     def create
-      conversation = Conversation.find(params[:conversation_id])
+      conversation = current_api_user.conversations.find(params[:conversation_id])
       safe_model_code = conversation.apply_model_code(params[:model_code])
-      multimodal = AiModels.vision?(safe_model_code)
-      conversation.messages.create!(
-        role: "user",
-        content: params[:content].to_s,
-        images: attached_image_ids(multimodal)
-      )
+      image_input = AiModels.image_input(safe_model_code)
+      signed_ids = pending_image_signed_ids
+      validate_message_input!(signed_ids)
+      enforce_image_capability!(image_input, signed_ids)
+      user_message = create_user_message!(conversation, params[:content].to_s, signed_ids)
 
       current_api_user.reload
-      rag_context = fetch_rag_context(conversation, params[:content])
+      rag_context = fetch_rag_context(conversation, user_message.content)
       result = ChatService.call(
-        messages: conversation.messages_for_ai(multimodal: multimodal),
+        messages: conversation.messages_for_ai(multimodal: image_input != "unsupported"),
         model: safe_model_code,
         use_persona: current_api_user.use_persona,
         persona_id: current_api_user.persona_id,
@@ -27,7 +36,7 @@ module Api
 
       if result[:error]
         conversation.messages.create!(role: "assistant", content: "Error: #{result[:error]}")
-        render json: { error: result[:error] }, status: :bad_gateway
+        render json: { error: { code: "generation_failed", message: result[:error] } }, status: :bad_gateway
       else
         conversation.add_assistant_message(
           reply: result[:reply],
@@ -37,7 +46,7 @@ module Api
           persona_version: result[:persona_version],
           skill_versions: result[:skill_versions]
         )
-        conversation.entitle_async(params[:content])
+        conversation.entitle_async(title_seed(user_message))
 
         render json: {
           reply: result[:reply],
@@ -47,60 +56,57 @@ module Api
           tokens_per_second: result[:stats]&.dig(:tokens_per_second)
         }
       end
+    rescue RequestError => e
+      render_request_error(e)
     end
 
     def update
-      # edit user message
       conversation = current_api_user.conversations.find(params[:conversation_id])
       message = conversation.messages.find(params[:id])
+      content = params[:content].to_s
+      if content.blank? && !message.images.attached?
+        raise RequestError.new("message_content_required", "A message must contain text or at least one image.")
+      end
 
       conversation.messages.where("created_at > ?", message.created_at).destroy_all
-
-      message.update!(content: params[:content])
+      message.update!(content: content)
       render json: { message: message }
+    rescue RequestError => e
+      render_request_error(e)
     end
 
     def create_streaming
-      response.headers["Content-Type"] = "text/event-stream"
-      response.headers["Cache-Control"] = "no-cache"
-      response.headers["X-Accel-Buffering"] = "no"  # Disable nginx buffering
-
       conversation = current_api_user.conversations.find(params[:conversation_id])
       safe_model_code = conversation.apply_model_code(params[:model_code])
-      multimodal = AiModels.vision?(safe_model_code)
+      image_input = AiModels.image_input(safe_model_code)
+      regenerating = ActiveModel::Type::Boolean.new.cast(params[:regenerating])
+      signed_ids = pending_image_signed_ids
 
-      if params[:regenerating]
-        if params[:message_id].present?
-          # Mid-thread regenerate: drop this message and everything after it.
-          conversation.truncate_from_message(conversation.messages.find(params[:message_id]))
-        else
-          # Drop any trailing assistant messages
-          while (last_msg = conversation.messages.order(:created_at).last)&.role == "assistant"
-            last_msg.destroy
-          end
-        end
-      else
-        conversation.messages.create!(
-          role: "user",
-          content: params[:content].to_s,
-          images: attached_image_ids(multimodal)
-        )
+      if regenerating && signed_ids.any?
+        raise RequestError.new("images_not_allowed_on_regeneration", "Regeneration reuses images already stored with the message.")
       end
+      validate_message_input!(signed_ids) unless regenerating
+      enforce_image_capability!(image_input, signed_ids)
+      answering_message = prepare_answering_message!(conversation, regenerating, signed_ids)
 
-      # Track the answered turn so we can skip persisting if it's edited mid-stream.
-      answering_id = conversation.messages.order(:created_at).last&.id
-      answering_stamp = answering_id && conversation.messages.where(id: answering_id).pick(:updated_at)
+      response.headers["Content-Type"] = "text/event-stream"
+      response.headers["Cache-Control"] = "no-cache"
+      response.headers["X-Accel-Buffering"] = "no"
 
+      answering_signature = prompt_signature(answering_message)
       thinking_accumulator = ""
       reply_accumulator = ""
       client_disconnected = false
+      generation_failed = false
+      response_persisted = false
+      stream_result = nil
 
       current_api_user.reload
-      rag_context = fetch_rag_context(conversation, params[:content])
-      # Stream the response
+      rag_context = fetch_rag_context(conversation, answering_message.content)
+
       begin
         stream_result = ChatService.call(
-          messages: conversation.messages_for_ai(multimodal: multimodal),
+          messages: conversation.messages_for_ai(multimodal: image_input != "unsupported"),
           model: safe_model_code,
           use_persona: current_api_user.use_persona,
           persona_id: current_api_user.persona_id,
@@ -115,7 +121,6 @@ module Api
             reply_accumulator += chunk
           end
 
-          # Send event to client
           event_data = if phase == :phase_change
             { type: "phase_change", phase: "responding" }
           else
@@ -124,7 +129,16 @@ module Api
           response.stream.write("data: #{event_data.to_json}\n\n")
         end
 
-        # Send stats event before done so the client can attach throughput to the message
+        response_persisted = persist_streamed_response(
+          conversation,
+          answering_message,
+          answering_signature,
+          reply: reply_accumulator,
+          thinking: thinking_accumulator,
+          result: stream_result,
+          entitle: true
+        )
+
         if stream_result&.dig(:stats)
           stats_event = {
             type: "stats",
@@ -135,40 +149,149 @@ module Api
           response.stream.write("data: #{stats_event.to_json}\n\n")
         end
 
-        # Send completion event
         response.stream.write("data: #{({ type: 'done' }).to_json}\n\n")
       rescue ActionController::Live::ClientDisconnected
         client_disconnected = true
-        Rails.logger.warn("MessagesController: client disconnected during stream, saving accumulated content")
+        Rails.logger.warn("MessagesController: client disconnected during stream")
+      rescue => e
+        generation_failed = true
+        Rails.logger.error("MessagesController#create_streaming: #{e.full_message}")
+        write_stream_error("Generation failed. You can retry this message.")
       ensure
-        # Close the stream before doing DB work so the client gets the response immediately
         response.stream.close
       end
 
-      # The partial is stale if the answered message was edited or removed mid-stream.
-      current_stamp = answering_id && conversation.messages.where(id: answering_id).pick(:updated_at)
-      superseded = answering_id.nil? || current_stamp.nil? || current_stamp != answering_stamp
-
-      # Save whatever was accumulated, even if the client disconnected mid-stream
-      if !superseded && (reply_accumulator.present? || thinking_accumulator.present?)
-        conversation.add_assistant_message(
+      if client_disconnected && !generation_failed && !response_persisted
+        persist_streamed_response(
+          conversation,
+          answering_message,
+          answering_signature,
           reply: reply_accumulator,
           thinking: thinking_accumulator,
-          tokens: stream_result&.dig(:tokens),
-          stats: stream_result&.dig(:stats),
-          persona_version: stream_result&.dig(:persona_version),
-          skill_versions: stream_result&.dig(:skill_versions)
+          result: stream_result,
+          entitle: false
         )
-        conversation.entitle_async(params[:content]) unless client_disconnected
       end
+    rescue RequestError => e
+      render_request_error(e)
     end
 
     private
 
-    # Dropped server-side for text-only models rather than trusted from the client.
-    def attached_image_ids(multimodal)
-      return [] unless multimodal
-      Array(params[:image_signed_ids])
+    def prepare_answering_message!(conversation, regenerating, signed_ids)
+      return create_user_message!(conversation, params[:content].to_s, signed_ids) unless regenerating
+
+      if params[:message_id].present?
+        conversation.truncate_from_message(conversation.messages.find(params[:message_id]))
+      else
+        while (last_message = conversation.messages.order(:created_at, :id).last)&.role == "assistant"
+          last_message.destroy
+        end
+      end
+
+      message = conversation.messages.order(:created_at, :id).last
+      unless message&.role == "user"
+        raise RequestError.new("message_content_required", "There is no user message to regenerate.")
+      end
+      message
+    end
+
+    def create_user_message!(conversation, content, signed_ids)
+      conversation.transaction do
+        pending_uploads = resolve_pending_uploads!(signed_ids)
+        message = conversation.messages.create!(
+          role: "user",
+          content: content,
+          images: pending_uploads.map(&:blob)
+        )
+        pending_uploads.each(&:destroy!)
+        message
+      end
+    end
+
+    def resolve_pending_uploads!(signed_ids)
+      return [] if signed_ids.empty?
+
+      decoded = signed_ids.map do |signed_id|
+        PendingImageUpload.find_signed!(signed_id, purpose: PendingImageUpload::SIGNED_ID_PURPOSE)
+      rescue ActiveSupport::MessageVerifier::InvalidSignature, ActiveRecord::RecordNotFound
+        raise RequestError.new("attachment_not_found", "A pending image is invalid or expired.", status: :not_found)
+      end
+
+      ids = decoded.map(&:id).sort
+      pending_uploads = current_api_user.pending_image_uploads.where(id: ids).order(:id).lock.to_a
+      if pending_uploads.size != ids.size
+        raise RequestError.new("attachment_not_found", "A pending image was not found.", status: :not_found)
+      end
+      if pending_uploads.any?(&:expired?)
+        raise RequestError.new("attachment_expired", "A pending image has expired.")
+      end
+      if pending_uploads.any? { |pending| pending.blob.attachments.exists? }
+        raise RequestError.new("attachment_already_used", "A pending image is already attached.", status: :conflict)
+      end
+
+      pending_uploads
+    end
+
+    def pending_image_signed_ids
+      Array(params[:image_signed_ids]).reject(&:blank?)
+    end
+
+    def validate_message_input!(signed_ids)
+      if params[:content].to_s.blank? && signed_ids.empty?
+        raise RequestError.new("message_content_required", "A message must contain text or at least one image.")
+      end
+      if signed_ids.length > ImageAttachmentProcessor::MAX_IMAGES
+        raise RequestError.new("too_many_images", "A message may contain at most four images.")
+      end
+      if signed_ids.uniq.length != signed_ids.length
+        raise RequestError.new("duplicate_images", "The same pending image cannot be attached more than once.")
+      end
+    end
+
+    def enforce_image_capability!(image_input, signed_ids)
+      return if signed_ids.empty? || image_input != "unsupported"
+
+      raise RequestError.new("image_input_unsupported", "The selected model does not accept images.")
+    end
+
+    def persist_streamed_response(conversation, answering_message, answering_signature, reply:, thinking:, result:, entitle:)
+      current_message = conversation.messages.find_by(id: answering_message.id)
+      return false if current_message.nil? || prompt_signature(current_message) != answering_signature
+      return false if reply.blank? && thinking.blank?
+
+      conversation.add_assistant_message(
+        reply: reply,
+        thinking: thinking,
+        tokens: result&.dig(:tokens),
+        stats: result&.dig(:stats),
+        persona_version: result&.dig(:persona_version),
+        skill_versions: result&.dig(:skill_versions)
+      )
+      conversation.entitle_async(title_seed(answering_message)) if entitle
+      true
+    end
+
+    def prompt_signature(message)
+      [ message.content, message.images_attachments.order(:id).pluck(:blob_id) ]
+    end
+
+    def title_seed(message)
+      return message.content if message.content.present?
+
+      original = message.images.first&.metadata&.dig("original_filename")
+      stem = File.basename(original.to_s, File.extname(original.to_s)).presence
+      stem ? "Image: #{stem}" : "Image Chat"
+    end
+
+    def write_stream_error(message)
+      response.stream.write("data: #{({ type: 'error', content: message }).to_json}\n\n")
+    rescue ActionController::Live::ClientDisconnected, IOError
+      nil
+    end
+
+    def render_request_error(error)
+      render json: { error: { code: error.code, message: error.message } }, status: error.status
     end
 
     def fetch_skills(conversation)
@@ -187,10 +310,10 @@ module Api
       Rails.logger.info("[RAG] query: #{query.to_s[0, 200]}")
       chunks = Rag::Retriever.call(user: current_api_user, query: query)
       Rails.logger.info("[RAG] retrieved #{chunks.length} chunks")
-      chunks.each_with_index do |c, i|
-        label = c.rag_document&.original_filename || c.rag_document&.title || "doc##{c.rag_document_id}"
-        preview = c.content.to_s.gsub(/\s+/, " ")[0, 140]
-        Rails.logger.info("[RAG]   #{i + 1}. #{label} chunk##{c.chunk_index}: #{preview}")
+      chunks.each_with_index do |chunk, index|
+        label = chunk.rag_document&.original_filename || chunk.rag_document&.title || "doc##{chunk.rag_document_id}"
+        preview = chunk.content.to_s.gsub(/\s+/, " ")[0, 140]
+        Rails.logger.info("[RAG]   #{index + 1}. #{label} chunk##{chunk.chunk_index}: #{preview}")
       end
       return nil if chunks.blank?
 

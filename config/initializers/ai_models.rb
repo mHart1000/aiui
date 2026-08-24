@@ -143,11 +143,15 @@ module AiModels
     openrouter/nvidia/nemotron-nano-12b-v2-vl:free
   ].freeze
 
-  def self.vision?(model_id)
-    return false if model_id.blank?
-    return local_vision? if local?(model_id)
+  def self.image_input(model_id, refresh: false)
+    return "unsupported" if model_id.blank?
+    return local_image_input(refresh: refresh) if local?(model_id)
 
-    VISION_MODEL_IDS.include?(model_id)
+    VISION_MODEL_IDS.include?(model_id) ? "supported" : "unsupported"
+  end
+
+  def self.vision?(model_id)
+    image_input(model_id) == "supported"
   end
 
   # Keyed off the catalogue rather than the id string, so a second local entry
@@ -158,13 +162,26 @@ module AiModels
 
   # The local id is a sentinel that hides whichever gguf is loaded, so ask the
   # server. LLAMA_VISION overrides it when set.
-  def self.local_vision?
-    return ENV["LLAMA_VISION"] == "true" if ENV["LLAMA_VISION"].present?
+  def self.local_image_input(refresh: false)
+    if ENV["LLAMA_VISION"].present?
+      return "supported" if ENV["LLAMA_VISION"].casecmp?("true")
+      return "unsupported" if ENV["LLAMA_VISION"].casecmp?("false")
 
-    LlamaCapabilities.vision?
+      Rails.logger.warn("AiModels: LLAMA_VISION must be true or false; treating it as unknown")
+      return "unknown"
+    end
+
+    LlamaCapabilities.image_input(refresh: refresh)
   end
 
-  def self.catalogue
-    AI_MODELS.map { |model| model.merge("vision" => vision?(model["id"])) }
+  def self.local_vision?
+    local_image_input == "supported"
+  end
+
+  def self.catalogue(refresh: false)
+    AI_MODELS.map do |model|
+      status = image_input(model["id"], refresh: refresh)
+      model.merge("image_input" => status, "vision" => status == "supported")
+    end
   end
 end

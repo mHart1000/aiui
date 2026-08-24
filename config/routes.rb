@@ -21,13 +21,15 @@ Rails.application.routes.draw do
     resources :conversations, only: [ :index, :create, :show, :update ] do
       collection { get :search }
       member { post :fork, action: :create_fork }
-      resources :messages, only: [ :create, :update ]
+      resources :messages, only: [ :create, :update ] do
+        resources :images, only: :show, controller: "message_images"
+      end
       post "messages/stream", to: "messages#create_streaming"
     end
     resources :models, only: [ :index ] do
       get :llama_context, on: :collection
     end
-    resources :attachments, only: [ :create ]
+    resources :attachments, only: [ :create, :destroy ]
     resources :rag_documents, only: [ :index, :create, :destroy ]
     resources :skills, only: [ :index, :create, :update, :destroy ]
 

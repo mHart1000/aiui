@@ -2,73 +2,62 @@ module Api
   class AttachmentsController < ApplicationController
     before_action :authenticate_api_user!
 
-    DEFAULT_MAX_PIXELS = 6_000_000
-
     def create
-      file = params[:file]
-      unless file.respond_to?(:original_filename) && file.respond_to?(:tempfile)
-        return render json: { error: "missing file" }, status: :unprocessable_entity
-      end
-      unless Message::IMAGE_CONTENT_TYPES.include?(file.content_type)
-        return render json: { error: "unsupported image format: #{file.content_type}" }, status: :unprocessable_entity
-      end
-      if file.size > Message::MAX_IMAGE_BYTES
-        return render json: { error: "image must be under #{Message::MAX_IMAGE_BYTES / 1.megabyte} MB" },
-                      status: :unprocessable_entity
-      end
-
-      io, width, height = prepare_image(file)
-      blob = ActiveStorage::Blob.create_and_upload!(
-        io: io,
-        filename: file.original_filename,
-        content_type: file.content_type
+      processed = ImageAttachmentProcessor.call(
+        upload: params[:file],
+        max_pixels: current_api_user.image_max_pixels || User::DEFAULT_IMAGE_MAX_PIXELS
       )
+      expires_at = PendingImageUpload::TTL.from_now
+
+      blob = ActiveStorage::Blob.create_and_upload!(
+        io: processed.tempfile,
+        filename: processed.filename,
+        content_type: processed.content_type,
+        metadata: {
+          width: processed.width,
+          height: processed.height,
+          original_filename: processed.original_filename
+        },
+        identify: false
+      )
+      pending = current_api_user.pending_image_uploads.create!(blob: blob, expires_at: expires_at)
 
       render json: {
-        signed_id: blob.signed_id,
-        url: rails_blob_path(blob, only_path: true),
+        id: pending.id,
+        signed_id: pending.client_signed_id,
+        expires_at: pending.expires_at.iso8601,
         filename: blob.filename.to_s,
-        width: width,
-        height: height
+        content_type: blob.content_type,
+        byte_size: blob.byte_size,
+        width: processed.width,
+        height: processed.height
       }, status: :created
-    rescue Vips::Error => e
-      Rails.logger.warn("Attachment: unreadable image — #{e.message}")
-      render json: { error: "could not read image" }, status: :unprocessable_entity
+    rescue ImageAttachmentProcessor::Error => e
+      render_error(e.code, e.message, e.status)
+    rescue => e
+      blob&.purge if blob && pending.nil?
+      Rails.logger.error("AttachmentsController#create: #{e.full_message}")
+      render_error("upload_failed", "The image could not be stored.", :internal_server_error)
+    ensure
+      processed&.close!
+    end
+
+    def destroy
+      pending = current_api_user.pending_image_uploads.find(params[:id])
+      if pending.blob.attachments.exists?
+        return render_error("attachment_already_used", "The image is already attached to a message.", :conflict)
+      end
+
+      pending.destroy!
+      head :no_content
+    rescue ActiveRecord::RecordNotFound
+      render_error("attachment_not_found", "The pending image was not found.", :not_found)
     end
 
     private
 
-    # Images at or below the cap are stored byte-for-byte; only oversized or
-    # EXIF-rotated ones go through vips. See docs/image-attachments-spec.md §2.2.
-    def prepare_image(file)
-      path = file.tempfile.path
-      image = Vips::Image.new_from_file(path)
-      cap = current_api_user.image_max_pixels || DEFAULT_MAX_PIXELS
-
-      oversized = image.width * image.height > cap
-      # llama.cpp's loader ignores EXIF, so a rotated image must be baked upright.
-      rotated = exif_orientation(image) > 1
-      return [ file.tempfile, image.width, image.height ] unless oversized || rotated
-
-      processed = build_pipeline(path, image, cap, oversized).call
-      output = Vips::Image.new_from_file(processed.path)
-      [ processed, output.width, output.height ]
-    end
-
-    # ImageProcessing::Vips applies EXIF orientation on load, so autorot is implicit.
-    def build_pipeline(path, image, cap, oversized)
-      pipeline = ImageProcessing::Vips.source(path)
-      return pipeline unless oversized
-
-      # Scale to the cap, not below it — shrinking further loses detail for nothing.
-      # Floor rather than round: rounding both dimensions up overshoots the cap.
-      scale = Math.sqrt(cap.to_f / (image.width * image.height))
-      pipeline.resize_to_limit((image.width * scale).floor, (image.height * scale).floor)
-    end
-
-    def exif_orientation(image)
-      return 1 if image.get_typeof("orientation").zero?
-      image.get("orientation").to_i
+    def render_error(code, message, status)
+      render json: { error: { code: code, message: message } }, status: status
     end
   end
 end

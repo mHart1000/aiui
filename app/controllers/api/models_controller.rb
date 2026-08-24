@@ -3,7 +3,8 @@ require "net/http"
 module Api
   class ModelsController < ApplicationController
     def index
-      render json: { models: AiModels.catalogue }
+      refresh = ActiveModel::Type::Boolean.new.cast(params[:refresh])
+      render json: { models: AiModels.catalogue(refresh: refresh) }
     end
 
     def llama_context

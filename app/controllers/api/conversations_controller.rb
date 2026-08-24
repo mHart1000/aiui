@@ -65,7 +65,16 @@ module Api
             tokens_per_second: m.tokens_per_second,
             generation_ms: m.generation_ms,
             images: m.images.attachments.map { |a|
-              { id: a.id, url: rails_blob_path(a.blob, only_path: true), filename: a.blob.filename.to_s }
+              metadata = a.blob.metadata
+              {
+                id: a.id,
+                filename: a.blob.filename.to_s,
+                content_type: a.blob.content_type,
+                byte_size: a.blob.byte_size,
+                width: metadata["width"],
+                height: metadata["height"],
+                download_url: api_conversation_message_image_path(conversation, m, a)
+              }
             }
           }
         }

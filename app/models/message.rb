@@ -1,12 +1,13 @@
 class Message < ApplicationRecord
-  IMAGE_CONTENT_TYPES = %w[image/png image/jpeg image/webp image/gif].freeze
-  MAX_IMAGES = 4
-  MAX_IMAGE_BYTES = 8.megabytes
+  IMAGE_CONTENT_TYPES = ImageAttachmentProcessor::ACCEPTED_TYPES
+  MAX_IMAGES = ImageAttachmentProcessor::MAX_IMAGES
+  MAX_IMAGE_BYTES = ImageAttachmentProcessor::MAX_BYTES
 
   belongs_to :conversation, touch: true
   has_many_attached :images
 
   validate :images_within_limits
+  validate :images_belong_to_user_messages
 
   # Chat-completions payload: a plain string, or an OpenAI content array when the
   # model can see images. See docs/image-attachments-spec.md §2.4.
@@ -44,11 +45,15 @@ class Message < ApplicationRecord
       next if blob.nil?
 
       unless IMAGE_CONTENT_TYPES.include?(blob.content_type)
-        errors.add(:images, "must be PNG, JPEG, WebP or GIF")
+        errors.add(:images, "must be JPEG, PNG or WebP")
       end
       if blob.byte_size > MAX_IMAGE_BYTES
         errors.add(:images, "must be under #{MAX_IMAGE_BYTES / 1.megabyte} MB")
       end
     end
+  end
+
+  def images_belong_to_user_messages
+    errors.add(:images, "can only be attached to user messages") if role != "user" && images.attached?
   end
 end
