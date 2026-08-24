@@ -15,11 +15,12 @@ module Api
 
     def create
       conversation = current_api_user.conversations.find(params[:conversation_id])
-      safe_model_code = conversation.apply_model_code(params[:model_code])
-      image_input = AiModels.image_input(safe_model_code)
       signed_ids = pending_image_signed_ids
       validate_message_input!(signed_ids)
+      safe_model_code = conversation.resolve_model_code(params[:model_code])
+      image_input = AiModels.image_input(safe_model_code)
       enforce_image_capability!(image_input, signed_ids)
+      conversation.apply_model_code(safe_model_code)
       user_message = create_user_message!(conversation, params[:content].to_s, signed_ids)
 
       current_api_user.reload
@@ -35,8 +36,8 @@ module Api
       )
 
       if result[:error]
-        conversation.messages.create!(role: "assistant", content: "Error: #{result[:error]}")
-        render json: { error: { code: "generation_failed", message: result[:error] } }, status: :bad_gateway
+        Rails.logger.error("MessagesController#create generation failed: #{result[:error]}")
+        render_api_error("generation_failed", "Generation failed. You can retry this message.", :bad_gateway)
       else
         conversation.add_assistant_message(
           reply: result[:reply],
@@ -58,6 +59,14 @@ module Api
       end
     rescue RequestError => e
       render_request_error(e)
+    rescue ActiveRecord::RecordNotFound
+      render_api_error("resource_not_found", "The conversation or message was not found.", :not_found)
+    rescue ActiveRecord::RecordInvalid => e
+      Rails.logger.error("MessagesController#create persistence failed: #{e.full_message}")
+      render_api_error("invalid_message", e.record.errors.full_messages.to_sentence, :unprocessable_content)
+    rescue => e
+      Rails.logger.error("MessagesController#create: #{e.full_message}")
+      render_api_error("generation_failed", "Generation failed. You can retry this message.", :bad_gateway)
     end
 
     def update
@@ -73,12 +82,14 @@ module Api
       render json: { message: message }
     rescue RequestError => e
       render_request_error(e)
+    rescue ActiveRecord::RecordNotFound
+      render_api_error("resource_not_found", "The conversation or message was not found.", :not_found)
+    rescue ActiveRecord::RecordInvalid => e
+      render_api_error("invalid_message", e.record.errors.full_messages.to_sentence, :unprocessable_content)
     end
 
     def create_streaming
       conversation = current_api_user.conversations.find(params[:conversation_id])
-      safe_model_code = conversation.apply_model_code(params[:model_code])
-      image_input = AiModels.image_input(safe_model_code)
       regenerating = ActiveModel::Type::Boolean.new.cast(params[:regenerating])
       signed_ids = pending_image_signed_ids
 
@@ -86,7 +97,10 @@ module Api
         raise RequestError.new("images_not_allowed_on_regeneration", "Regeneration reuses images already stored with the message.")
       end
       validate_message_input!(signed_ids) unless regenerating
+      safe_model_code = conversation.resolve_model_code(params[:model_code])
+      image_input = AiModels.image_input(safe_model_code)
       enforce_image_capability!(image_input, signed_ids)
+      conversation.apply_model_code(safe_model_code)
       answering_message = prepare_answering_message!(conversation, regenerating, signed_ids)
 
       response.headers["Content-Type"] = "text/event-stream"
@@ -129,6 +143,8 @@ module Api
           response.stream.write("data: #{event_data.to_json}\n\n")
         end
 
+        raise "Chat service failed: #{stream_result[:error]}" if stream_result&.dig(:error)
+
         response_persisted = persist_streamed_response(
           conversation,
           answering_message,
@@ -138,6 +154,7 @@ module Api
           result: stream_result,
           entitle: true
         )
+        raise "The answered user turn changed before the response could be saved" unless response_persisted
 
         if stream_result&.dig(:stats)
           stats_event = {
@@ -174,6 +191,14 @@ module Api
       end
     rescue RequestError => e
       render_request_error(e)
+    rescue ActiveRecord::RecordNotFound
+      render_api_error("resource_not_found", "The conversation or message was not found.", :not_found)
+    rescue ActiveRecord::RecordInvalid => e
+      Rails.logger.error("MessagesController#create_streaming persistence failed: #{e.full_message}")
+      render_api_error("invalid_message", e.record.errors.full_messages.to_sentence, :unprocessable_content)
+    rescue => e
+      Rails.logger.error("MessagesController#create_streaming setup failed: #{e.full_message}")
+      render_api_error("stream_setup_failed", "The response stream could not be started.", :internal_server_error)
     end
 
     private
@@ -219,6 +244,9 @@ module Api
       end
 
       ids = decoded.map(&:id).sort
+      if ids.uniq.length != ids.length
+        raise RequestError.new("duplicate_images", "The same pending image cannot be attached more than once.")
+      end
       pending_uploads = current_api_user.pending_image_uploads.where(id: ids).order(:id).lock.to_a
       if pending_uploads.size != ids.size
         raise RequestError.new("attachment_not_found", "A pending image was not found.", status: :not_found)
@@ -285,13 +313,18 @@ module Api
     end
 
     def write_stream_error(message)
-      response.stream.write("data: #{({ type: 'error', content: message }).to_json}\n\n")
+      payload = { type: "error", error: { code: "generation_failed", message: message } }
+      response.stream.write("data: #{payload.to_json}\n\n")
     rescue ActionController::Live::ClientDisconnected, IOError
       nil
     end
 
     def render_request_error(error)
-      render json: { error: { code: error.code, message: error.message } }, status: error.status
+      render_api_error(error.code, error.message, error.status)
+    end
+
+    def render_api_error(code, message, status)
+      render json: { error: { code: code, message: message } }, status: status
     end
 
     def fetch_skills(conversation)

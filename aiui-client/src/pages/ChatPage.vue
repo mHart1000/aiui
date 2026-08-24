@@ -110,7 +110,7 @@
       </template>
       <div class="text-body2">{{ streamingChat.error.value?.message || streamingChat.error.value }}</div>
       <template v-slot:action>
-        <q-btn flat dense label="Retry" @click="handleRetry" color="white" />
+        <q-btn v-if="canRetryStreamError" flat dense label="Retry" @click="handleRetry" color="white" />
         <q-btn flat dense label="Dismiss" @click="streamingChat.dismissError()" color="white" />
       </template>
     </q-banner>
@@ -163,7 +163,7 @@
               :src="image.url"
               :alt="image.filename"
               class="message-image"
-              @click="lightboxImage = image"
+              @click="openLightbox(image)"
             />
           </div>
           <div v-if="!msg.content && isActivelyStreaming(i) && streamingChat.loadingPhase.value === 'connecting'" class="loading-placeholder">
@@ -318,7 +318,8 @@
         :context-label="composerContextLabel"
         :voice-mode="voiceChatMode"
         :attachments="pendingAttachments"
-        :vision-supported="visionSupported"
+        :image-input="imageInput"
+        :image-max-pixels="imageMaxPixels"
         :model-label="modelLabel"
         @error="handleSttError"
         @status="handleSttStatus"
@@ -328,6 +329,8 @@
         @toggle-voice-mode="toggleVoiceMode"
         @files-selected="onFilesSelected"
         @remove-attachment="removeAttachment"
+        @update:image-max-pixels="updateImageMaxPixels"
+        @refresh-capability="refreshModelCapability"
         class="col message-input"
       />
       <VoiceChatInput
@@ -345,7 +348,8 @@
         :tts-available="ttsPlayer.isTtsAvailable.value"
         :voice-mode="voiceChatMode"
         :attachments="pendingAttachments"
-        :vision-supported="visionSupported"
+        :image-input="imageInput"
+        :image-max-pixels="imageMaxPixels"
         :model-label="modelLabel"
         @error="handleSttError"
         @status="handleSttStatus"
@@ -357,6 +361,8 @@
         @inactivity-timeout="handleVoiceInactivityTimeout"
         @files-selected="onFilesSelected"
         @remove-attachment="removeAttachment"
+        @update:image-max-pixels="updateImageMaxPixels"
+        @refresh-capability="refreshModelCapability"
         class="col message-input"
       />
     </div>
@@ -369,7 +375,7 @@
       @update:enabled="updateSkillsEnabled"
     />
 
-    <q-dialog :model-value="!!lightboxImage" @update:model-value="lightboxImage = null">
+    <q-dialog :model-value="!!lightboxImage" @update:model-value="closeLightbox">
       <q-card class="lightbox-card">
         <img v-if="lightboxImage" :src="lightboxImage.url" :alt="lightboxImage.filename" class="lightbox-image" />
       </q-card>
@@ -462,6 +468,10 @@ export default {
     modelCode: null,
     pendingAttachments: [],
     lightboxImage: null,
+    lightboxObjectUrl: null,
+    loadedImageUrls: new Set(),
+    optimisticImageUrls: new Set(),
+    imageMaxPixels: 6000000,
     streamingMessageIndex: null,
     expandedThinking: {},
     useScaffolding: true,
@@ -501,6 +511,7 @@ export default {
     if (!this.conversationId) this.activeSkillIds = this.defaultSkillIds
     this.activeSkillIds = this.defaultSkillIds
     this.llamaContextWindow = userRes.data.llama_context_window || 8192
+    this.imageMaxPixels = userRes.data.image_max_pixels || 6000000
 
     // Live context window from llama.cpp is authoritative; the stored value above is only the fallback.
     if (this.isLlamaModel) await this.fetchLlamaContext()
@@ -514,6 +525,9 @@ export default {
   beforeUnmount() {
     window.removeEventListener('keydown', this.handleVoiceEscape)
     this.cancelArm()
+    this.clearAttachments()
+    this.revokeMessageUrls()
+    this.closeLightbox()
   },
   watch: {
     modelCode() {
@@ -521,7 +535,8 @@ export default {
     },
     '$route.params.id': {
       immediate: true,
-      async handler(newId) {
+      async handler(newId, oldId) {
+        if (oldId !== undefined && String(newId || '') !== String(oldId || '')) this.clearAttachments()
         if (newId) {
           this.conversationId = newId
           await this.loadConversation()
@@ -650,14 +665,14 @@ export default {
     selectedModel() {
       return this.models.find(m => String(m.id) === String(this.modelCode)) || null
     },
-    visionSupported() {
-      return !!(this.selectedModel && this.selectedModel.vision)
+    imageInput() {
+      return this.selectedModel?.image_input || (this.selectedModel?.vision ? 'supported' : 'unknown')
     },
     modelLabel() {
       return this.selectedModel ? String(this.selectedModel.id).split('/').pop() : 'This model'
     },
     readyAttachmentIds() {
-      return this.pendingAttachments.filter(a => a.signedId).map(a => a.signedId)
+      return this.pendingAttachments.filter(a => a.signedId && !a.failed && !a.cancelled).map(a => a.signedId)
     },
     lastContextTokens() {
       for (let i = this.messages.length - 1; i >= 0; i--) {
@@ -682,6 +697,12 @@ export default {
     },
     assistantBusy() {
       return this.streamingChat.isStreaming.value || this.ttsPlayer.isPlaying.value
+    },
+    canRetryStreamError() {
+      const streamError = this.streamingChat.error.value
+      if (!streamError) return false
+      const invalidCodes = new Set(['attachment_not_found', 'attachment_expired', 'attachment_already_used', 'duplicate_images', 'image_input_unsupported'])
+      return !invalidCodes.has(streamError.code) && (!streamError.status || streamError.status >= 500)
     },
     voiceShouldListen() {
       return this.voiceChatMode && !this.assistantBusy && this.editingMessageIndex === null
@@ -727,7 +748,15 @@ export default {
       }
     },
     handleRetry() {
-      this.streamingChat.retryLastMessage()
+      const streamError = this.streamingChat.error.value
+      this.streamingChat.dismissError()
+      if (streamError?.streamStarted === false || streamError?.status) {
+        this.sendMessage()
+        return
+      }
+
+      const lastUser = [...this.messages].reverse().find(message => message.role === 'user')
+      if (lastUser) this.regenerateFromMessage(lastUser.content)
     },
     stopStreaming() {
       // Commit whatever streamed so far before flipping isStreaming off, so the
@@ -784,6 +813,7 @@ export default {
       }
     },
     onFilesSelected(files) {
+      if (this.imageInput === 'unsupported') return
       const room = Math.max(0, MAX_ATTACHMENTS - this.pendingAttachments.length)
       if (files.length > room) {
         this.$q.notify({
@@ -794,16 +824,20 @@ export default {
       }
 
       files.slice(0, room).forEach((file) => {
-        this.pendingAttachments.push({
+        const entry = {
+          clientKey: `${Date.now()}-${Math.random()}`,
           filename: file.name,
           url: URL.createObjectURL(file),
           isPreview: true,
           uploading: true,
           failed: false,
+          cancelled: false,
+          id: null,
           signedId: null
-        })
+        }
+        this.pendingAttachments.push(entry)
         // Re-read through the reactive proxy so upload progress actually renders.
-        this.uploadAttachment(file, this.pendingAttachments[this.pendingAttachments.length - 1])
+        this.uploadAttachment(file, entry)
       })
     },
     async uploadAttachment(file, entry) {
@@ -814,23 +848,51 @@ export default {
         const res = await api.post('/api/attachments', form, {
           headers: { 'Content-Type': 'multipart/form-data' }
         })
-        this.revokePreview(entry)
+        entry.id = res.data.id
         entry.signedId = res.data.signed_id
-        entry.url = res.data.url
+        entry.expiresAt = res.data.expires_at
+        entry.filename = res.data.filename
+        entry.contentType = res.data.content_type
+        entry.byteSize = res.data.byte_size
+        entry.width = res.data.width
+        entry.height = res.data.height
+        if (entry.cancelled) await this.deletePendingAttachment(entry)
       } catch (err) {
+        if (entry.cancelled) return
         entry.failed = true
-        entry.error = err.response?.data?.error || 'Upload failed'
+        const details = err.response?.data?.error
+        entry.errorCode = details?.code || 'upload_failed'
+        entry.errorStatus = err.response?.status || null
+        entry.error = details?.message || 'Upload failed'
       } finally {
         entry.uploading = false
       }
     },
     removeAttachment(index) {
       const [removed] = this.pendingAttachments.splice(index, 1)
-      if (removed) this.revokePreview(removed)
+      if (!removed) return
+      removed.cancelled = true
+      this.revokePreview(removed)
+      if (removed.id) this.deletePendingAttachment(removed)
     },
     clearAttachments() {
-      this.pendingAttachments.forEach(a => this.revokePreview(a))
+      this.pendingAttachments.forEach((entry) => {
+        entry.cancelled = true
+        this.revokePreview(entry)
+        if (entry.id) this.deletePendingAttachment(entry)
+      })
       this.pendingAttachments = []
+    },
+    async deletePendingAttachment(entry) {
+      if (!entry.id || entry.deleteStarted) return
+      entry.deleteStarted = true
+      try {
+        await api.delete(`/api/attachments/${entry.id}`)
+      } catch (err) {
+        if (err.response?.status !== 404 && err.response?.status !== 409) {
+          console.warn('Failed to clean up pending image', err)
+        }
+      }
     },
     revokePreview(entry) {
       if (entry.isPreview && entry.url) {
@@ -841,14 +903,87 @@ export default {
     async loadConversation() {
       try {
         const res = await api.get(`/api/conversations/${this.conversationId}`)
+        this.revokeMessageUrls()
         this.messages = res.data.messages
         this.modelCode = res.data.model_code || DEFAULT_MODEL_ID
         this.ragEnabled = res.data.rag_enabled || false
         this.skillsEnabled = res.data.use_skills || false
         this.activeSkillIds = res.data.skill_ids || []
+        await this.loadSavedImages(this.messages)
       } catch (err) {
         console.error('Error loading conversation', err)
       }
+    },
+    async loadSavedImages(messages) {
+      const images = messages.flatMap(message => message.images || []).filter(image => image.download_url)
+      await Promise.all(images.map(async (image) => {
+        try {
+          const response = await api.get(image.download_url, { responseType: 'blob' })
+          const url = URL.createObjectURL(response.data)
+          image.url = url
+          this.loadedImageUrls.add(url)
+        } catch (err) {
+          image.loadError = true
+          console.warn('Failed to load saved image', err)
+        }
+      }))
+    },
+    revokeMessageUrls() {
+      this.loadedImageUrls.forEach(url => URL.revokeObjectURL(url))
+      this.optimisticImageUrls.forEach(url => URL.revokeObjectURL(url))
+      this.loadedImageUrls.clear()
+      this.optimisticImageUrls.clear()
+    },
+    async openLightbox(image) {
+      this.closeLightbox()
+      if (!image.download_url) {
+        this.lightboxImage = image
+        return
+      }
+      try {
+        const response = await api.get(image.download_url, { responseType: 'blob' })
+        this.lightboxObjectUrl = URL.createObjectURL(response.data)
+        this.lightboxImage = { ...image, url: this.lightboxObjectUrl }
+      } catch {
+        this.$q.notify({ type: 'negative', message: 'Failed to load image', timeout: 2000 })
+      }
+    },
+    closeLightbox(value = false) {
+      if (value) return
+      if (this.lightboxObjectUrl) URL.revokeObjectURL(this.lightboxObjectUrl)
+      this.lightboxObjectUrl = null
+      this.lightboxImage = null
+    },
+    async updateImageMaxPixels(value) {
+      const previous = this.imageMaxPixels
+      this.imageMaxPixels = value
+      try {
+        const response = await api.patch('/api/user', { user: { image_max_pixels: value } })
+        this.imageMaxPixels = response.data.image_max_pixels
+        this.$q.notify({ type: 'positive', message: 'Image resize cap saved for later uploads', timeout: 1800 })
+      } catch (err) {
+        this.imageMaxPixels = previous
+        const details = err.response?.data?.error
+        this.$q.notify({ type: 'negative', message: details?.message || 'Failed to save image resize cap', timeout: 2500 })
+      }
+    },
+    async refreshModelCapability() {
+      try {
+        const response = await api.get('/api/models?refresh=1')
+        this.models = response.data.models
+      } catch {
+        this.$q.notify({ type: 'negative', message: 'Could not refresh model capabilities', timeout: 2000 })
+      }
+    },
+    confirmUnknownImageSupport() {
+      return new Promise((resolve) => {
+        this.$q.dialog({
+          title: 'Image support is unverified',
+          message: `${this.modelLabel} may not accept images. Send them anyway?`,
+          cancel: true,
+          persistent: true
+        }).onOk(() => resolve(true)).onCancel(() => resolve(false)).onDismiss(() => resolve(false))
+      })
     },
     async updateActiveSkills(ids) {
       const previousIds = this.activeSkillIds
@@ -918,8 +1053,12 @@ export default {
     async sendMessage() {
       const text = this.input.trim()
       const model = this.modelCode
-      const attachments = this.pendingAttachments.filter(a => !a.failed)
+      const attachments = this.pendingAttachments.filter(a => !a.failed && !a.cancelled)
 
+      if (this.pendingAttachments.some(a => a.failed)) {
+        this.$q.notify({ type: 'negative', message: 'Remove failed images before sending', timeout: 2200 })
+        return
+      }
       if (!text && !attachments.length) return
       if (attachments.some(a => a.uploading)) {
         this.$q.notify({
@@ -929,7 +1068,13 @@ export default {
         })
         return
       }
-      const imageSignedIds = this.readyAttachmentIds
+      if (attachments.length && this.imageInput === 'unsupported') {
+        this.$q.notify({ type: 'negative', message: `${this.modelLabel} does not accept images. Your images are still pending.`, timeout: 3000 })
+        return
+      }
+      if (attachments.length && this.imageInput === 'unknown' && !(await this.confirmUnknownImageSupport())) return
+
+      const imageSignedIds = attachments.map(a => a.signedId)
 
       // Stop any current TTS playback
       if (this.ttsPlayer.isEnabled.value) {
@@ -938,21 +1083,34 @@ export default {
 
       const isNew = !this.conversationId
 
-      if (isNew) {
-        const convRes = await api.post('/api/conversations')
-        this.conversationId = convRes.data.id
+      try {
+        if (isNew) {
+          const convRes = await api.post('/api/conversations')
+          this.conversationId = convRes.data.id
 
-        // Toolbar settings chosen before the first send are applied here.
-        const initial = { use_skills: this.skillsEnabled, skill_ids: this.activeSkillIds }
-        if (this.ragEnabled) initial.rag_enabled = true
-        await api.patch(`/api/conversations/${this.conversationId}`, { conversation: initial })
+          // Toolbar settings chosen before the first send are applied here.
+          const initial = { use_skills: this.skillsEnabled, skill_ids: this.activeSkillIds }
+          if (this.ragEnabled) initial.rag_enabled = true
+          await api.patch(`/api/conversations/${this.conversationId}`, { conversation: initial })
+        }
+      } catch {
+        this.$q.notify({ type: 'negative', message: 'Could not start the conversation', timeout: 2500 })
+        return
       }
 
       // Add user message immediately (optimistic UI)
+      const userIndex = this.messages.length
+      const optimisticImages = attachments.map((attachment) => {
+        if (attachment.url) {
+          attachment.isPreview = false
+          this.optimisticImageUrls.add(attachment.url)
+        }
+        return { url: attachment.url, filename: attachment.filename }
+      })
       this.messages.push({
         role: 'user',
         content: text,
-        images: attachments.map(a => ({ url: a.url, filename: a.filename }))
+        images: optimisticImages
       })
       this.input = ''
       this.pendingAttachments = []
@@ -979,18 +1137,40 @@ export default {
 
       // Update placeholder message with final content from composable
       const streamedMessage = this.messages[myIndex]
-      streamedMessage.thinking = this.streamingChat.thinkingText.value
-      streamedMessage.content = this.streamingChat.responseText.value
+      if (streamedMessage) {
+        streamedMessage.thinking = this.streamingChat.thinkingText.value
+        streamedMessage.content = this.streamingChat.responseText.value
+      }
       const finalStats = this.streamingChat.stats.value
-      if (finalStats) {
+      if (finalStats && streamedMessage) {
         streamedMessage.total_tokens = finalStats.total_tokens
         streamedMessage.tokens_per_second = finalStats.tokens_per_second
         streamedMessage.generation_ms = finalStats.generation_ms
       }
 
       if (this.streamingChat.error.value) {
-        // Keep the placeholder for a regenerate button.
-        streamedMessage.failed = true
+        const streamError = this.streamingChat.error.value
+        if ((streamError.status !== null && streamError.status !== undefined) || streamError.streamStarted === false) {
+          this.messages.splice(userIndex)
+          this.input = text
+          attachments.forEach((attachment) => {
+            if (attachment.url) this.optimisticImageUrls.delete(attachment.url)
+            attachment.isPreview = !!attachment.url
+          })
+          const invalidCodes = new Set(['attachment_not_found', 'attachment_expired', 'attachment_already_used', 'duplicate_images'])
+          if (invalidCodes.has(streamError.code)) {
+            attachments.forEach((attachment) => {
+              attachment.failed = true
+              attachment.errorCode = streamError.code
+              attachment.error = streamError.message
+            })
+          }
+          this.pendingAttachments = attachments
+        } else if (streamedMessage) {
+          // The request entered the stream, so the user turn may already be persisted.
+          streamedMessage.failed = true
+          await this.loadConversation()
+        }
       }
 
       // Only clear the shared index if a newer send hasn't taken it over.
@@ -999,7 +1179,9 @@ export default {
       }
 
       if (isNew && this.$route.params.id !== String(this.conversationId)) {
-        this.$router.replace(`/chat/${this.conversationId}`)
+        await this.$router.replace(`/chat/${this.conversationId}`)
+      } else if (!this.streamingChat.error.value) {
+        await this.loadConversation()
       }
 
       this.refreshConversations()

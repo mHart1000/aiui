@@ -15,7 +15,10 @@ module Api
       if current_api_user.update(attrs)
         render json: user_json
       else
-        render json: { errors: current_api_user.errors.full_messages }, status: :unprocessable_entity
+        code = attrs.key?(:image_max_pixels) ? "invalid_pixel_budget" : "invalid_user_settings"
+        render json: {
+          error: { code: code, message: current_api_user.errors.full_messages.to_sentence }
+        }, status: :unprocessable_entity
       end
     end
 

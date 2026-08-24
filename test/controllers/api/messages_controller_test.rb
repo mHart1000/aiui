@@ -23,7 +23,7 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
 
   # Build a minimal controller instance with enough stubbing to run
   # create_streaming without a real request or response stream.
-  def build_controller(conversation, extra_params = {})
+  def build_controller(conversation, extra_params = {}, &writer)
     controller = Api::MessagesController.new
     user = @user
 
@@ -40,7 +40,11 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
 
     # Stub response stream — writes are no-ops, close is a no-op
     fake_stream = Object.new
-    fake_stream.define_singleton_method(:write) { |_data| }
+    writes = []
+    fake_stream.define_singleton_method(:write) do |data|
+      writes << data
+      writer&.call(data)
+    end
     fake_stream.define_singleton_method(:close) { }
 
     fake_response = Object.new
@@ -48,6 +52,7 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
     fake_response.define_singleton_method(:stream) { fake_stream }
 
     controller.define_singleton_method(:response) { fake_response }
+    controller.define_singleton_method(:stream_writes) { writes }
 
     controller
   end
@@ -100,6 +105,99 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
 
     saved = @conversation.messages.where(role: "assistant").last
     assert_equal "Full response here", saved.content
+    assert_match(/"type":"done"/, controller.stream_writes.last)
+  end
+
+  test "persists the assistant before emitting done" do
+    persisted_before_done = false
+    controller = build_controller(@conversation) do |event|
+      if event.include?('"type":"done"')
+        persisted_before_done = @conversation.messages.where(role: "assistant").exists?
+      end
+    end
+    service = lambda do |**_kwargs, &block|
+      block.call("saved first", :response)
+      { persona_version: nil }
+    end
+
+    ChatService.stub(:call, service) { controller.create_streaming }
+
+    assert persisted_before_done
+  end
+
+  test "timestamp-only prompt mutation does not discard the reply" do
+    user_message = @conversation.messages.find_by!(role: "user")
+    controller = build_controller(@conversation)
+    service = lambda do |**_kwargs, &block|
+      user_message.touch
+      block.call("still current", :response)
+      { persona_version: nil }
+    end
+
+    ChatService.stub(:call, service) { controller.create_streaming }
+
+    assert_equal "still current", @conversation.messages.find_by!(role: "assistant").content
+  end
+
+  test "content signature changes prevent persistence and done" do
+    user_message = @conversation.messages.find_by!(role: "user")
+    controller = build_controller(@conversation)
+    service = lambda do |**_kwargs, &block|
+      user_message.update_columns(content: "edited", updated_at: Time.current)
+      block.call("stale", :response)
+      { persona_version: nil }
+    end
+
+    ChatService.stub(:call, service) { controller.create_streaming }
+
+    assert_not @conversation.messages.where(role: "assistant").exists?
+    assert controller.stream_writes.any? { |event| event.include?('"type":"error"') }
+    assert_not controller.stream_writes.any? { |event| event.include?('"type":"done"') }
+  end
+
+  test "image signature changes prevent persistence" do
+    user_message = @conversation.messages.find_by!(role: "user")
+    controller = build_controller(@conversation)
+    service = lambda do |**_kwargs, &block|
+      user_message.images.attach(
+        io: File.open(file_fixture("small.png")), filename: "small.png", content_type: "image/png"
+      )
+      block.call("stale", :response)
+      { persona_version: nil }
+    end
+
+    ChatService.stub(:call, service) { controller.create_streaming }
+
+    assert_not @conversation.messages.where(role: "assistant").exists?
+  end
+
+  test "generation errors emit sanitized error and omit done" do
+    controller = build_controller(@conversation)
+
+    ChatService.stub(:call, ->(**_kwargs) { raise "provider secret failure" }) do
+      controller.create_streaming
+    end
+
+    error_event = controller.stream_writes.find { |event| event.include?('"type":"error"') }
+    assert_match(/Generation failed/, error_event)
+    assert_not_includes error_event, "provider secret failure"
+    assert_not controller.stream_writes.any? { |event| event.include?('"type":"done"') }
+    assert_not @conversation.messages.where(role: "assistant").exists?
+  end
+
+  test "disconnect after persistence does not create a duplicate assistant" do
+    controller = build_controller(@conversation) do |event|
+      raise ActionController::Live::ClientDisconnected if event.include?('"type":"done"')
+    end
+    service = lambda do |**_kwargs, &block|
+      block.call("one copy", :response)
+      { persona_version: nil }
+    end
+
+    ChatService.stub(:call, service) { controller.create_streaming }
+
+    assert_equal 1, @conversation.messages.where(role: "assistant").count
+    assert_equal "one copy", @conversation.messages.find_by!(role: "assistant").content
   end
 
   test "regenerating with message_id truncates the conversation to that message" do

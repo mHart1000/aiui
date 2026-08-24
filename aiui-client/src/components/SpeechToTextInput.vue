@@ -17,12 +17,14 @@
       <div class="button-overlay" :class="{ 'overlay-centered': !expanded }">
         <div class="left-buttons">
           <AttachmentButton
-            v-if="showNewChat || visionSupported"
-            :vision-supported="visionSupported"
+            :image-input="imageInput"
+            :image-max-pixels="imageMaxPixels"
             :show-new-chat="showNewChat"
             :model-label="modelLabel"
             @files-selected="$emit('files-selected', $event)"
             @new-chat="$emit('new-chat')"
+            @update:image-max-pixels="$emit('update:image-max-pixels', $event)"
+            @refresh-capability="$emit('refresh-capability')"
           />
           <span v-if="contextUsage !== null" class="context-ring">
             <q-circular-progress
@@ -121,9 +123,13 @@ export default {
       type: Array,
       default: () => []
     },
-    visionSupported: {
-      type: Boolean,
-      default: false
+    imageInput: {
+      type: String,
+      default: 'unknown'
+    },
+    imageMaxPixels: {
+      type: Number,
+      default: 6000000
     },
     modelLabel: {
       type: String,
@@ -170,7 +176,7 @@ export default {
       default: 250
     }
   },
-  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat', 'stop', 'toggle-voice-mode', 'files-selected', 'remove-attachment'],
+  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat', 'stop', 'toggle-voice-mode', 'files-selected', 'remove-attachment', 'update:image-max-pixels', 'refresh-capability'],
   data () {
     return {
       isLoading: false,

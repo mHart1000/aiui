@@ -7,7 +7,7 @@ class PendingImageUpload < ApplicationRecord
 
   validates :expires_at, presence: true
 
-  scope :expired, -> { where(expires_at: ...Time.current) }
+  scope :expired, -> { where("expires_at <= ?", Time.current) }
 
   after_destroy_commit :purge_unattached_blob
 

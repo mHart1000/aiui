@@ -73,6 +73,18 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_23_000001) do
     t.index ["conversation_id"], name: "index_messages_on_conversation_id"
   end
 
+  create_table "pending_image_uploads", force: :cascade do |t|
+    t.bigint "blob_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "expires_at", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["blob_id"], name: "index_pending_image_uploads_on_blob_id", unique: true
+    t.index ["expires_at"], name: "index_pending_image_uploads_on_expires_at"
+    t.index ["user_id", "expires_at"], name: "index_pending_image_uploads_on_user_id_and_expires_at"
+    t.index ["user_id"], name: "index_pending_image_uploads_on_user_id"
+  end
+
   create_table "rag_chunks", force: :cascade do |t|
     t.integer "chunk_index", null: false
     t.text "content", null: false
@@ -146,6 +158,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_23_000001) do
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
   add_foreign_key "conversations", "users"
   add_foreign_key "messages", "conversations"
+  add_foreign_key "pending_image_uploads", "active_storage_blobs", column: "blob_id"
+  add_foreign_key "pending_image_uploads", "users"
   add_foreign_key "rag_chunks", "rag_documents"
   add_foreign_key "rag_chunks", "users"
   add_foreign_key "rag_documents", "users"

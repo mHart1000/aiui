@@ -23,6 +23,14 @@ export function useStreamingChat() {
 
   const STREAM_TIMEOUT_MS = 120000 // 2 minutes of inactivity
 
+  function structuredError(payload, status = null) {
+    const details = payload?.error || payload || {}
+    const err = new Error(details.message || details.content || 'The request failed')
+    err.code = details.code || 'request_failed'
+    err.status = status
+    return err
+  }
+
   /**
    * Send a message and stream the response.
    *
@@ -49,12 +57,19 @@ export function useStreamingChat() {
     loadingPhase.value = 'connecting'
 
     currentAbortController = new AbortController()
+    let streamStarted = false
 
     function resetStreamTimeout() {
       clearTimeout(streamTimeoutId)
       streamTimeoutId = setTimeout(() => {
         cleanup()
-        error.value = new Error('Stream timeout - no data received for 2 minutes')
+        const timeoutError = structuredError({
+          code: 'stream_timeout',
+          message: 'Stream timeout - no data received for 2 minutes'
+        })
+        timeoutError.streamStarted = streamStarted
+        error.value = timeoutError
+        loadingPhase.value = 'idle'
         isStreaming.value = false
       }, STREAM_TIMEOUT_MS)
     }
@@ -88,16 +103,25 @@ export function useStreamingChat() {
       })
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+        let payload = null
+        try {
+          payload = await response.json()
+        } catch {
+          payload = { error: { message: `Request failed (${response.status})` } }
+        }
+        throw structuredError(payload, response.status)
       }
 
       if (!response.body) {
         throw new Error('Streaming not supported in this browser')
       }
 
+      streamStarted = true
+
       currentReader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+      let receivedDone = false
 
       while (true) {
         const { done, value } = await currentReader.read()
@@ -122,10 +146,15 @@ export function useStreamingChat() {
           }
 
           if (line.startsWith('data: ')) {
+            let data
             try {
-              const data = JSON.parse(line.substring(6))
+              data = JSON.parse(line.substring(6))
+            } catch (parseError) {
+              console.warn('Failed to parse SSE event:', line, parseError)
+              continue
+            }
 
-              switch (data.type) {
+            switch (data.type) {
                 case 'thinking':
                   if (loadingPhase.value === 'connecting') {
                     loadingPhase.value = 'thinking'
@@ -153,22 +182,24 @@ export function useStreamingChat() {
                   break
 
                 case 'done':
+                  receivedDone = true
                   isStreaming.value = false
                   loadingPhase.value = 'done'
                   clearTimeout(streamTimeoutId)
                   break
 
                 case 'error':
-                  throw new Error(data.content)
-              }
-            } catch (parseError) {
-              console.warn('Failed to parse SSE event:', line, parseError)
+                  throw structuredError(data.error || data)
             }
           }
         }
       }
 
-      // Stream completed successfully
+      if (!receivedDone) {
+        throw structuredError({ code: 'stream_incomplete', message: 'The response stream ended before it was saved.' })
+      }
+
+      // Stream completed successfully after the server persisted the response.
       isStreaming.value = false
       loadingPhase.value = 'done'
       clearTimeout(streamTimeoutId)
@@ -181,6 +212,7 @@ export function useStreamingChat() {
         isStreaming.value = false
         if (!error.value) loadingPhase.value = 'done' // preserve a timeout error
       } else {
+        err.streamStarted = streamStarted
         error.value = err
         loadingPhase.value = 'idle'
         isStreaming.value = false

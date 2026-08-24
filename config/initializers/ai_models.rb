@@ -133,8 +133,8 @@ AI_MODELS = [
 
 module AiModels
   # Models that accept images via the OpenAI-compatible content array. Deliberately
-  # conservative: unlisted means the attach button is hidden, which is harmless,
-  # whereas a wrong entry means a failed request. Verify before adding a model here
+  # conservative: unlisted cloud models are verified unsupported, whereas a wrong
+  # entry means a failed provider request. Verify before adding a model here
   # — see docs/image-attachments-spec.md §2.1.
   VISION_MODEL_IDS = %w[
     openrouter/google/gemma-4-31b-it:free
@@ -164,6 +164,7 @@ module AiModels
   # server. LLAMA_VISION overrides it when set.
   def self.local_image_input(refresh: false)
     if ENV["LLAMA_VISION"].present?
+      LlamaCapabilities.reset! if refresh
       return "supported" if ENV["LLAMA_VISION"].casecmp?("true")
       return "unsupported" if ENV["LLAMA_VISION"].casecmp?("false")
 

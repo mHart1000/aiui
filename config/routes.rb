@@ -22,7 +22,7 @@ Rails.application.routes.draw do
       collection { get :search }
       member { post :fork, action: :create_fork }
       resources :messages, only: [ :create, :update ] do
-        resources :images, only: :show, controller: "message_images"
+        resources :images, only: :show, controller: "message_images", param: :attachment_id
       end
       post "messages/stream", to: "messages#create_streaming"
     end

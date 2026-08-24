@@ -38,6 +38,8 @@ class ImageAttachmentProcessor
   end
 
   def call
+    tempfile = nil
+    completed = false
     validate_upload!
     content_type = detected_type
     unless ACCEPTED_TYPES.include?(content_type)
@@ -64,7 +66,7 @@ class ImageAttachmentProcessor
     end
 
     normalized = Vips::Image.new_from_file(tempfile.path, access: :sequential)
-    Result.new(
+    result = Result.new(
       tempfile: tempfile,
       filename: normalized_filename(extension),
       content_type: content_type,
@@ -72,12 +74,15 @@ class ImageAttachmentProcessor
       height: normalized.height,
       original_filename: sanitized_filename
     )
+    completed = true
+    result
   rescue Error
     raise
   rescue Vips::Error => e
     Rails.logger.warn("ImageAttachmentProcessor: #{e.class}: #{e.message}")
     raise Error.new("invalid_image", "The image could not be decoded or normalized.")
   ensure
+    tempfile&.close! unless completed
     @upload.tempfile.rewind if @upload.respond_to?(:tempfile) && @upload.tempfile.respond_to?(:rewind)
   end
 
@@ -106,7 +111,18 @@ class ImageAttachmentProcessor
 
   def target_dimensions(width, height)
     scale = Math.sqrt(@max_pixels.to_f / (width * height))
-    [ [ (width * scale).floor, 1 ].max, [ (height * scale).floor, 1 ].max ]
+    target_width = [ (width * scale).floor, 1 ].max
+    target_height = [ (height * scale).floor, 1 ].max
+
+    if target_width * target_height > @max_pixels
+      if target_width >= target_height
+        target_width = [ (@max_pixels / target_height).floor, 1 ].max
+      else
+        target_height = [ (@max_pixels / target_width).floor, 1 ].max
+      end
+    end
+
+    [ target_width, target_height ]
   end
 
   def saver_options(content_type)
@@ -117,7 +133,9 @@ class ImageAttachmentProcessor
   end
 
   def sanitized_filename
-    ActiveStorage::Filename.new(@upload.original_filename.presence || "image").sanitized
+    raw = (@upload.original_filename.presence || "image").to_s.tr("\\", "/")
+    basename = File.basename(raw)
+    ActiveStorage::Filename.new(basename).sanitized.sub(/\A[.\s-]+/, "").presence || "image"
   end
 
   def normalized_filename(extension)

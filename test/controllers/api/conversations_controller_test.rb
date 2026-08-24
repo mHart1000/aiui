@@ -29,7 +29,9 @@ module Api
       first.images.attach(
         io: File.open(Rails.root.join("test/fixtures/files/small.png")),
         filename: "small.png",
-        content_type: "image/png"
+        content_type: "image/png",
+        identify: false,
+        metadata: { width: 100, height: 80, original_filename: "camera.png" }
       )
 
       post "/api/conversations/#{@conversation.id}/fork",
@@ -44,6 +46,8 @@ module Api
       # Separate blobs, so purging one conversation cannot empty the other.
       assert_not_equal first.images.attachments.first.blob_id,
                        copied.images.attachments.first.blob_id
+      assert_equal 100, copied.images.attachments.first.blob.metadata["width"]
+      assert_equal "camera.png", copied.images.attachments.first.blob.metadata["original_filename"]
     end
 
     test "show serializes attached images" do
@@ -60,7 +64,9 @@ module Api
       images = JSON.parse(response.body)["messages"].first["images"]
       assert_equal 1, images.size
       assert_equal "small.png", images.first["filename"]
-      assert images.first["url"].start_with?("/rails/active_storage/")
+      assert_equal "image/png", images.first["content_type"]
+      assert_nil images.first["url"]
+      assert_equal "/api/conversations/#{@conversation.id}/messages/#{first.id}/images/#{images.first['id']}", images.first["download_url"]
     end
 
     test "fork rejects another user's conversation" do
