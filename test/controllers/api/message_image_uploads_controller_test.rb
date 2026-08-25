@@ -3,7 +3,7 @@ require "test_helper"
 class Api::MessageImageUploadsControllerTest < ActionDispatch::IntegrationTest
   include ActiveJob::TestHelper
 
-  MODEL = "openrouter/google/gemma-3-27b-it:free"
+  MODEL = "local-llama"
 
   def setup
     @user = User.create!(email: "image-messages@example.com", password: "password123")
@@ -25,16 +25,18 @@ class Api::MessageImageUploadsControllerTest < ActionDispatch::IntegrationTest
     fixture_file_upload(filename, content_type)
   end
 
-  def create_message(content:, images: [], model: MODEL)
+  def create_message(content:, images: [], model: MODEL, llama_vision: "true")
     result = {
       reply: "answer", thinking: nil,
       tokens: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
       stats: nil, persona_version: nil, skill_versions: nil
     }
-    ChatService.stub(:call, result) do
-      post "/api/conversations/#{@conversation.id}/messages",
-           params: { content: content, images: images, model_code: model },
-           headers: @headers
+    with_env("LLAMA_VISION" => llama_vision) do
+      ChatService.stub(:call, result) do
+        post "/api/conversations/#{@conversation.id}/messages",
+             params: { content: content, images: images, model_code: model },
+             headers: @headers
+      end
     end
   end
 
@@ -88,9 +90,9 @@ class Api::MessageImageUploadsControllerTest < ActionDispatch::IntegrationTest
     assert_nil @conversation.reload.model_code
   end
 
-  test "blocks verified unsupported models before processing images" do
+  test "blocks non-local models before processing images" do
     assert_no_difference [ "Message.count", "ActiveStorage::Blob.count" ] do
-      create_message(content: "look", images: [ image ], model: "gpt-4")
+      create_message(content: "look", images: [ image ], model: "openrouter/google/gemma-4-31b-it:free")
     end
 
     assert_response :unprocessable_content
@@ -98,9 +100,9 @@ class Api::MessageImageUploadsControllerTest < ActionDispatch::IntegrationTest
     assert_nil @conversation.reload.model_code
   end
 
-  test "accepts unknown local capability" do
-    AiModels.stub(:image_input, "unknown") do
-      create_message(content: "look", images: [ image ], model: "local-llama")
+  test "accepts unavailable local capability" do
+    LlamaCapabilities.stub(:image_input, nil) do
+      create_message(content: "look", images: [ image ], llama_vision: nil)
     end
 
     assert_response :success
@@ -126,10 +128,12 @@ class Api::MessageImageUploadsControllerTest < ActionDispatch::IntegrationTest
       { persona_version: nil }
     end
 
-    ChatService.stub(:call, service) do
-      post "/api/conversations/#{@conversation.id}/messages/stream",
-           params: { content: "look", images: [ image ], model_code: MODEL },
-           headers: @headers
+    with_env("LLAMA_VISION" => "true") do
+      ChatService.stub(:call, service) do
+        post "/api/conversations/#{@conversation.id}/messages/stream",
+             params: { content: "look", images: [ image ], model_code: MODEL },
+             headers: @headers
+      end
     end
 
     assert_response :success

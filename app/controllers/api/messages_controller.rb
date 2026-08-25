@@ -18,8 +18,8 @@ module Api
       uploads = image_uploads
       validate_message_input!(uploads)
       safe_model_code = conversation.resolve_model_code(params[:model_code])
-      image_input = AiModels.image_input(safe_model_code)
-      enforce_image_capability!(image_input, uploads)
+      images_allowed = AiModels.images_allowed?(safe_model_code)
+      enforce_image_capability!(images_allowed, uploads)
       processed_images = process_image_uploads!(uploads)
       begin
         user_message = create_user_message!(
@@ -32,7 +32,7 @@ module Api
       current_api_user.reload
       rag_context = fetch_rag_context(conversation, user_message.content)
       result = ChatService.call(
-        messages: conversation.messages_for_ai(multimodal: image_input != "unsupported"),
+        messages: conversation.messages_for_ai(multimodal: images_allowed),
         model: safe_model_code,
         use_persona: current_api_user.use_persona,
         persona_id: current_api_user.persona_id,
@@ -104,8 +104,8 @@ module Api
       end
       validate_message_input!(uploads) unless regenerating
       safe_model_code = conversation.resolve_model_code(params[:model_code])
-      image_input = AiModels.image_input(safe_model_code)
-      enforce_image_capability!(image_input, uploads)
+      images_allowed = AiModels.images_allowed?(safe_model_code)
+      enforce_image_capability!(images_allowed, uploads)
       processed_images = process_image_uploads!(uploads)
       begin
         answering_message = prepare_answering_message!(
@@ -132,7 +132,7 @@ module Api
 
       begin
         stream_result = ChatService.call(
-          messages: conversation.messages_for_ai(multimodal: image_input != "unsupported"),
+          messages: conversation.messages_for_ai(multimodal: images_allowed),
           model: safe_model_code,
           use_persona: current_api_user.use_persona,
           persona_id: current_api_user.persona_id,
@@ -243,7 +243,7 @@ module Api
       conversation.transaction do
         conversation.apply_model_code(model_code)
         message = conversation.messages.build(role: "user", content: content)
-        message.images.attach(processed_images.map { |image| attachment_attributes(image) })
+        message.images.attach(processed_images.map(&:attachable))
         blobs = message.images.blobs.to_a
         message.save!
       end
@@ -269,29 +269,12 @@ module Api
       raise
     end
 
-    def attachment_attributes(image)
-      {
-        io: image.tempfile,
-        filename: image.filename,
-        content_type: image.content_type,
-        identify: false,
-        metadata: {
-          width: image.width,
-          height: image.height,
-          original_filename: image.original_filename
-        }
-      }
-    end
-
     def cleanup_failed_message_uploads(message, blobs)
       message.destroy! if message&.id && Message.exists?(message.id)
       blobs.each do |blob|
-        if blob.id && ActiveStorage::Blob.exists?(blob.id)
-          stored_blob = ActiveStorage::Blob.find(blob.id)
-          stored_blob.purge unless stored_blob.attachments.exists?
-        else
-          blob.service.delete(blob.key)
-        end
+        next unless blob.id && ActiveStorage::Blob.exists?(blob.id)
+
+        ActiveStorage::Blob.find(blob.id).purge
       end
     rescue => cleanup_error
       Rails.logger.error("MessagesController upload cleanup failed: #{cleanup_error.full_message}")
@@ -310,8 +293,8 @@ module Api
       end
     end
 
-    def enforce_image_capability!(image_input, uploads)
-      return if uploads.empty? || image_input != "unsupported"
+    def enforce_image_capability!(images_allowed, uploads)
+      return if uploads.empty? || images_allowed
 
       raise RequestError.new("image_input_unsupported", "The selected model does not accept images.")
     end

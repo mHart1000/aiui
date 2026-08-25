@@ -15,7 +15,6 @@ export function useStreamingChat() {
   const isStreaming = ref(false)
   const error = ref(null)
   const loadingPhase = ref('idle') // 'idle' | 'connecting' | 'thinking' | 'responding' | 'done'
-  const lastRequest = ref(null) // Store for retry
 
   let currentAbortController = null
   let currentReader = null
@@ -42,9 +41,6 @@ export function useStreamingChat() {
    * @returns {Promise<void>}
    */
   async function sendMessage(conversationId, content, token, modelCode = null, options = {}) {
-    // Store request for potential retry
-    lastRequest.value = { conversationId, content, token, modelCode, options }
-
     // Cancel any existing stream
     cleanup()
 
@@ -216,13 +212,6 @@ export function useStreamingChat() {
     }
   }
 
-  async function retryLastMessage() {
-    if (lastRequest.value) {
-      const { conversationId, content, token, modelCode, options } = lastRequest.value
-      await sendMessage(conversationId, content, token, modelCode, options)
-    }
-  }
-
   function dismissError() {
     error.value = null
   }
@@ -266,7 +255,6 @@ export function useStreamingChat() {
 
     // Methods
     sendMessage,
-    retryLastMessage,
     dismissError,
     cleanup,
     stop

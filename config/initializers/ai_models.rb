@@ -132,26 +132,8 @@ AI_MODELS = [
 ].freeze
 
 module AiModels
-  # Models that accept images via the OpenAI-compatible content array. Deliberately
-  # conservative: unlisted cloud models are verified unsupported, whereas a wrong
-  # entry means a failed provider request. Verify before adding a model here
-  # — see docs/image-attachments-spec.md §2.1.
-  VISION_MODEL_IDS = %w[
-    openrouter/google/gemma-4-31b-it:free
-    openrouter/google/gemma-4-26b-a4b-it:free
-    openrouter/google/gemma-3-27b-it:free
-    openrouter/nvidia/nemotron-nano-12b-v2-vl:free
-  ].freeze
-
-  def self.image_input(model_id, refresh: false)
-    return "unsupported" if model_id.blank?
-    return local_image_input(refresh: refresh) if local?(model_id)
-
-    VISION_MODEL_IDS.include?(model_id) ? "supported" : "unsupported"
-  end
-
-  def self.vision?(model_id)
-    image_input(model_id) == "supported"
+  def self.images_allowed?(model_id)
+    local?(model_id) && local_image_input != false
   end
 
   # Keyed off the catalogue rather than the id string, so a second local entry
@@ -165,24 +147,13 @@ module AiModels
   def self.local_image_input(refresh: false)
     if ENV["LLAMA_VISION"].present?
       LlamaCapabilities.reset! if refresh
-      return "supported" if ENV["LLAMA_VISION"].casecmp?("true")
-      return "unsupported" if ENV["LLAMA_VISION"].casecmp?("false")
+      return true if ENV["LLAMA_VISION"].casecmp?("true")
+      return false if ENV["LLAMA_VISION"].casecmp?("false")
 
-      Rails.logger.warn("AiModels: LLAMA_VISION must be true or false; treating it as unknown")
-      return "unknown"
+      Rails.logger.warn("AiModels: LLAMA_VISION must be true or false; treating it as unavailable")
+      return nil
     end
 
     LlamaCapabilities.image_input(refresh: refresh)
-  end
-
-  def self.local_vision?
-    local_image_input == "supported"
-  end
-
-  def self.catalogue(refresh: false)
-    AI_MODELS.map do |model|
-      status = image_input(model["id"], refresh: refresh)
-      model.merge("image_input" => status, "vision" => status == "supported")
-    end
   end
 end

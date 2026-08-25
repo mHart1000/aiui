@@ -4,7 +4,10 @@ module Api
   class ModelsController < ApplicationController
     def index
       refresh = ActiveModel::Type::Boolean.new.cast(params[:refresh])
-      render json: { models: AiModels.catalogue(refresh: refresh) }
+      render json: {
+        models: AI_MODELS,
+        local_image_input: AiModels.local_image_input(refresh: refresh)
+      }
     end
 
     def llama_context

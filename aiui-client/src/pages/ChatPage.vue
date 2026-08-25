@@ -456,9 +456,9 @@ export default {
     toolbarHovered: false,
     conversationId: null,
     models: [],
+    localImageInput: null,
     modelCode: null,
     pendingAttachments: [],
-    optimisticImageUrls: new Set(),
     streamingMessageIndex: null,
     expandedThinking: {},
     useScaffolding: true,
@@ -484,6 +484,7 @@ export default {
   async mounted() {
     const modelsRes = await api.get('/api/models')
     this.models = modelsRes.data.models
+    this.localImageInput = modelsRes.data.local_image_input
     if (!this.modelCode && this.models.length > 0) {
       this.modelCode = DEFAULT_MODEL_ID || String(this.models[0].id)
     }
@@ -512,7 +513,6 @@ export default {
     window.removeEventListener('keydown', this.handleVoiceEscape)
     this.cancelArm()
     this.clearAttachments()
-    this.revokeMessageUrls()
   },
   watch: {
     modelCode() {
@@ -651,7 +651,10 @@ export default {
       return this.models.find(m => String(m.id) === String(this.modelCode)) || null
     },
     imageInput() {
-      return this.selectedModel?.image_input || (this.selectedModel?.vision ? 'supported' : 'unknown')
+      if (this.selectedModel?.owned_by !== 'local') return 'unsupported'
+      if (this.localImageInput === true) return 'supported'
+      if (this.localImageInput === false) return 'unsupported'
+      return 'unknown'
     },
     modelLabel() {
       return this.selectedModel ? String(this.selectedModel.id).split('/').pop() : 'This model'
@@ -682,9 +685,7 @@ export default {
     },
     canRetryStreamError() {
       const streamError = this.streamingChat.error.value
-      if (!streamError) return false
-      const invalidCodes = new Set(['attachment_not_found', 'attachment_expired', 'attachment_already_used', 'duplicate_images', 'image_input_unsupported'])
-      return !invalidCodes.has(streamError.code) && (!streamError.status || streamError.status >= 500)
+      return !!streamError && streamError.streamStarted !== false
     },
     voiceShouldListen() {
       return this.voiceChatMode && !this.assistantBusy && this.editingMessageIndex === null
@@ -730,13 +731,7 @@ export default {
       }
     },
     handleRetry() {
-      const streamError = this.streamingChat.error.value
       this.streamingChat.dismissError()
-      if (streamError?.streamStarted === false || streamError?.status) {
-        this.sendMessage()
-        return
-      }
-
       const lastUser = [...this.messages].reverse().find(message => message.role === 'user')
       if (lastUser) this.regenerateFromMessage(lastUser.content)
     },
@@ -811,8 +806,7 @@ export default {
           file,
           filename: file.name,
           url: URL.createObjectURL(file),
-          isPreview: true,
-          failed: false
+          isPreview: true
         })
       })
     },
@@ -836,7 +830,6 @@ export default {
     async loadConversation() {
       try {
         const res = await api.get(`/api/conversations/${this.conversationId}`)
-        this.revokeMessageUrls()
         this.messages = res.data.messages
         this.modelCode = res.data.model_code || DEFAULT_MODEL_ID
         this.ragEnabled = res.data.rag_enabled || false
@@ -846,14 +839,11 @@ export default {
         console.error('Error loading conversation', err)
       }
     },
-    revokeMessageUrls() {
-      this.optimisticImageUrls.forEach(url => URL.revokeObjectURL(url))
-      this.optimisticImageUrls.clear()
-    },
     async refreshModelCapability() {
       try {
         const response = await api.get('/api/models?refresh=1')
         this.models = response.data.models
+        this.localImageInput = response.data.local_image_input
       } catch {
         this.$q.notify({ type: 'negative', message: 'Could not refresh model capabilities', timeout: 2000 })
       }
@@ -926,12 +916,8 @@ export default {
     async sendMessage() {
       const text = this.input.trim()
       const model = this.modelCode
-      const attachments = this.pendingAttachments.filter(a => !a.failed)
+      const attachments = this.pendingAttachments
 
-      if (this.pendingAttachments.some(a => a.failed)) {
-        this.$q.notify({ type: 'negative', message: 'Remove failed images before sending', timeout: 2200 })
-        return
-      }
       if (!text && !attachments.length) return
       if (attachments.length && this.imageInput === 'unsupported') {
         this.$q.notify({ type: 'negative', message: `${this.modelLabel} does not accept images. Your selected images are still here.`, timeout: 3000 })
@@ -961,13 +947,10 @@ export default {
 
       // Add user message immediately (optimistic UI)
       const userIndex = this.messages.length
-      const optimisticImages = attachments.map((attachment) => {
-        if (attachment.url) {
-          attachment.isPreview = false
-          this.optimisticImageUrls.add(attachment.url)
-        }
-        return { url: attachment.url, filename: attachment.filename }
-      })
+      const optimisticImages = attachments.map(attachment => ({
+        url: attachment.url,
+        filename: attachment.filename
+      }))
       this.messages.push({
         role: 'user',
         content: text,
@@ -1009,34 +992,16 @@ export default {
         streamedMessage.generation_ms = finalStats.generation_ms
       }
 
-      if (this.streamingChat.error.value) {
-        const streamError = this.streamingChat.error.value
-        if ((streamError.status !== null && streamError.status !== undefined) || streamError.streamStarted === false) {
-          this.messages.splice(userIndex)
-          this.input = text
-          attachments.forEach((attachment) => {
-            if (attachment.url) this.optimisticImageUrls.delete(attachment.url)
-            attachment.isPreview = !!attachment.url
-          })
-          const invalidCodes = new Set([
-            'missing_file',
-            'unsupported_image_type',
-            'invalid_image',
-            'image_too_large',
-            'image_dimensions_too_large',
-            'too_many_images'
-          ])
-          if (invalidCodes.has(streamError.code)) {
-            attachments.forEach((attachment) => {
-              attachment.failed = true
-              attachment.errorCode = streamError.code
-              attachment.error = streamError.message
-            })
-          }
-          this.pendingAttachments = attachments
-        } else if (streamedMessage) {
+      const streamError = this.streamingChat.error.value
+      const failedBeforeStream = streamError?.streamStarted === false
+      if (failedBeforeStream) {
+        this.messages.splice(userIndex)
+        this.input = text
+        this.pendingAttachments = attachments
+      } else {
+        attachments.forEach(attachment => this.revokePreview(attachment))
+        if (streamError && streamedMessage) {
           // The request entered the stream, so the user turn may already be persisted.
-          streamedMessage.failed = true
           await this.loadConversation()
         }
       }
@@ -1046,9 +1011,9 @@ export default {
         this.streamingMessageIndex = null
       }
 
-      if (isNew && this.$route.params.id !== String(this.conversationId)) {
+      if (!failedBeforeStream && this.$route.params.id !== String(this.conversationId)) {
         await this.$router.replace(`/chat/${this.conversationId}`)
-      } else if (!this.streamingChat.error.value) {
+      } else if (!streamError) {
         await this.loadConversation()
       }
 

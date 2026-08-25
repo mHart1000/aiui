@@ -2,21 +2,17 @@ require "net/http"
 
 class LlamaCapabilities
   SUCCESS_TTL = 60.seconds
-  UNKNOWN_TTL = 10.seconds
+  UNAVAILABLE_TTL = 10.seconds
 
   class << self
     def image_input(refresh: false)
       reset! if refresh
-      return @image_input if @image_input && @expires_at && monotonic_now < @expires_at
+      return @image_input if @expires_at && monotonic_now < @expires_at
 
       @image_input = fetch_image_input
-      ttl = @image_input == "unknown" ? UNKNOWN_TTL : SUCCESS_TTL
+      ttl = @image_input.nil? ? UNAVAILABLE_TTL : SUCCESS_TTL
       @expires_at = monotonic_now + ttl
       @image_input
-    end
-
-    def vision?
-      image_input == "supported"
     end
 
     def reset!
@@ -35,13 +31,12 @@ class LlamaCapabilities
       raise "HTTP #{response.code}" unless response.is_a?(Net::HTTPSuccess)
 
       vision = JSON.parse(response.body).dig("modalities", "vision")
-      return "supported" if vision == true
-      return "unsupported" if vision == false
+      return vision if vision == true || vision == false
 
-      "unknown"
+      nil
     rescue => e
       Rails.logger.warn("LlamaCapabilities: /props lookup failed (#{e.class}: #{e.message})")
-      "unknown"
+      nil
     end
 
     def base_url

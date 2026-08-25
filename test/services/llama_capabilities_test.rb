@@ -30,46 +30,44 @@ class LlamaCapabilitiesTest < ActiveSupport::TestCase
     Net::HTTP.stub(:new, FakeHttp.new(response, failure)) { yield }
   end
 
-  test "returns supported when llama.cpp reports vision true" do
+  test "returns true when llama.cpp reports vision true" do
     with_http(response: http_response({ modalities: { vision: true } })) do
-      assert_equal "supported", LlamaCapabilities.image_input
-      assert LlamaCapabilities.vision?
+      assert_equal true, LlamaCapabilities.image_input
     end
   end
 
-  test "returns unsupported when llama.cpp reports vision false" do
+  test "returns false when llama.cpp reports vision false" do
     with_http(response: http_response({ modalities: { vision: false } })) do
-      assert_equal "unsupported", LlamaCapabilities.image_input
-      assert_not LlamaCapabilities.vision?
+      assert_equal false, LlamaCapabilities.image_input
     end
   end
 
-  test "returns unknown for a missing modality" do
+  test "returns nil for a missing modality" do
     with_http(response: http_response({ model_path: "model.gguf" })) do
-      assert_equal "unknown", LlamaCapabilities.image_input
+      assert_nil LlamaCapabilities.image_input
     end
   end
 
-  test "returns unknown on server and transport failures" do
+  test "returns nil on server and transport failures" do
     with_http(response: http_response({}, code: "500")) do
-      assert_equal "unknown", LlamaCapabilities.image_input
+      assert_nil LlamaCapabilities.image_input
     end
     LlamaCapabilities.reset!
     with_http(failure: Errno::ECONNREFUSED.new) do
-      assert_equal "unknown", LlamaCapabilities.image_input
+      assert_nil LlamaCapabilities.image_input
     end
   end
 
   test "verified results cache for sixty seconds" do
-    LlamaCapabilities.stub(:fetch_image_input, "supported") do
+    LlamaCapabilities.stub(:fetch_image_input, true) do
       LlamaCapabilities.stub(:monotonic_now, 100.0) { LlamaCapabilities.image_input }
     end
 
     assert_equal 160.0, LlamaCapabilities.instance_variable_get(:@expires_at)
   end
 
-  test "unknown results cache for ten seconds" do
-    LlamaCapabilities.stub(:fetch_image_input, "unknown") do
+  test "unavailable results cache for ten seconds" do
+    LlamaCapabilities.stub(:fetch_image_input, nil) do
       LlamaCapabilities.stub(:monotonic_now, 100.0) { LlamaCapabilities.image_input }
     end
 
@@ -78,11 +76,11 @@ class LlamaCapabilitiesTest < ActiveSupport::TestCase
 
   test "refresh resets a cached result" do
     calls = 0
-    fetcher = -> { calls += 1; calls == 1 ? "supported" : "unsupported" }
+    fetcher = -> { calls += 1; calls == 1 }
     LlamaCapabilities.stub(:fetch_image_input, fetcher) do
-      assert_equal "supported", LlamaCapabilities.image_input
-      assert_equal "supported", LlamaCapabilities.image_input
-      assert_equal "unsupported", LlamaCapabilities.image_input(refresh: true)
+      assert_equal true, LlamaCapabilities.image_input
+      assert_equal true, LlamaCapabilities.image_input
+      assert_equal false, LlamaCapabilities.image_input(refresh: true)
     end
 
     assert_equal 2, calls

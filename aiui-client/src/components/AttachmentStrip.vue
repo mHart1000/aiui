@@ -7,11 +7,6 @@
     >
       <img :src="attachment.url" :alt="attachment.filename" class="attachment-image" />
 
-      <div v-if="attachment.failed" class="attachment-overlay">
-        <q-icon name="error_outline" size="20px" color="negative" />
-        <q-tooltip>{{ attachment.error || 'Image rejected' }}</q-tooltip>
-      </div>
-
       <q-btn
         class="attachment-remove"
         icon="close"
@@ -59,14 +54,6 @@ export default {
   height: 100%;
   object-fit: cover;
   display: block;
-}
-.attachment-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.45);
 }
 .attachment-remove {
   position: absolute;

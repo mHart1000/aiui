@@ -7,75 +7,68 @@ class AiModelsTest < ActiveSupport::TestCase
     assert_not AiModels.local?("not-a-real-model")
   end
 
-  test "cloud image support comes only from the static allowlist" do
-    assert_equal "supported", AiModels.image_input("openrouter/google/gemma-4-31b-it:free")
-    assert_equal "supported", AiModels.image_input("openrouter/nvidia/nemotron-nano-12b-v2-vl:free")
-    assert_equal "unsupported", AiModels.image_input("openrouter/qwen/qwen3-coder:free")
-    assert_equal "unsupported", AiModels.image_input("claude-opus-4-5")
-    assert_equal "unsupported", AiModels.image_input(nil)
+  test "all non-local models reject new images" do
+    LlamaCapabilities.stub(:image_input, true) do
+      assert_not AiModels.images_allowed?("openrouter/google/gemma-4-31b-it:free")
+      assert_not AiModels.images_allowed?("openrouter/nvidia/nemotron-nano-12b-v2-vl:free")
+      assert_not AiModels.images_allowed?("claude-opus-4-5")
+      assert_not AiModels.images_allowed?(nil)
+    end
   end
 
   test "LLAMA_VISION overrides local discovery in both directions" do
     with_env("LLAMA_VISION" => "true") do
-      LlamaCapabilities.stub(:image_input, "unsupported") do
-        assert_equal "supported", AiModels.image_input("local-llama")
+      LlamaCapabilities.stub(:image_input, false) do
+        assert_equal true, AiModels.local_image_input
+        assert AiModels.images_allowed?("local-llama")
       end
     end
     with_env("LLAMA_VISION" => "false") do
-      LlamaCapabilities.stub(:image_input, "supported") do
-        assert_equal "unsupported", AiModels.image_input("local-llama")
+      LlamaCapabilities.stub(:image_input, true) do
+        assert_equal false, AiModels.local_image_input
+        assert_not AiModels.images_allowed?("local-llama")
       end
     end
   end
 
-  test "invalid LLAMA_VISION values are unknown" do
+  test "invalid LLAMA_VISION values fail open" do
     with_env("LLAMA_VISION" => "sometimes") do
-      assert_equal "unknown", AiModels.image_input("local-llama")
-      assert_not AiModels.vision?("local-llama")
+      assert_nil AiModels.local_image_input
+      assert AiModels.images_allowed?("local-llama")
     end
   end
 
-  test "local image input follows all discovery states without an override" do
+  test "local image input follows nullable discovery" do
     with_env("LLAMA_VISION" => nil) do
-      %w[supported unsupported unknown].each do |status|
+      [ true, false, nil ].each do |status|
         LlamaCapabilities.stub(:image_input, status) do
-          assert_equal status, AiModels.image_input("local-llama")
+          if status.nil?
+            assert_nil AiModels.local_image_input
+          else
+            assert_equal status, AiModels.local_image_input
+          end
+          assert_equal status != false, AiModels.images_allowed?("local-llama")
         end
       end
     end
   end
 
-  test "catalogue exposes image_input and compatibility vision" do
-    with_env("LLAMA_VISION" => "unknown-value") do
-      catalogue = AiModels.catalogue
-      local = catalogue.find { |model| model["id"] == "local-llama" }
-      cloud = catalogue.find { |model| model["id"] == "openrouter/google/gemma-3-27b-it:free" }
-      text = catalogue.find { |model| model["id"] == "gpt-4" }
-
-      assert catalogue.all? { |model| model.key?("image_input") && model.key?("vision") }
-      assert_equal "unknown", local["image_input"]
-      assert_equal false, local["vision"]
-      assert_equal [ "supported", true ], [ cloud["image_input"], cloud["vision"] ]
-      assert_equal [ "unsupported", false ], [ text["image_input"], text["vision"] ]
-    end
-  end
-
-  test "catalogue refresh is forwarded to local discovery" do
+  test "refresh is forwarded to local discovery" do
     calls = []
     with_env("LLAMA_VISION" => nil) do
-      LlamaCapabilities.stub(:image_input, ->(refresh: false) { calls << refresh; "unknown" }) do
-        AiModels.catalogue(refresh: true)
+      LlamaCapabilities.stub(:image_input, ->(refresh: false) { calls << refresh; nil }) do
+        AiModels.local_image_input(refresh: true)
       end
     end
 
     assert_equal [ true ], calls
   end
 
-  test "refresh resets discovery even while an override is active" do
+  test "refresh resets discovery while an override is active" do
     resets = 0
     with_env("LLAMA_VISION" => "true") do
       LlamaCapabilities.stub(:reset!, -> { resets += 1 }) do
-        AiModels.catalogue(refresh: true)
+        AiModels.local_image_input(refresh: true)
       end
     end
 

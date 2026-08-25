@@ -13,6 +13,16 @@ class ImageAttachmentProcessor
   }.freeze
 
   Result = Data.define(:tempfile, :filename, :content_type, :width, :height, :original_filename) do
+    def attachable
+      {
+        io: tempfile,
+        filename: filename,
+        content_type: content_type,
+        identify: false,
+        metadata: { width: width, height: height, original_filename: original_filename }
+      }
+    end
+
     def close!
       tempfile.close!
     end
