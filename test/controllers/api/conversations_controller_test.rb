@@ -65,8 +65,8 @@ module Api
       assert_equal 1, images.size
       assert_equal "small.png", images.first["filename"]
       assert_equal "image/png", images.first["content_type"]
-      assert_nil images.first["url"]
-      assert_equal "/api/conversations/#{@conversation.id}/messages/#{first.id}/images/#{images.first['id']}", images.first["download_url"]
+      assert_match %r{\A/rails/active_storage/blobs/}, images.first["url"]
+      assert_nil images.first["download_url"]
     end
 
     test "fork rejects another user's conversation" do

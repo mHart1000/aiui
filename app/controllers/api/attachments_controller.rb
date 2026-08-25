@@ -7,8 +7,6 @@ module Api
         upload: params[:file],
         max_pixels: current_api_user.image_max_pixels || User::DEFAULT_IMAGE_MAX_PIXELS
       )
-      expires_at = PendingImageUpload::TTL.from_now
-
       blob = ActiveStorage::Blob.build_after_unfurling(
         io: processed.tempfile,
         filename: processed.filename,
@@ -22,12 +20,12 @@ module Api
       )
       blob.save!
       blob.upload_without_unfurling(processed.tempfile)
-      pending = current_api_user.pending_image_uploads.create!(blob: blob, expires_at: expires_at)
 
       render json: {
-        id: pending.id,
-        signed_id: pending.client_signed_id,
-        expires_at: pending.expires_at.iso8601,
+        id: blob.id,
+        signed_id: blob.signed_id,
+        expires_at: (blob.created_at + ImageAttachmentProcessor::UPLOAD_TTL).iso8601,
+        url: rails_blob_path(blob, disposition: "inline", only_path: true),
         filename: blob.filename.to_s,
         content_type: blob.content_type,
         byte_size: blob.byte_size,
@@ -38,37 +36,29 @@ module Api
       render_error(e.code, e.message, e.status)
     rescue => e
       Rails.logger.error("AttachmentsController#create: #{e.full_message}")
-      cleanup_failed_upload(pending, blob)
+      cleanup_failed_upload(blob)
       render_error("upload_failed", "The image could not be stored.", :internal_server_error)
     ensure
       processed&.close!
     end
 
     def destroy
-      conflict = false
-      current_api_user.pending_image_uploads.transaction do
-        pending = current_api_user.pending_image_uploads.lock.find(params[:id])
-        if pending.blob.attachments.exists?
-          conflict = true
-          raise ActiveRecord::Rollback
+      signed_blob = ActiveStorage::Blob.find_signed!(params[:id])
+      ActiveStorage::Blob.transaction do
+        blob = ActiveStorage::Blob.lock.find(signed_blob.id)
+        if blob.attachments.exists?
+          return render_error("attachment_already_used", "The image is already attached to a message.", :conflict)
         end
-
-        pending.destroy!
+        blob.purge
       end
-
-      if conflict
-        return render_error("attachment_already_used", "The image is already attached to a message.", :conflict)
-      end
-
       head :no_content
-    rescue ActiveRecord::RecordNotFound
-      render_error("attachment_not_found", "The pending image was not found.", :not_found)
+    rescue ActiveSupport::MessageVerifier::InvalidSignature, ActiveRecord::RecordNotFound
+      render_error("attachment_not_found", "The image upload was not found.", :not_found)
     end
 
     private
 
-    def cleanup_failed_upload(pending, blob)
-      pending&.destroy!
+    def cleanup_failed_upload(blob)
       blob.purge if blob&.persisted? && !blob.attachments.exists?
     rescue => e
       Rails.logger.error("AttachmentsController#create cleanup failed for blob #{blob&.id}: #{e.full_message}")

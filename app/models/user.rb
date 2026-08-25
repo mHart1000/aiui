@@ -17,7 +17,6 @@ class User < ApplicationRecord
   has_many :rag_documents, dependent: :destroy
   has_many :rag_chunks, dependent: :destroy
   has_many :skills, dependent: :destroy
-  has_many :pending_image_uploads, dependent: :destroy
 
   validates :image_max_pixels,
     numericality: {

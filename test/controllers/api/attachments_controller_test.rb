@@ -7,7 +7,6 @@ class Api::AttachmentsControllerTest < ActionDispatch::IntegrationTest
   end
 
   def teardown
-    PendingImageUpload.delete_all
     ActiveStorage::Attachment.delete_all
     ActiveStorage::Blob.delete_all
     Message.delete_all
@@ -22,23 +21,21 @@ class Api::AttachmentsControllerTest < ActionDispatch::IntegrationTest
          headers: headers
   end
 
-  test "normalizes an image below the cap without changing dimensions" do
+  test "normalizes an image and returns a signed blob capability" do
     upload("small.png", "image/png")
 
     assert_response :created
     body = response.parsed_body
     assert_equal 100, body["width"]
     assert_equal 80, body["height"]
-    assert_nil body["url"]
+    assert_match %r{\A/rails/active_storage/blobs/}, body["url"]
+    assert_in_delta 24.hours.from_now, Time.iso8601(body["expires_at"]), 5.seconds
 
-    pending = PendingImageUpload.find_signed!(
-      body["signed_id"], purpose: PendingImageUpload::SIGNED_ID_PURPOSE
-    )
-    assert_equal @user, pending.user
-    assert_equal body["id"], pending.id
-    assert_equal "image/png", pending.blob.content_type
-    assert_equal "small.png", pending.blob.filename.to_s
-    assert_not_equal File.binread(file_fixture("small.png")), pending.blob.download
+    blob = ActiveStorage::Blob.find_signed!(body["signed_id"])
+    assert_equal body["id"], blob.id
+    assert_equal "image/png", blob.content_type
+    assert_equal "small.png", blob.filename.to_s
+    assert_not_equal File.binread(file_fixture("small.png")), blob.download
   end
 
   test "downscales an oversized image to the cap and no further" do
@@ -69,16 +66,12 @@ class Api::AttachmentsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "image/png", response.parsed_body["content_type"]
   end
 
-  test "returns a structured error for unsupported bytes" do
+  test "returns structured errors for unsupported or missing files" do
     upload("sample.txt", "image/png")
-
     assert_response :unprocessable_content
     assert_equal "unsupported_image_type", response.parsed_body.dig("error", "code")
-  end
 
-  test "returns a structured error when the file is missing" do
     post "/api/attachments", params: {}, headers: @headers
-
     assert_response :unprocessable_content
     assert_equal "missing_file", response.parsed_body.dig("error", "code")
   end
@@ -87,7 +80,7 @@ class Api::AttachmentsControllerTest < ActionDispatch::IntegrationTest
     failing_upload = ->(*_args, **_kwargs) { raise IOError, "disk unavailable" }
 
     ActiveStorage::Blob.service.stub(:upload, failing_upload) do
-      assert_no_difference [ "ActiveStorage::Blob.count", "PendingImageUpload.count" ] do
+      assert_no_difference "ActiveStorage::Blob.count" do
         upload("small.png", "image/png")
       end
     end
@@ -96,38 +89,35 @@ class Api::AttachmentsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "upload_failed", response.parsed_body.dig("error", "code")
   end
 
-  test "deletes only an owned pending upload" do
+  test "deletes an unattached upload using its signed capability" do
     upload("small.png", "image/png")
-    pending = PendingImageUpload.find(response.parsed_body["id"])
+    body = response.parsed_body
 
-    delete "/api/attachments/#{pending.id}", headers: @headers
+    delete "/api/attachments/#{body['signed_id']}", headers: @headers
 
     assert_response :no_content
-    assert_not PendingImageUpload.exists?(pending.id)
+    assert_not ActiveStorage::Blob.exists?(body["id"])
   end
 
-  test "hides another user's pending upload on delete" do
-    upload("small.png", "image/png")
-    pending_id = response.parsed_body["id"]
-    other = User.create!(email: "attachment-other@example.com", password: "password123")
-
-    delete "/api/attachments/#{pending_id}", headers: sign_in_as(other)
+  test "rejects invalid deletion capabilities" do
+    delete "/api/attachments/not-a-signed-id", headers: @headers
 
     assert_response :not_found
     assert_equal "attachment_not_found", response.parsed_body.dig("error", "code")
-    assert PendingImageUpload.exists?(pending_id)
   end
 
-  test "rejects deleting an already attached pending blob" do
+  test "rejects deleting an already attached blob" do
     upload("small.png", "image/png")
-    pending = PendingImageUpload.find(response.parsed_body["id"])
+    body = response.parsed_body
+    blob = ActiveStorage::Blob.find(body["id"])
     conversation = @user.conversations.create!(title: "Used")
-    conversation.messages.create!(role: "user", content: "used", images: [ pending.blob ])
+    conversation.messages.create!(role: "user", content: "used", images: [ blob ])
 
-    delete "/api/attachments/#{pending.id}", headers: @headers
+    delete "/api/attachments/#{body['signed_id']}", headers: @headers
 
     assert_response :conflict
     assert_equal "attachment_already_used", response.parsed_body.dig("error", "code")
+    assert ActiveStorage::Blob.exists?(blob.id)
   end
 
   test "requires authentication" do

@@ -21,9 +21,7 @@ Rails.application.routes.draw do
     resources :conversations, only: [ :index, :create, :show, :update ] do
       collection { get :search }
       member { post :fork, action: :create_fork }
-      resources :messages, only: [ :create, :update ] do
-        resources :images, only: :show, controller: "message_images", param: :attachment_id
-      end
+      resources :messages, only: [ :create, :update ]
       post "messages/stream", to: "messages#create_streaming"
     end
     resources :models, only: [ :index ] do

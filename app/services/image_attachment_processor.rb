@@ -5,6 +5,7 @@ class ImageAttachmentProcessor
   MAX_IMAGES = 4
   MAX_BYTES = 8.megabytes
   MAX_SOURCE_PIXELS = 100_000_000
+  UPLOAD_TTL = 24.hours
   ACCEPTED_TYPES = %w[image/jpeg image/png image/webp].freeze
   EXTENSIONS = {
     "image/jpeg" => "jpg",

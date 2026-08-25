@@ -15,7 +15,7 @@ module Api
 
     def create
       conversation = current_api_user.conversations.find(params[:conversation_id])
-      signed_ids = pending_image_signed_ids
+      signed_ids = image_signed_ids
       validate_message_input!(signed_ids)
       safe_model_code = conversation.resolve_model_code(params[:model_code])
       image_input = AiModels.image_input(safe_model_code)
@@ -91,7 +91,7 @@ module Api
     def create_streaming
       conversation = current_api_user.conversations.find(params[:conversation_id])
       regenerating = ActiveModel::Type::Boolean.new.cast(params[:regenerating])
-      signed_ids = pending_image_signed_ids
+      signed_ids = image_signed_ids
 
       if regenerating && signed_ids.any?
         raise RequestError.new("images_not_allowed_on_regeneration", "Regeneration reuses images already stored with the message.")
@@ -223,45 +223,44 @@ module Api
 
     def create_user_message!(conversation, content, signed_ids)
       conversation.transaction do
-        pending_uploads = resolve_pending_uploads!(signed_ids)
+        blobs = resolve_image_blobs!(signed_ids)
         message = conversation.messages.create!(
           role: "user",
           content: content,
-          images: pending_uploads.map(&:blob)
+          images: blobs
         )
-        pending_uploads.each(&:destroy!)
         message
       end
     end
 
-    def resolve_pending_uploads!(signed_ids)
+    def resolve_image_blobs!(signed_ids)
       return [] if signed_ids.empty?
 
       decoded = signed_ids.map do |signed_id|
-        PendingImageUpload.find_signed!(signed_id, purpose: PendingImageUpload::SIGNED_ID_PURPOSE)
+        ActiveStorage::Blob.find_signed!(signed_id)
       rescue ActiveSupport::MessageVerifier::InvalidSignature, ActiveRecord::RecordNotFound
-        raise RequestError.new("attachment_not_found", "A pending image is invalid or expired.", status: :not_found)
+        raise RequestError.new("attachment_not_found", "An image upload is invalid or no longer available.", status: :not_found)
       end
 
       ids = decoded.map(&:id).sort
       if ids.uniq.length != ids.length
-        raise RequestError.new("duplicate_images", "The same pending image cannot be attached more than once.")
+        raise RequestError.new("duplicate_images", "The same image cannot be attached more than once.")
       end
-      pending_uploads = current_api_user.pending_image_uploads.where(id: ids).order(:id).lock.to_a
-      if pending_uploads.size != ids.size
-        raise RequestError.new("attachment_not_found", "A pending image was not found.", status: :not_found)
+      blobs = ActiveStorage::Blob.where(id: ids).order(:id).lock.to_a
+      if blobs.size != ids.size
+        raise RequestError.new("attachment_not_found", "An image upload was not found.", status: :not_found)
       end
-      if pending_uploads.any?(&:expired?)
-        raise RequestError.new("attachment_expired", "A pending image has expired.")
+      if blobs.any? { |blob| blob.created_at + ImageAttachmentProcessor::UPLOAD_TTL <= Time.current }
+        raise RequestError.new("attachment_expired", "An image upload has expired.")
       end
-      if pending_uploads.any? { |pending| pending.blob.attachments.exists? }
-        raise RequestError.new("attachment_already_used", "A pending image is already attached.", status: :conflict)
+      if blobs.any? { |blob| blob.attachments.exists? }
+        raise RequestError.new("attachment_already_used", "An image upload is already attached.", status: :conflict)
       end
 
-      pending_uploads
+      blobs
     end
 
-    def pending_image_signed_ids
+    def image_signed_ids
       Array(params[:image_signed_ids]).reject(&:blank?)
     end
 
@@ -273,7 +272,7 @@ module Api
         raise RequestError.new("too_many_images", "A message may contain at most four images.")
       end
       if signed_ids.uniq.length != signed_ids.length
-        raise RequestError.new("duplicate_images", "The same pending image cannot be attached more than once.")
+        raise RequestError.new("duplicate_images", "The same image cannot be attached more than once.")
       end
     end
 

@@ -468,8 +468,6 @@ export default {
     modelCode: null,
     pendingAttachments: [],
     lightboxImage: null,
-    lightboxObjectUrl: null,
-    loadedImageUrls: new Set(),
     optimisticImageUrls: new Set(),
     imageMaxPixels: 6000000,
     streamingMessageIndex: null,
@@ -873,21 +871,21 @@ export default {
       if (!removed) return
       removed.cancelled = true
       this.revokePreview(removed)
-      if (removed.id) this.deletePendingAttachment(removed)
+      if (removed.signedId) this.deletePendingAttachment(removed)
     },
     clearAttachments() {
       this.pendingAttachments.forEach((entry) => {
         entry.cancelled = true
         this.revokePreview(entry)
-        if (entry.id) this.deletePendingAttachment(entry)
+        if (entry.signedId) this.deletePendingAttachment(entry)
       })
       this.pendingAttachments = []
     },
     async deletePendingAttachment(entry) {
-      if (!entry.id || entry.deleteStarted) return
+      if (!entry.signedId || entry.deleteStarted) return
       entry.deleteStarted = true
       try {
-        await api.delete(`/api/attachments/${entry.id}`)
+        await api.delete(`/api/attachments/${encodeURIComponent(entry.signedId)}`)
       } catch (err) {
         if (err.response?.status !== 404 && err.response?.status !== 409) {
           console.warn('Failed to clean up pending image', err)
@@ -909,49 +907,20 @@ export default {
         this.ragEnabled = res.data.rag_enabled || false
         this.skillsEnabled = res.data.use_skills || false
         this.activeSkillIds = res.data.skill_ids || []
-        await this.loadSavedImages(this.messages)
       } catch (err) {
         console.error('Error loading conversation', err)
       }
     },
-    async loadSavedImages(messages) {
-      const images = messages.flatMap(message => message.images || []).filter(image => image.download_url)
-      await Promise.all(images.map(async (image) => {
-        try {
-          const response = await api.get(image.download_url, { responseType: 'blob' })
-          const url = URL.createObjectURL(response.data)
-          image.url = url
-          this.loadedImageUrls.add(url)
-        } catch (err) {
-          image.loadError = true
-          console.warn('Failed to load saved image', err)
-        }
-      }))
-    },
     revokeMessageUrls() {
-      this.loadedImageUrls.forEach(url => URL.revokeObjectURL(url))
       this.optimisticImageUrls.forEach(url => URL.revokeObjectURL(url))
-      this.loadedImageUrls.clear()
       this.optimisticImageUrls.clear()
     },
-    async openLightbox(image) {
+    openLightbox(image) {
       this.closeLightbox()
-      if (!image.download_url) {
-        this.lightboxImage = image
-        return
-      }
-      try {
-        const response = await api.get(image.download_url, { responseType: 'blob' })
-        this.lightboxObjectUrl = URL.createObjectURL(response.data)
-        this.lightboxImage = { ...image, url: this.lightboxObjectUrl }
-      } catch {
-        this.$q.notify({ type: 'negative', message: 'Failed to load image', timeout: 2000 })
-      }
+      this.lightboxImage = image
     },
     closeLightbox(value = false) {
       if (value) return
-      if (this.lightboxObjectUrl) URL.revokeObjectURL(this.lightboxObjectUrl)
-      this.lightboxObjectUrl = null
       this.lightboxImage = null
     },
     async updateImageMaxPixels(value) {
@@ -974,16 +943,6 @@ export default {
       } catch {
         this.$q.notify({ type: 'negative', message: 'Could not refresh model capabilities', timeout: 2000 })
       }
-    },
-    confirmUnknownImageSupport() {
-      return new Promise((resolve) => {
-        this.$q.dialog({
-          title: 'Image support is unverified',
-          message: `${this.modelLabel} may not accept images. Send them anyway?`,
-          cancel: true,
-          persistent: true
-        }).onOk(() => resolve(true)).onCancel(() => resolve(false)).onDismiss(() => resolve(false))
-      })
     },
     async updateActiveSkills(ids) {
       const previousIds = this.activeSkillIds
@@ -1072,8 +1031,6 @@ export default {
         this.$q.notify({ type: 'negative', message: `${this.modelLabel} does not accept images. Your images are still pending.`, timeout: 3000 })
         return
       }
-      if (attachments.length && this.imageInput === 'unknown' && !(await this.confirmUnknownImageSupport())) return
-
       const imageSignedIds = attachments.map(a => a.signedId)
 
       // Stop any current TTS playback

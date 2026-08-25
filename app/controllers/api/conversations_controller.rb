@@ -73,7 +73,7 @@ module Api
                 byte_size: a.blob.byte_size,
                 width: metadata["width"],
                 height: metadata["height"],
-                download_url: api_conversation_message_image_path(conversation, m, a)
+                url: rails_blob_path(a.blob, disposition: "inline", only_path: true)
               }
             }
           }

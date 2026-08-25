@@ -110,20 +110,20 @@ To attach images to the **local** model, just start `llama-server` with a multim
   --host 0.0.0.0
 ```
 
-No configuration is normally needed: the app reads `modalities.vision` from llama.cpp's `/props` endpoint. Verified results are cached for 60 seconds and unverified results for 10 seconds. When support is unknown, attaching remains available but sending requires confirmation. Set `LLAMA_VISION=true|false` in `.env` only to force the answer; invalid values are treated as unknown.
+No configuration is normally needed: the app reads `modalities.vision` from llama.cpp's `/props` endpoint. Verified results are cached for 60 seconds and unverified results for 10 seconds. When support is unknown, attaching and sending remain available with a warning. Set `LLAMA_VISION=true|false` in `.env` only to force the answer; invalid values are treated as unknown.
 
 Cloud models are opted in by id in `AiModels::VISION_MODEL_IDS` ([config/initializers/ai_models.rb](config/initializers/ai_models.rb)); unlisted cloud models are verified unsupported.
 
 Every upload is autorotated and re-encoded to remove private metadata. Images above `users.image_max_pixels` (default 6,000,000) are downscaled to that budget; smaller images retain their dimensions. JPEG, PNG, and WebP are supported, with an 8 MiB limit per image.
 
-Pending uploads expire after 24 hours. Run cleanup daily from cron or a systemd timer:
+Unclaimed uploads expire after 24 hours. Run cleanup daily from cron or a systemd timer:
 
 ```bash
 bin/rails attachments:purge_expired
 DRY_RUN=1 bin/rails attachments:purge_expired
 ```
 
-During rollout, `bin/rails attachments:audit_legacy_unattached` lists older unattached blobs without deleting them. See [docs/image-attachments-spec.md](docs/image-attachments-spec.md) for the complete security and lifecycle contract.
+The cleanup task only purges unattached blobs, so images already saved to messages are retained. See [docs/image-attachments-spec.md](docs/image-attachments-spec.md) for the complete local-first security and lifecycle contract.
 
 ---
 ## TTS setup:

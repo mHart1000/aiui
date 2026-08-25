@@ -4,53 +4,53 @@ require "rake"
 class AttachmentsTaskTest < ActiveSupport::TestCase
   def setup
     Rails.application.load_tasks unless Rake::Task.task_defined?("attachments:purge_expired")
-    @user = User.create!(email: "attachment-task@example.com", password: "password123")
   end
 
-  def pending(expires_at:, filename:)
+  def blob(created_at:, filename:)
     blob = ActiveStorage::Blob.create_and_upload!(
       io: StringIO.new(filename), filename: filename, content_type: "image/png", identify: false
     )
-    @user.pending_image_uploads.create!(blob: blob, expires_at: expires_at)
+    blob.update_column(:created_at, created_at)
+    blob
   end
 
-  def invoke_task(name, env = {})
-    task = Rake::Task[name]
+  def invoke_task(env = {})
+    task = Rake::Task["attachments:purge_expired"]
     task.reenable
     with_env(env) { capture_io { task.invoke } }
   end
 
-  test "dry run reports expired rows without deleting them" do
-    expired = pending(expires_at: 1.hour.ago, filename: "expired.png")
-    fresh = pending(expires_at: 1.hour.from_now, filename: "fresh.png")
+  test "dry run reports expired unattached blobs without deleting them" do
+    expired = blob(created_at: 25.hours.ago, filename: "expired.png")
+    fresh = blob(created_at: 23.hours.ago, filename: "fresh.png")
 
-    stdout, = invoke_task("attachments:purge_expired", "DRY_RUN" => "1")
+    stdout, = invoke_task("DRY_RUN" => "1")
 
     assert_includes stdout, "Would purge 1"
-    assert PendingImageUpload.exists?(expired.id)
-    assert PendingImageUpload.exists?(fresh.id)
+    assert ActiveStorage::Blob.exists?(expired.id)
+    assert ActiveStorage::Blob.exists?(fresh.id)
   end
 
-  test "real cleanup deletes only expired pending rows" do
-    expired = pending(expires_at: 1.hour.ago, filename: "expired.png")
-    fresh = pending(expires_at: 1.hour.from_now, filename: "fresh.png")
+  test "real cleanup deletes only expired unattached blobs" do
+    expired = blob(created_at: 25.hours.ago, filename: "expired.png")
+    fresh = blob(created_at: 23.hours.ago, filename: "fresh.png")
 
-    stdout, = invoke_task("attachments:purge_expired", "DRY_RUN" => nil)
+    stdout, = invoke_task("DRY_RUN" => nil)
 
     assert_includes stdout, "Purging 1"
-    assert_not PendingImageUpload.exists?(expired.id)
-    assert PendingImageUpload.exists?(fresh.id)
+    assert_not ActiveStorage::Blob.exists?(expired.id)
+    assert ActiveStorage::Blob.exists?(fresh.id)
   end
 
-  test "legacy audit is report-only" do
-    legacy = ActiveStorage::Blob.create_and_upload!(
-      io: StringIO.new("legacy"), filename: "legacy.png", content_type: "image/png", identify: false
-    )
-    legacy.update_column(:created_at, Time.zone.parse("2026-08-22"))
+  test "cleanup retains old blobs attached to messages" do
+    user = User.create!(email: "attachment-task@example.com", password: "password123")
+    conversation = user.conversations.create!(title: "Saved")
+    saved = blob(created_at: 25.hours.ago, filename: "saved.png")
+    conversation.messages.create!(role: "user", content: "saved", images: [ saved ])
 
-    stdout, = invoke_task("attachments:audit_legacy_unattached")
+    stdout, = invoke_task
 
-    assert_includes stdout, "no files were deleted"
-    assert ActiveStorage::Blob.exists?(legacy.id)
+    assert_includes stdout, "Purging 0"
+    assert ActiveStorage::Blob.exists?(saved.id)
   end
 end
