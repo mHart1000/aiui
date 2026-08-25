@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_24_000001) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_22_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "vector"
@@ -34,7 +34,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_24_000001) do
     t.string "key", null: false
     t.text "metadata"
     t.string "service_name", null: false
-    t.index ["created_at"], name: "index_active_storage_blobs_on_created_at"
     t.index ["key"], name: "index_active_storage_blobs_on_key", unique: true
   end
 
@@ -126,7 +125,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_24_000001) do
     t.datetime "created_at", null: false
     t.string "email", default: "", null: false
     t.string "encrypted_password", default: "", null: false
-    t.integer "image_max_pixels", default: 6000000
     t.integer "llama_context_window", default: 8192
     t.string "persona_id", default: "persona1", null: false
     t.datetime "remember_created_at"

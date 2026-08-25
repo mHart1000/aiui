@@ -157,14 +157,15 @@
 
         <div :class="msg.role" class="bubble q-pa-sm q-rounded-borders">
           <div v-if="msg.images && msg.images.length" class="message-images">
-            <img
+            <a
               v-for="image in msg.images"
               :key="image.id || image.url"
-              :src="image.url"
-              :alt="image.filename"
-              class="message-image"
-              @click="openLightbox(image)"
-            />
+              :href="image.url"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <img :src="image.url" :alt="image.filename" class="message-image" />
+            </a>
           </div>
           <div v-if="!msg.content && isActivelyStreaming(i) && streamingChat.loadingPhase.value === 'connecting'" class="loading-placeholder">
             <div class="typing-indicator">
@@ -319,7 +320,6 @@
         :voice-mode="voiceChatMode"
         :attachments="pendingAttachments"
         :image-input="imageInput"
-        :image-max-pixels="imageMaxPixels"
         :model-label="modelLabel"
         @error="handleSttError"
         @status="handleSttStatus"
@@ -329,7 +329,6 @@
         @toggle-voice-mode="toggleVoiceMode"
         @files-selected="onFilesSelected"
         @remove-attachment="removeAttachment"
-        @update:image-max-pixels="updateImageMaxPixels"
         @refresh-capability="refreshModelCapability"
         class="col message-input"
       />
@@ -349,7 +348,6 @@
         :voice-mode="voiceChatMode"
         :attachments="pendingAttachments"
         :image-input="imageInput"
-        :image-max-pixels="imageMaxPixels"
         :model-label="modelLabel"
         @error="handleSttError"
         @status="handleSttStatus"
@@ -361,7 +359,6 @@
         @inactivity-timeout="handleVoiceInactivityTimeout"
         @files-selected="onFilesSelected"
         @remove-attachment="removeAttachment"
-        @update:image-max-pixels="updateImageMaxPixels"
         @refresh-capability="refreshModelCapability"
         class="col message-input"
       />
@@ -374,12 +371,6 @@
       @update:active-ids="updateActiveSkills"
       @update:enabled="updateSkillsEnabled"
     />
-
-    <q-dialog :model-value="!!lightboxImage" @update:model-value="closeLightbox">
-      <q-card class="lightbox-card">
-        <img v-if="lightboxImage" :src="lightboxImage.url" :alt="lightboxImage.filename" class="lightbox-image" />
-      </q-card>
-    </q-dialog>
   </q-page>
 </template>
 
@@ -467,9 +458,7 @@ export default {
     models: [],
     modelCode: null,
     pendingAttachments: [],
-    lightboxImage: null,
     optimisticImageUrls: new Set(),
-    imageMaxPixels: 6000000,
     streamingMessageIndex: null,
     expandedThinking: {},
     useScaffolding: true,
@@ -509,7 +498,6 @@ export default {
     if (!this.conversationId) this.activeSkillIds = this.defaultSkillIds
     this.activeSkillIds = this.defaultSkillIds
     this.llamaContextWindow = userRes.data.llama_context_window || 8192
-    this.imageMaxPixels = userRes.data.image_max_pixels || 6000000
 
     // Live context window from llama.cpp is authoritative; the stored value above is only the fallback.
     if (this.isLlamaModel) await this.fetchLlamaContext()
@@ -525,7 +513,6 @@ export default {
     this.cancelArm()
     this.clearAttachments()
     this.revokeMessageUrls()
-    this.closeLightbox()
   },
   watch: {
     modelCode() {
@@ -668,9 +655,6 @@ export default {
     },
     modelLabel() {
       return this.selectedModel ? String(this.selectedModel.id).split('/').pop() : 'This model'
-    },
-    readyAttachmentIds() {
-      return this.pendingAttachments.filter(a => a.signedId && !a.failed && !a.cancelled).map(a => a.signedId)
     },
     lastContextTokens() {
       for (let i = this.messages.length - 1; i >= 0; i--) {
@@ -822,75 +806,26 @@ export default {
       }
 
       files.slice(0, room).forEach((file) => {
-        const entry = {
+        this.pendingAttachments.push({
           clientKey: `${Date.now()}-${Math.random()}`,
+          file,
           filename: file.name,
           url: URL.createObjectURL(file),
           isPreview: true,
-          uploading: true,
-          failed: false,
-          cancelled: false,
-          id: null,
-          signedId: null
-        }
-        this.pendingAttachments.push(entry)
-        // Re-read through the reactive proxy so upload progress actually renders.
-        this.uploadAttachment(file, entry)
-      })
-    },
-    async uploadAttachment(file, entry) {
-      const form = new FormData()
-      form.append('file', file)
-
-      try {
-        const res = await api.post('/api/attachments', form, {
-          headers: { 'Content-Type': 'multipart/form-data' }
+          failed: false
         })
-        entry.id = res.data.id
-        entry.signedId = res.data.signed_id
-        entry.expiresAt = res.data.expires_at
-        entry.filename = res.data.filename
-        entry.contentType = res.data.content_type
-        entry.byteSize = res.data.byte_size
-        entry.width = res.data.width
-        entry.height = res.data.height
-        if (entry.cancelled) await this.deletePendingAttachment(entry)
-      } catch (err) {
-        if (entry.cancelled) return
-        entry.failed = true
-        const details = err.response?.data?.error
-        entry.errorCode = details?.code || 'upload_failed'
-        entry.errorStatus = err.response?.status || null
-        entry.error = details?.message || 'Upload failed'
-      } finally {
-        entry.uploading = false
-      }
+      })
     },
     removeAttachment(index) {
       const [removed] = this.pendingAttachments.splice(index, 1)
       if (!removed) return
-      removed.cancelled = true
       this.revokePreview(removed)
-      if (removed.signedId) this.deletePendingAttachment(removed)
     },
     clearAttachments() {
       this.pendingAttachments.forEach((entry) => {
-        entry.cancelled = true
         this.revokePreview(entry)
-        if (entry.signedId) this.deletePendingAttachment(entry)
       })
       this.pendingAttachments = []
-    },
-    async deletePendingAttachment(entry) {
-      if (!entry.signedId || entry.deleteStarted) return
-      entry.deleteStarted = true
-      try {
-        await api.delete(`/api/attachments/${encodeURIComponent(entry.signedId)}`)
-      } catch (err) {
-        if (err.response?.status !== 404 && err.response?.status !== 409) {
-          console.warn('Failed to clean up pending image', err)
-        }
-      }
     },
     revokePreview(entry) {
       if (entry.isPreview && entry.url) {
@@ -914,27 +849,6 @@ export default {
     revokeMessageUrls() {
       this.optimisticImageUrls.forEach(url => URL.revokeObjectURL(url))
       this.optimisticImageUrls.clear()
-    },
-    openLightbox(image) {
-      this.closeLightbox()
-      this.lightboxImage = image
-    },
-    closeLightbox(value = false) {
-      if (value) return
-      this.lightboxImage = null
-    },
-    async updateImageMaxPixels(value) {
-      const previous = this.imageMaxPixels
-      this.imageMaxPixels = value
-      try {
-        const response = await api.patch('/api/user', { user: { image_max_pixels: value } })
-        this.imageMaxPixels = response.data.image_max_pixels
-        this.$q.notify({ type: 'positive', message: 'Image resize cap saved for later uploads', timeout: 1800 })
-      } catch (err) {
-        this.imageMaxPixels = previous
-        const details = err.response?.data?.error
-        this.$q.notify({ type: 'negative', message: details?.message || 'Failed to save image resize cap', timeout: 2500 })
-      }
     },
     async refreshModelCapability() {
       try {
@@ -1012,27 +926,17 @@ export default {
     async sendMessage() {
       const text = this.input.trim()
       const model = this.modelCode
-      const attachments = this.pendingAttachments.filter(a => !a.failed && !a.cancelled)
+      const attachments = this.pendingAttachments.filter(a => !a.failed)
 
       if (this.pendingAttachments.some(a => a.failed)) {
         this.$q.notify({ type: 'negative', message: 'Remove failed images before sending', timeout: 2200 })
         return
       }
       if (!text && !attachments.length) return
-      if (attachments.some(a => a.uploading)) {
-        this.$q.notify({
-          message: 'Waiting for images to finish uploading',
-          position: 'top',
-          timeout: 2000
-        })
-        return
-      }
       if (attachments.length && this.imageInput === 'unsupported') {
-        this.$q.notify({ type: 'negative', message: `${this.modelLabel} does not accept images. Your images are still pending.`, timeout: 3000 })
+        this.$q.notify({ type: 'negative', message: `${this.modelLabel} does not accept images. Your selected images are still here.`, timeout: 3000 })
         return
       }
-      const imageSignedIds = attachments.map(a => a.signedId)
-
       // Stop any current TTS playback
       if (this.ttsPlayer.isEnabled.value) {
         this.ttsPlayer.stop()
@@ -1089,7 +993,7 @@ export default {
         text,
         token,
         model,
-        { imageSignedIds }
+        { images: attachments.map(attachment => attachment.file) }
       )
 
       // Update placeholder message with final content from composable
@@ -1114,7 +1018,14 @@ export default {
             if (attachment.url) this.optimisticImageUrls.delete(attachment.url)
             attachment.isPreview = !!attachment.url
           })
-          const invalidCodes = new Set(['attachment_not_found', 'attachment_expired', 'attachment_already_used', 'duplicate_images'])
+          const invalidCodes = new Set([
+            'missing_file',
+            'unsupported_image_type',
+            'invalid_image',
+            'image_too_large',
+            'image_dimensions_too_large',
+            'too_many_images'
+          ])
           if (invalidCodes.has(streamError.code)) {
             attachments.forEach((attachment) => {
               attachment.failed = true
@@ -1536,17 +1447,7 @@ export default {
   max-width: 220px;
   max-height: 220px;
   border-radius: 6px;
-  cursor: zoom-in;
-  display: block;
-}
-.lightbox-card {
-  background: transparent;
-  box-shadow: none;
-  max-width: 90vw;
-}
-.lightbox-image {
-  max-width: 100%;
-  max-height: 85vh;
+  cursor: pointer;
   display: block;
 }
 .message-footer {

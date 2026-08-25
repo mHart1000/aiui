@@ -45,20 +45,6 @@ class UserTest < ActiveSupport::TestCase
     assert_equal 1.0, @user.reload.tts_speed
   end
 
-  test "image pixel budget accepts only the documented integer range" do
-    @user.image_max_pixels = User::MIN_IMAGE_MAX_PIXELS
-    assert @user.valid?
-    @user.image_max_pixels = User::MAX_IMAGE_MAX_PIXELS
-    assert @user.valid?
-
-    @user.image_max_pixels = User::MIN_IMAGE_MAX_PIXELS - 1
-    assert_not @user.valid?
-    @user.image_max_pixels = User::MAX_IMAGE_MAX_PIXELS + 1
-    assert_not @user.valid?
-    @user.image_max_pixels = 2_500_000.5
-    assert_not @user.valid?
-  end
-
   # associations
   test "destroying a user destroys their conversations" do
     @user.save!

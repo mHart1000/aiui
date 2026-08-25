@@ -15,9 +15,8 @@ module Api
       if current_api_user.update(attrs)
         render json: user_json
       else
-        code = attrs.key?(:image_max_pixels) ? "invalid_pixel_budget" : "invalid_user_settings"
         render json: {
-          error: { code: code, message: current_api_user.errors.full_messages.to_sentence }
+          error: { code: "invalid_user_settings", message: current_api_user.errors.full_messages.to_sentence }
         }, status: :unprocessable_entity
       end
     end
@@ -37,13 +36,12 @@ module Api
         tts_enabled: current_api_user.tts_enabled,
         tts_voice: current_api_user.tts_voice || "af_heart",
         tts_speed: current_api_user.tts_speed,
-        llama_context_window: current_api_user.llama_context_window,
-        image_max_pixels: current_api_user.image_max_pixels
+        llama_context_window: current_api_user.llama_context_window
       }
     end
 
     def user_params
-      params.require(:user).permit(:use_scaffolding, :use_persona, :persona_id, :use_skills, :tts_enabled, :tts_voice, :tts_speed, :llama_context_window, :image_max_pixels)
+      params.require(:user).permit(:use_scaffolding, :use_persona, :persona_id, :use_skills, :tts_enabled, :tts_voice, :tts_speed, :llama_context_window)
     end
   end
 end

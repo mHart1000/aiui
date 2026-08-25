@@ -5,12 +5,11 @@ class ImageAttachmentProcessor
   MAX_IMAGES = 4
   MAX_BYTES = 8.megabytes
   MAX_SOURCE_PIXELS = 100_000_000
-  UPLOAD_TTL = 24.hours
-  ACCEPTED_TYPES = %w[image/jpeg image/png image/webp].freeze
+  MAX_PIXELS = 6_000_000
+  ACCEPTED_TYPES = %w[image/jpeg image/png].freeze
   EXTENSIONS = {
     "image/jpeg" => "jpg",
-    "image/png" => "png",
-    "image/webp" => "webp"
+    "image/png" => "png"
   }.freeze
 
   Result = Data.define(:tempfile, :filename, :content_type, :width, :height, :original_filename) do
@@ -29,13 +28,12 @@ class ImageAttachmentProcessor
     end
   end
 
-  def self.call(upload:, max_pixels:)
-    new(upload: upload, max_pixels: max_pixels).call
+  def self.call(upload:)
+    new(upload: upload).call
   end
 
-  def initialize(upload:, max_pixels:)
+  def initialize(upload:)
     @upload = upload
-    @max_pixels = max_pixels
   end
 
   def call
@@ -44,7 +42,7 @@ class ImageAttachmentProcessor
     validate_upload!
     content_type = detected_type
     unless ACCEPTED_TYPES.include?(content_type)
-      raise Error.new("unsupported_image_type", "Images must be JPEG, PNG, or WebP.")
+      raise Error.new("unsupported_image_type", "Images must be JPEG or PNG.")
     end
 
     source = Vips::Image.new_from_file(@upload.tempfile.path, access: :sequential)
@@ -55,7 +53,7 @@ class ImageAttachmentProcessor
 
     extension = EXTENSIONS.fetch(content_type)
     pipeline = ImageProcessing::Vips.source(@upload.tempfile).autorot
-    if width * height > @max_pixels
+    if width * height > MAX_PIXELS
       target_width, target_height = target_dimensions(width, height)
       pipeline = pipeline.resize_to_limit(target_width, target_height)
     end
@@ -111,15 +109,15 @@ class ImageAttachmentProcessor
   end
 
   def target_dimensions(width, height)
-    scale = Math.sqrt(@max_pixels.to_f / (width * height))
+    scale = Math.sqrt(MAX_PIXELS.to_f / (width * height))
     target_width = [ (width * scale).floor, 1 ].max
     target_height = [ (height * scale).floor, 1 ].max
 
-    if target_width * target_height > @max_pixels
+    if target_width * target_height > MAX_PIXELS
       if target_width >= target_height
-        target_width = [ (@max_pixels / target_height).floor, 1 ].max
+        target_width = [ (MAX_PIXELS / target_height).floor, 1 ].max
       else
-        target_height = [ (@max_pixels / target_width).floor, 1 ].max
+        target_height = [ (MAX_PIXELS / target_width).floor, 1 ].max
       end
     end
 
@@ -128,7 +126,6 @@ class ImageAttachmentProcessor
 
   def saver_options(content_type)
     return { strip: true, Q: 95, optimize_coding: true } if content_type == "image/jpeg"
-    return { strip: true, Q: 95 } if content_type == "image/webp"
 
     { strip: true }
   end

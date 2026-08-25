@@ -13,32 +13,12 @@
           <q-item v-if="imageInput !== 'supported'" dense class="attach-hint">
             <q-item-section caption>
               <template v-if="imageInput === 'unknown'">
-                Image support for {{ modelLabel }} could not be verified. You can attach images, but confirmation is required when sending.
+                Image support for {{ modelLabel }} could not be verified. You can still attach and send images.
                 <q-btn flat dense no-caps size="sm" label="Check again" @click.stop="$emit('refresh-capability')" />
               </template>
               <template v-else>{{ modelLabel }} can't read images</template>
             </q-item-section>
           </q-item>
-
-          <q-separator />
-          <q-item dense>
-            <q-item-section>
-              <q-input
-                v-model.number="megapixels"
-                dense
-                type="number"
-                label="Resize cap (MP)"
-                :min="2.0736"
-                :max="25"
-                :step="0.1"
-                suffix="MP"
-                @keydown.enter.prevent="savePixelBudget"
-                @blur="savePixelBudget"
-              />
-              <div class="text-caption text-grey-6 q-mt-xs">Applies only to later uploads.</div>
-            </q-item-section>
-          </q-item>
-
           <q-separator v-if="showNewChat" />
 
           <q-item v-if="showNewChat" v-close-popup clickable @click="$emit('new-chat')">
@@ -54,7 +34,7 @@
     <input
       ref="fileInput"
       type="file"
-      accept="image/png,image/jpeg,image/webp"
+      accept="image/png,image/jpeg"
       multiple
       class="file-input"
       @change="onFilesChosen"
@@ -71,10 +51,6 @@ export default {
       type: String,
       default: 'unknown'
     },
-    imageMaxPixels: {
-      type: Number,
-      default: 6000000
-    },
     showNewChat: {
       type: Boolean,
       default: false
@@ -84,35 +60,12 @@ export default {
       default: 'This model'
     }
   },
-  emits: ['files-selected', 'new-chat', 'update:image-max-pixels', 'refresh-capability'],
-
-  data () {
-    return { megapixels: this.imageMaxPixels / 1000000 }
-  },
-
-  watch: {
-    imageMaxPixels (value) {
-      this.megapixels = value / 1000000
-    }
-  },
+  emits: ['files-selected', 'new-chat', 'refresh-capability'],
 
   methods: {
     pickFiles () {
       if (this.imageInput === 'unsupported') return
       this.$refs.fileInput.click()
-    },
-    savePixelBudget () {
-      const pixels = Math.round(Number(this.megapixels) * 1000000)
-      if (!Number.isFinite(pixels) || pixels < 2073600 || pixels > 25000000) {
-        this.megapixels = this.imageMaxPixels / 1000000
-        this.$q.notify({
-          type: 'negative',
-          message: 'Image resize cap must be between 2.0736 and 25 MP',
-          timeout: 2200
-        })
-        return
-      }
-      if (pixels !== this.imageMaxPixels) this.$emit('update:image-max-pixels', pixels)
     },
     onFilesChosen (event) {
       const files = Array.from(event.target.files || [])

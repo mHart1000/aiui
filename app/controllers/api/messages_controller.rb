@@ -15,13 +15,19 @@ module Api
 
     def create
       conversation = current_api_user.conversations.find(params[:conversation_id])
-      signed_ids = image_signed_ids
-      validate_message_input!(signed_ids)
+      uploads = image_uploads
+      validate_message_input!(uploads)
       safe_model_code = conversation.resolve_model_code(params[:model_code])
       image_input = AiModels.image_input(safe_model_code)
-      enforce_image_capability!(image_input, signed_ids)
-      conversation.apply_model_code(safe_model_code)
-      user_message = create_user_message!(conversation, params[:content].to_s, signed_ids)
+      enforce_image_capability!(image_input, uploads)
+      processed_images = process_image_uploads!(uploads)
+      begin
+        user_message = create_user_message!(
+          conversation, params[:content].to_s, processed_images, model_code: safe_model_code
+        )
+      ensure
+        processed_images.each(&:close!)
+      end
 
       current_api_user.reload
       rag_context = fetch_rag_context(conversation, user_message.content)
@@ -47,7 +53,7 @@ module Api
           persona_version: result[:persona_version],
           skill_versions: result[:skill_versions]
         )
-        conversation.entitle_async(title_seed(user_message))
+        conversation.entitle_async(user_message.content) if user_message.content.present?
 
         render json: {
           reply: result[:reply],
@@ -91,17 +97,23 @@ module Api
     def create_streaming
       conversation = current_api_user.conversations.find(params[:conversation_id])
       regenerating = ActiveModel::Type::Boolean.new.cast(params[:regenerating])
-      signed_ids = image_signed_ids
+      uploads = image_uploads
 
-      if regenerating && signed_ids.any?
+      if regenerating && uploads.any?
         raise RequestError.new("images_not_allowed_on_regeneration", "Regeneration reuses images already stored with the message.")
       end
-      validate_message_input!(signed_ids) unless regenerating
+      validate_message_input!(uploads) unless regenerating
       safe_model_code = conversation.resolve_model_code(params[:model_code])
       image_input = AiModels.image_input(safe_model_code)
-      enforce_image_capability!(image_input, signed_ids)
-      conversation.apply_model_code(safe_model_code)
-      answering_message = prepare_answering_message!(conversation, regenerating, signed_ids)
+      enforce_image_capability!(image_input, uploads)
+      processed_images = process_image_uploads!(uploads)
+      begin
+        answering_message = prepare_answering_message!(
+          conversation, regenerating, processed_images, model_code: safe_model_code
+        )
+      ensure
+        processed_images.each(&:close!)
+      end
 
       response.headers["Content-Type"] = "text/event-stream"
       response.headers["Cache-Control"] = "no-cache"
@@ -203,8 +215,12 @@ module Api
 
     private
 
-    def prepare_answering_message!(conversation, regenerating, signed_ids)
-      return create_user_message!(conversation, params[:content].to_s, signed_ids) unless regenerating
+    def prepare_answering_message!(conversation, regenerating, processed_images, model_code:)
+      unless regenerating
+        return create_user_message!(conversation, params[:content].to_s, processed_images, model_code: model_code)
+      end
+
+      conversation.apply_model_code(model_code)
 
       if params[:message_id].present?
         conversation.truncate_from_message(conversation.messages.find(params[:message_id]))
@@ -221,63 +237,81 @@ module Api
       message
     end
 
-    def create_user_message!(conversation, content, signed_ids)
+    def create_user_message!(conversation, content, processed_images, model_code:)
+      message = nil
+      blobs = []
       conversation.transaction do
-        blobs = resolve_image_blobs!(signed_ids)
-        message = conversation.messages.create!(
-          role: "user",
-          content: content,
-          images: blobs
-        )
-        message
+        conversation.apply_model_code(model_code)
+        message = conversation.messages.build(role: "user", content: content)
+        message.images.attach(processed_images.map { |image| attachment_attributes(image) })
+        blobs = message.images.blobs.to_a
+        message.save!
       end
+      message
+    rescue ActiveRecord::RecordInvalid
+      cleanup_failed_message_uploads(message, blobs)
+      raise
+    rescue => e
+      cleanup_failed_message_uploads(message, blobs)
+      Rails.logger.error("MessagesController image persistence failed: #{e.full_message}")
+      raise RequestError.new("upload_failed", "The images could not be stored.", status: :internal_server_error)
     end
 
-    def resolve_image_blobs!(signed_ids)
-      return [] if signed_ids.empty?
-
-      decoded = signed_ids.map do |signed_id|
-        ActiveStorage::Blob.find_signed!(signed_id)
-      rescue ActiveSupport::MessageVerifier::InvalidSignature, ActiveRecord::RecordNotFound
-        raise RequestError.new("attachment_not_found", "An image upload is invalid or no longer available.", status: :not_found)
-      end
-
-      ids = decoded.map(&:id).sort
-      if ids.uniq.length != ids.length
-        raise RequestError.new("duplicate_images", "The same image cannot be attached more than once.")
-      end
-      blobs = ActiveStorage::Blob.where(id: ids).order(:id).lock.to_a
-      if blobs.size != ids.size
-        raise RequestError.new("attachment_not_found", "An image upload was not found.", status: :not_found)
-      end
-      if blobs.any? { |blob| blob.created_at + ImageAttachmentProcessor::UPLOAD_TTL <= Time.current }
-        raise RequestError.new("attachment_expired", "An image upload has expired.")
-      end
-      if blobs.any? { |blob| blob.attachments.exists? }
-        raise RequestError.new("attachment_already_used", "An image upload is already attached.", status: :conflict)
-      end
-
-      blobs
+    def process_image_uploads!(uploads)
+      processed = []
+      uploads.each { |upload| processed << ImageAttachmentProcessor.call(upload: upload) }
+      processed
+    rescue ImageAttachmentProcessor::Error => e
+      processed&.each(&:close!)
+      raise RequestError.new(e.code, e.message, status: e.status)
+    rescue
+      processed&.each(&:close!)
+      raise
     end
 
-    def image_signed_ids
-      Array(params[:image_signed_ids]).reject(&:blank?)
+    def attachment_attributes(image)
+      {
+        io: image.tempfile,
+        filename: image.filename,
+        content_type: image.content_type,
+        identify: false,
+        metadata: {
+          width: image.width,
+          height: image.height,
+          original_filename: image.original_filename
+        }
+      }
     end
 
-    def validate_message_input!(signed_ids)
-      if params[:content].to_s.blank? && signed_ids.empty?
+    def cleanup_failed_message_uploads(message, blobs)
+      message.destroy! if message&.id && Message.exists?(message.id)
+      blobs.each do |blob|
+        if blob.id && ActiveStorage::Blob.exists?(blob.id)
+          stored_blob = ActiveStorage::Blob.find(blob.id)
+          stored_blob.purge unless stored_blob.attachments.exists?
+        else
+          blob.service.delete(blob.key)
+        end
+      end
+    rescue => cleanup_error
+      Rails.logger.error("MessagesController upload cleanup failed: #{cleanup_error.full_message}")
+    end
+
+    def image_uploads
+      Array(params[:images]).reject(&:blank?)
+    end
+
+    def validate_message_input!(uploads)
+      if params[:content].to_s.blank? && uploads.empty?
         raise RequestError.new("message_content_required", "A message must contain text or at least one image.")
       end
-      if signed_ids.length > ImageAttachmentProcessor::MAX_IMAGES
+      if uploads.length > ImageAttachmentProcessor::MAX_IMAGES
         raise RequestError.new("too_many_images", "A message may contain at most four images.")
-      end
-      if signed_ids.uniq.length != signed_ids.length
-        raise RequestError.new("duplicate_images", "The same image cannot be attached more than once.")
       end
     end
 
-    def enforce_image_capability!(image_input, signed_ids)
-      return if signed_ids.empty? || image_input != "unsupported"
+    def enforce_image_capability!(image_input, uploads)
+      return if uploads.empty? || image_input != "unsupported"
 
       raise RequestError.new("image_input_unsupported", "The selected model does not accept images.")
     end
@@ -295,20 +329,12 @@ module Api
         persona_version: result&.dig(:persona_version),
         skill_versions: result&.dig(:skill_versions)
       )
-      conversation.entitle_async(title_seed(answering_message)) if entitle
+      conversation.entitle_async(answering_message.content) if entitle && answering_message.content.present?
       true
     end
 
     def prompt_signature(message)
       [ message.content, message.images_attachments.order(:id).pluck(:blob_id) ]
-    end
-
-    def title_seed(message)
-      return message.content if message.content.present?
-
-      original = message.images.first&.metadata&.dig("original_filename")
-      stem = File.basename(original.to_s, File.extname(original.to_s)).presence
-      stem ? "Image: #{stem}" : "Image Chat"
     end
 
     def write_stream_error(message)

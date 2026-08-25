@@ -114,16 +114,7 @@ No configuration is normally needed: the app reads `modalities.vision` from llam
 
 Cloud models are opted in by id in `AiModels::VISION_MODEL_IDS` ([config/initializers/ai_models.rb](config/initializers/ai_models.rb)); unlisted cloud models are verified unsupported.
 
-Every upload is autorotated and re-encoded to remove private metadata. Images above `users.image_max_pixels` (default 6,000,000) are downscaled to that budget; smaller images retain their dimensions. JPEG, PNG, and WebP are supported, with an 8 MiB limit per image.
-
-Unclaimed uploads expire after 24 hours. Run cleanup daily from cron or a systemd timer:
-
-```bash
-bin/rails attachments:purge_expired
-DRY_RUN=1 bin/rails attachments:purge_expired
-```
-
-The cleanup task only purges unattached blobs, so images already saved to messages are retained. See [docs/image-attachments-spec.md](docs/image-attachments-spec.md) for the complete local-first security and lifecycle contract.
+Images remain local browser previews until the message is sent, then upload with that message. Every image is autorotated and re-encoded to remove private metadata. Images above the fixed 6,000,000-pixel budget are downscaled; smaller images retain their dimensions. JPEG and PNG are supported, with an 8 MiB limit per image. See [docs/image-attachments-spec.md](docs/image-attachments-spec.md) for the complete local-first contract.
 
 ---
 ## TTS setup:

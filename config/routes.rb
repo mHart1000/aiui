@@ -27,7 +27,6 @@ Rails.application.routes.draw do
     resources :models, only: [ :index ] do
       get :llama_context, on: :collection
     end
-    resources :attachments, only: [ :create, :destroy ]
     resources :rag_documents, only: [ :index, :create, :destroy ]
     resources :skills, only: [ :index, :create, :update, :destroy ]
 

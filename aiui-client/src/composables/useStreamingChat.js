@@ -78,27 +78,23 @@ export function useStreamingChat() {
 
     try {
       const url = `/api/conversations/${conversationId}/messages/stream`
-      const requestBody = { content }
-      if (modelCode) {
-        requestBody.model_code = modelCode
-      }
+      const requestBody = new FormData()
+      requestBody.append('content', content)
+      if (modelCode) requestBody.append('model_code', modelCode)
       if (options.regenerating) {
-        requestBody.regenerating = true
+        requestBody.append('regenerating', 'true')
         if (options.regeneratingMessageId) {
-          requestBody.message_id = options.regeneratingMessageId
+          requestBody.append('message_id', options.regeneratingMessageId)
         }
       }
-      if (options.imageSignedIds?.length) {
-        requestBody.image_signed_ids = options.imageSignedIds
-      }
+      options.images?.forEach(file => requestBody.append('images[]', file, file.name))
 
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+          'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify(requestBody),
+        body: requestBody,
         signal: currentAbortController.signal
       })
 

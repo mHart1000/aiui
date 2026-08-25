@@ -64,7 +64,7 @@ class MessageTest < ActiveSupport::TestCase
     )
 
     assert_not message.valid?
-    assert_match(/JPEG, PNG or WebP/, message.errors[:images].join)
+    assert_match(/JPEG or PNG/, message.errors[:images].join)
   end
 
   test "rejects more than MAX_IMAGES attachments" do

@@ -45,7 +45,7 @@ class Message < ApplicationRecord
       next if blob.nil?
 
       unless IMAGE_CONTENT_TYPES.include?(blob.content_type)
-        errors.add(:images, "must be JPEG, PNG or WebP")
+        errors.add(:images, "must be JPEG or PNG")
       end
       if blob.byte_size > MAX_IMAGE_BYTES
         errors.add(:images, "must be under #{MAX_IMAGE_BYTES / 1.megabyte} MB")

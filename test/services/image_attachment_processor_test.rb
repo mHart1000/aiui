@@ -13,8 +13,8 @@ class ImageAttachmentProcessorTest < ActiveSupport::TestCase
     )
   end
 
-  def process(upload, max_pixels: User::DEFAULT_IMAGE_MAX_PIXELS)
-    ImageAttachmentProcessor.call(upload: upload, max_pixels: max_pixels)
+  def process(upload)
+    ImageAttachmentProcessor.call(upload: upload)
   end
 
   test "detects MIME from bytes and corrects a hostile filename extension" do
@@ -105,30 +105,26 @@ class ImageAttachmentProcessorTest < ActiveSupport::TestCase
     upload&.tempfile&.close!
   end
 
-  test "resizes close to but never above the configured budget" do
+  test "resizes close to but never above the fixed budget" do
     upload = uploaded_file(fixture: "large.jpg", filename: "large.jpg", type: "image/jpeg")
-    result = process(upload, max_pixels: User::MIN_IMAGE_MAX_PIXELS)
+    result = process(upload)
     pixels = result.width * result.height
 
-    assert_operator pixels, :<=, User::MIN_IMAGE_MAX_PIXELS
-    assert_operator pixels, :>, User::MIN_IMAGE_MAX_PIXELS * 0.99
+    assert_operator pixels, :<=, ImageAttachmentProcessor::MAX_PIXELS
+    assert_operator pixels, :>, ImageAttachmentProcessor::MAX_PIXELS * 0.99
     assert_in_delta 1.25, result.width.to_f / result.height, 0.01
   ensure
     result&.close!
     upload&.tempfile&.close!
   end
 
-  test "preserves WebP alpha at quality 95" do
+  test "rejects WebP" do
     source = Tempfile.new([ "alpha", ".webp" ], binmode: true)
     Vips::Image.black(12, 8, bands: 4).new_from_image([ 255, 10, 20, 100 ]).write_to_file(source.path, Q: 100)
     upload = ActionDispatch::Http::UploadedFile.new(tempfile: source, filename: "alpha.webp", type: "image/webp")
-    result = process(upload)
-    image = Vips::Image.new_from_file(result.tempfile.path)
-
-    assert image.has_alpha?
-    assert_equal [ 12, 8 ], [ image.width, image.height ]
+    error = assert_raises(ImageAttachmentProcessor::Error) { process(upload) }
+    assert_equal "unsupported_image_type", error.code
   ensure
-    result&.close!
     source&.close!
   end
 
@@ -157,11 +153,11 @@ class ImageAttachmentProcessorTest < ActiveSupport::TestCase
   end
 
   test "guards extreme aspect ratios against a zero target dimension" do
-    processor = ImageAttachmentProcessor.new(upload: nil, max_pixels: User::MIN_IMAGE_MAX_PIXELS)
+    processor = ImageAttachmentProcessor.new(upload: nil)
     width, height = processor.send(:target_dimensions, 100_000_000, 1)
 
     assert_operator width, :>=, 1
     assert_operator height, :>=, 1
-    assert_operator width * height, :<=, User::MIN_IMAGE_MAX_PIXELS
+    assert_operator width * height, :<=, ImageAttachmentProcessor::MAX_PIXELS
   end
 end

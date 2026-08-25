@@ -2,17 +2,14 @@
   <div v-if="attachments.length" class="attachment-strip">
     <div
       v-for="(attachment, index) in attachments"
-      :key="attachment.clientKey || attachment.signedId || attachment.url"
+      :key="attachment.clientKey || attachment.url"
       class="attachment-thumb"
     >
       <img :src="attachment.url" :alt="attachment.filename" class="attachment-image" />
 
-      <div v-if="attachment.uploading" class="attachment-overlay">
-        <q-spinner size="20px" color="white" />
-      </div>
-      <div v-else-if="attachment.failed" class="attachment-overlay">
+      <div v-if="attachment.failed" class="attachment-overlay">
         <q-icon name="error_outline" size="20px" color="negative" />
-        <q-tooltip>{{ attachment.error || 'Upload failed' }}</q-tooltip>
+        <q-tooltip>{{ attachment.error || 'Image rejected' }}</q-tooltip>
       </div>
 
       <q-btn
