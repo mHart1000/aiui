@@ -1,12 +1,7 @@
 class Message < ApplicationRecord
-  IMAGE_CONTENT_TYPES = ImageAttachmentProcessor::ACCEPTED_TYPES
-  MAX_IMAGES = ImageAttachmentProcessor::MAX_IMAGES
-  MAX_IMAGE_BYTES = ImageAttachmentProcessor::MAX_BYTES
-
   belongs_to :conversation, touch: true
   has_many_attached :images
 
-  validate :images_within_limits
   validate :images_belong_to_user_messages
 
   # Chat-completions payload: a plain string, or an OpenAI content array when the
@@ -32,25 +27,6 @@ class Message < ApplicationRecord
   def content_with_image_markers(attached)
     markers = attached.map { |a| "[Image attached: #{a.filename}]" }
     [ content.presence, *markers ].compact.join("\n\n")
-  end
-
-  def images_within_limits
-    attached = images.attachments
-    return if attached.empty?
-
-    errors.add(:images, "cannot exceed #{MAX_IMAGES} per message") if attached.size > MAX_IMAGES
-
-    attached.each do |attachment|
-      blob = attachment.blob
-      next if blob.nil?
-
-      unless IMAGE_CONTENT_TYPES.include?(blob.content_type)
-        errors.add(:images, "must be JPEG or PNG")
-      end
-      if blob.byte_size > MAX_IMAGE_BYTES
-        errors.add(:images, "must be under #{MAX_IMAGE_BYTES / 1.megabyte} MB")
-      end
-    end
   end
 
   def images_belong_to_user_messages

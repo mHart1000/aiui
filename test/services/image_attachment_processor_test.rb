@@ -33,16 +33,16 @@ class ImageAttachmentProcessorTest < ActiveSupport::TestCase
     upload = uploaded_file(bytes: "GIF89a".b + ("\0" * 32), filename: "animated.gif", type: "image/png")
 
     error = assert_raises(ImageAttachmentProcessor::Error) { process(upload) }
-    assert_equal "unsupported_image_type", error.code
+    assert_match(/JPEG or PNG/, error.message)
   ensure
     upload&.tempfile&.close!
   end
 
-  test "rejects corrupt data with an actionable code" do
+  test "rejects corrupt data" do
     upload = uploaded_file(bytes: "\xFF\xD8\xFF\xE0broken".b, filename: "broken.jpg", type: "image/jpeg")
 
     error = assert_raises(ImageAttachmentProcessor::Error) { process(upload) }
-    assert_equal "invalid_image", error.code
+    assert_match(/could not be decoded/, error.message)
   ensure
     upload&.tempfile&.close!
   end
@@ -51,7 +51,7 @@ class ImageAttachmentProcessorTest < ActiveSupport::TestCase
     upload = uploaded_file(bytes: "\0" * (ImageAttachmentProcessor::MAX_BYTES + 1), filename: "huge.png", type: "image/png")
 
     error = assert_raises(ImageAttachmentProcessor::Error) { process(upload) }
-    assert_equal "image_too_large", error.code
+    assert_match(/8 MiB/, error.message)
   ensure
     upload&.tempfile&.close!
   end
@@ -70,7 +70,7 @@ class ImageAttachmentProcessorTest < ActiveSupport::TestCase
 
     ImageProcessing::Vips.stub(:source, ->(*) { pipeline }) do
       error = assert_raises(ImageAttachmentProcessor::Error) { process(upload) }
-      assert_equal "image_too_large", error.code
+      assert_match(/8 MiB/, error.message)
     end
     assert_not File.exist?(output_path)
   ensure
@@ -86,7 +86,7 @@ class ImageAttachmentProcessorTest < ActiveSupport::TestCase
 
     Vips::Image.stub(:new_from_file, fake) do
       error = assert_raises(ImageAttachmentProcessor::Error) { process(upload) }
-      assert_equal "image_dimensions_too_large", error.code
+      assert_match(/dimensions are too large/, error.message)
     end
   ensure
     upload&.tempfile&.close!
@@ -123,7 +123,7 @@ class ImageAttachmentProcessorTest < ActiveSupport::TestCase
     Vips::Image.black(12, 8, bands: 4).new_from_image([ 255, 10, 20, 100 ]).write_to_file(source.path, Q: 100)
     upload = ActionDispatch::Http::UploadedFile.new(tempfile: source, filename: "alpha.webp", type: "image/webp")
     error = assert_raises(ImageAttachmentProcessor::Error) { process(upload) }
-    assert_equal "unsupported_image_type", error.code
+    assert_match(/JPEG or PNG/, error.message)
   ensure
     source&.close!
   end

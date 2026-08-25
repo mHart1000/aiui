@@ -55,29 +55,4 @@ class MessageTest < ActiveSupport::TestCase
     assert_equal "read this\n\n[Image attached: small.png]", payload[:content]
   end
 
-  test "rejects an attachment that is not an image" do
-    message = @conversation.messages.new(role: "user", content: "nope")
-    message.images.attach(
-      io: File.open(Rails.root.join("test/fixtures/files/sample.txt")),
-      filename: "sample.txt",
-      content_type: "text/plain"
-    )
-
-    assert_not message.valid?
-    assert_match(/JPEG or PNG/, message.errors[:images].join)
-  end
-
-  test "rejects more than MAX_IMAGES attachments" do
-    message = @conversation.messages.new(role: "user", content: "too many")
-    (Message::MAX_IMAGES + 1).times do
-      message.images.attach(
-        io: File.open(Rails.root.join("test/fixtures/files/small.png")),
-        filename: "small.png",
-        content_type: "image/png"
-      )
-    end
-
-    assert_not message.valid?
-    assert_match(/cannot exceed/, message.errors[:images].join)
-  end
 end

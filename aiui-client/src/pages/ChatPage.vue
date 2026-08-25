@@ -413,7 +413,7 @@ import { useTtsPlayer } from 'src/composables/useTtsPlayer'
 import { onBeforeUnmount, onMounted} from 'vue'
 
 const DEFAULT_MODEL_ID = import.meta.env.VITE_DEFAULT_MODEL_ID || null
-// Mirrors Message::MAX_IMAGES on the server.
+// This is a composer affordance; the processor enforces file safety limits.
 const MAX_ATTACHMENTS = 4
 
 const COMPOSER_EXPAND_AT_PX = 16

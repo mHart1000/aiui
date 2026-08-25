@@ -22,12 +22,12 @@ export function useStreamingChat() {
 
   const STREAM_TIMEOUT_MS = 120000 // 2 minutes of inactivity
 
-  function structuredError(payload, status = null) {
-    const details = payload?.error || payload || {}
-    const err = new Error(details.message || details.content || 'The request failed')
-    err.code = details.code || 'request_failed'
-    err.status = status
-    return err
+  function requestError(payload, fallback = 'The request failed') {
+    const details = payload?.error ?? payload
+    const message = typeof details === 'string'
+      ? details
+      : details?.message || details?.content
+    return new Error(message || fallback)
   }
 
   /**
@@ -59,10 +59,7 @@ export function useStreamingChat() {
       clearTimeout(streamTimeoutId)
       streamTimeoutId = setTimeout(() => {
         cleanup()
-        const timeoutError = structuredError({
-          code: 'stream_timeout',
-          message: 'Stream timeout - no data received for 2 minutes'
-        })
+        const timeoutError = new Error('Stream timeout - no data received for 2 minutes')
         timeoutError.streamStarted = streamStarted
         error.value = timeoutError
         loadingPhase.value = 'idle'
@@ -99,9 +96,9 @@ export function useStreamingChat() {
         try {
           payload = await response.json()
         } catch {
-          payload = { error: { message: `Request failed (${response.status})` } }
+          payload = null
         }
-        throw structuredError(payload, response.status)
+        throw requestError(payload, `Request failed (${response.status})`)
       }
 
       if (!response.body) {
@@ -181,14 +178,14 @@ export function useStreamingChat() {
                   break
 
                 case 'error':
-                  throw structuredError(data.error || data)
+                  throw requestError(data)
             }
           }
         }
       }
 
       if (!receivedDone) {
-        throw structuredError({ code: 'stream_incomplete', message: 'The response stream ended before it was saved.' })
+        throw new Error('The response stream ended before it was saved.')
       }
 
       // Stream completed successfully after the server persisted the response.

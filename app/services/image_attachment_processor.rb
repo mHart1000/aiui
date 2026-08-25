@@ -2,7 +2,6 @@ require "image_processing/vips"
 require "marcel"
 
 class ImageAttachmentProcessor
-  MAX_IMAGES = 4
   MAX_BYTES = 8.megabytes
   MAX_SOURCE_PIXELS = 100_000_000
   MAX_PIXELS = 6_000_000
@@ -28,15 +27,7 @@ class ImageAttachmentProcessor
     end
   end
 
-  class Error < StandardError
-    attr_reader :code, :status
-
-    def initialize(code, message, status: :unprocessable_content)
-      @code = code
-      @status = status
-      super(message)
-    end
-  end
+  class Error < StandardError; end
 
   def self.call(upload:)
     new(upload: upload).call
@@ -52,13 +43,13 @@ class ImageAttachmentProcessor
     validate_upload!
     content_type = detected_type
     unless ACCEPTED_TYPES.include?(content_type)
-      raise Error.new("unsupported_image_type", "Images must be JPEG or PNG.")
+      raise Error, "Images must be JPEG or PNG."
     end
 
     source = Vips::Image.new_from_file(@upload.tempfile.path, access: :sequential)
     width, height = oriented_dimensions(source)
     if width * height > MAX_SOURCE_PIXELS
-      raise Error.new("image_dimensions_too_large", "The image dimensions are too large to process safely.")
+      raise Error, "The image dimensions are too large to process safely."
     end
 
     extension = EXTENSIONS.fetch(content_type)
@@ -71,7 +62,7 @@ class ImageAttachmentProcessor
 
     if tempfile.size > MAX_BYTES
       tempfile.close!
-      raise Error.new("image_too_large", "The normalized image must be 8 MiB or smaller.")
+      raise Error, "The normalized image must be 8 MiB or smaller."
     end
 
     normalized = Vips::Image.new_from_file(tempfile.path, access: :sequential)
@@ -89,7 +80,7 @@ class ImageAttachmentProcessor
     raise
   rescue Vips::Error => e
     Rails.logger.warn("ImageAttachmentProcessor: #{e.class}: #{e.message}")
-    raise Error.new("invalid_image", "The image could not be decoded or normalized.")
+    raise Error, "The image could not be decoded or normalized."
   ensure
     tempfile&.close! unless completed
     @upload.tempfile.rewind if @upload.respond_to?(:tempfile) && @upload.tempfile.respond_to?(:rewind)
@@ -99,10 +90,10 @@ class ImageAttachmentProcessor
 
   def validate_upload!
     unless @upload.respond_to?(:tempfile) && @upload.tempfile.respond_to?(:path)
-      raise Error.new("missing_file", "An image file is required.")
+      raise Error, "An image file is required."
     end
     if @upload.size > MAX_BYTES
-      raise Error.new("image_too_large", "Each image must be 8 MiB or smaller.")
+      raise Error, "Each image must be 8 MiB or smaller."
     end
   end
 
