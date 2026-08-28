@@ -210,10 +210,13 @@
           <div v-else v-html="msg.role === 'user' ? formatUserMessage(msg.content) : formatMessage(msg.content)" @click="handleMessageContentClick" />
           <q-spinner v-if="isActivelyStreaming(i) && msg.content" color="primary" size="20px" class="q-mt-sm" />
 
-          <div class="message-footer" v-if="msg.role === 'assistant' || (msg.role === 'user' && !isActivelyStreaming(i) && editingMessageIndex !== i)">
+          <div
+            class="message-footer"
+            v-if="(msg.role === 'assistant' && (msg.content?.trim() || msg.failed)) || (msg.role === 'user' && !isActivelyStreaming(i) && editingMessageIndex !== i)"
+          >
             <template v-if="msg.role === 'assistant'">
               <q-btn
-                v-if="msg.content"
+                v-if="msg.content?.trim()"
                 flat
                 dense
                 round
@@ -236,7 +239,7 @@
                 <q-tooltip>Regenerate response</q-tooltip>
               </q-btn>
               <q-btn
-                v-if="msg.content"
+                v-if="msg.content?.trim()"
                 flat
                 dense
                 round
