@@ -16,9 +16,7 @@ export function useStreamingChat() {
   const error = ref(null)
   const loadingPhase = ref('idle') // 'idle' | 'connecting' | 'thinking' | 'responding' | 'done'
 
-  let currentAbortController = null
-  let currentReader = null
-  let streamTimeoutId = null
+  let activeStream = null
 
   const STREAM_TIMEOUT_MS = 120000 // 2 minutes of inactivity
 
@@ -52,12 +50,18 @@ export function useStreamingChat() {
     isStreaming.value = true
     loadingPhase.value = 'connecting'
 
-    currentAbortController = new AbortController()
+    const stream = {
+      abortController: new AbortController(),
+      reader: null,
+      timeoutId: null,
+      cancelled: false
+    }
+    activeStream = stream
     let streamStarted = false
 
     function resetStreamTimeout() {
-      clearTimeout(streamTimeoutId)
-      streamTimeoutId = setTimeout(() => {
+      clearTimeout(stream.timeoutId)
+      stream.timeoutId = setTimeout(() => {
         cleanup()
         const timeoutError = new Error('Stream timeout - no data received for 2 minutes')
         timeoutError.streamStarted = streamStarted
@@ -88,7 +92,7 @@ export function useStreamingChat() {
           'Authorization': `Bearer ${token}`
         },
         body: requestBody,
-        signal: currentAbortController.signal
+        signal: stream.abortController.signal
       })
 
       if (!response.ok) {
@@ -107,13 +111,13 @@ export function useStreamingChat() {
 
       streamStarted = true
 
-      currentReader = response.body.getReader()
+      stream.reader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
       let receivedDone = false
 
       while (true) {
-        const { done, value } = await currentReader.read()
+        const { done, value } = await stream.reader.read()
 
         if (done) {
           break
@@ -174,7 +178,7 @@ export function useStreamingChat() {
                   receivedDone = true
                   isStreaming.value = false
                   loadingPhase.value = 'done'
-                  clearTimeout(streamTimeoutId)
+                  clearTimeout(stream.timeoutId)
                   break
 
                 case 'error':
@@ -184,6 +188,8 @@ export function useStreamingChat() {
         }
       }
 
+      if (stream.cancelled) return
+
       if (!receivedDone) {
         throw new Error('The response stream ended before it was saved.')
       }
@@ -191,21 +197,26 @@ export function useStreamingChat() {
       // Stream completed successfully after the server persisted the response.
       isStreaming.value = false
       loadingPhase.value = 'done'
-      clearTimeout(streamTimeoutId)
+      clearTimeout(stream.timeoutId)
 
     } catch (err) {
-      clearTimeout(streamTimeoutId)
-      if (err.name === 'AbortError') {
+      const isCurrent = activeStream === stream
+      if (isCurrent) clearTimeout(stream.timeoutId)
+      if (err.name === 'AbortError' || stream.cancelled) {
         // User stop, voice escape, or timeout cleanup — keep partial text;
         // don't surface an error or let ChatPage splice the message.
-        isStreaming.value = false
-        if (!error.value) loadingPhase.value = 'done' // preserve a timeout error
-      } else {
+        if (isCurrent) {
+          isStreaming.value = false
+          if (!error.value) loadingPhase.value = 'done' // preserve a timeout error
+        }
+      } else if (isCurrent) {
         err.streamStarted = streamStarted
         error.value = err
         loadingPhase.value = 'idle'
         isStreaming.value = false
       }
+    } finally {
+      if (activeStream === stream) activeStream = null
     }
   }
 
@@ -214,27 +225,21 @@ export function useStreamingChat() {
   }
 
   function cleanup() {
-    if (currentReader) {
-      currentReader.cancel().catch(err => {
+    if (!activeStream) return
+
+    activeStream.cancelled = true
+    if (activeStream.reader) {
+      activeStream.reader.cancel().catch(err => {
         console.warn('Error canceling reader:', err)
       })
-      currentReader = null
     }
 
-    if (currentAbortController) {
-      currentAbortController.abort()
-      currentAbortController = null
-    }
+    activeStream.abortController.abort()
 
-    if (streamTimeoutId) {
-      clearTimeout(streamTimeoutId)
-      streamTimeoutId = null
-    }
+    clearTimeout(activeStream.timeoutId)
   }
 
-  // Stop streaming on user request: abort the connection and settle state so the
-  // partial response is kept (no error). Distinct from cleanup(), which is a pure
-  // teardown used on unmount and before starting a new stream.
+  // Stop streaming on user request and keep the partial response without an error.
   function stop() {
     cleanup()
     isStreaming.value = false
