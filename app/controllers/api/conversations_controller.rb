@@ -73,7 +73,7 @@ module Api
                 byte_size: a.blob.byte_size,
                 width: metadata["width"],
                 height: metadata["height"],
-                url: rails_blob_path(a.blob, disposition: "inline", only_path: true)
+                url: rails_storage_proxy_path(a.blob, disposition: "inline", only_path: true)
               }
             }
           }

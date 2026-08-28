@@ -835,8 +835,10 @@ export default {
         this.ragEnabled = res.data.rag_enabled || false
         this.skillsEnabled = res.data.use_skills || false
         this.activeSkillIds = res.data.skill_ids || []
+        return true
       } catch (err) {
         console.error('Error loading conversation', err)
+        return false
       }
     },
     async refreshModelCapability() {
@@ -999,22 +1001,18 @@ export default {
         this.input = text
         this.pendingAttachments = attachments
       } else {
-        attachments.forEach(attachment => this.revokePreview(attachment))
-        if (streamError && streamedMessage) {
-          // The request entered the stream, so the user turn may already be persisted.
-          await this.loadConversation()
+        if (this.$route.params.id !== String(this.conversationId)) {
+          await this.$router.replace(`/chat/${this.conversationId}`)
+        }
+        // Keep local previews alive until saved image URLs have replaced them.
+        if (await this.loadConversation()) {
+          attachments.forEach(attachment => this.revokePreview(attachment))
         }
       }
 
       // Only clear the shared index if a newer send hasn't taken it over.
       if (this.streamingMessageIndex === myIndex) {
         this.streamingMessageIndex = null
-      }
-
-      if (!failedBeforeStream && this.$route.params.id !== String(this.conversationId)) {
-        await this.$router.replace(`/chat/${this.conversationId}`)
-      } else if (!streamError) {
-        await this.loadConversation()
       }
 
       this.refreshConversations()

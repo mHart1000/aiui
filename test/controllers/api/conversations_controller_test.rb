@@ -65,8 +65,12 @@ module Api
       assert_equal 1, images.size
       assert_equal "small.png", images.first["filename"]
       assert_equal "image/png", images.first["content_type"]
-      assert_match %r{\A/rails/active_storage/blobs/}, images.first["url"]
+      assert_match %r{\A/rails/active_storage/blobs/proxy/}, images.first["url"]
       assert_nil images.first["download_url"]
+
+      get images.first["url"]
+      assert_response :success
+      assert_equal "image/png", response.media_type
     end
 
     test "fork rejects another user's conversation" do
