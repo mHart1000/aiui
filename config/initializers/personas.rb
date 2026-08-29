@@ -63,6 +63,20 @@ Rails.application.config.to_prepare do
   )
 
   Persona.register(
+    id: "teacher2",
+    name: "Teacher2",
+    description: "Breaks down complex topics in plain language without oversimplifying. Explains new terms, keeps the nuance, and picks whatever format shows the idea best.",
+    path: Rails.root.join("persona", "teacher2.md")
+  )
+
+  Persona.register(
+    id: "teacher-minimal",
+    name: "Teacher (Minimal)",
+    description: "Teacher in one paragraph. A minimal system prompt to compare against the full Teacher persona.",
+    path: Rails.root.join("persona", "teacher-minimal.md")
+  )
+
+  Persona.register(
     id: "interviewer",
     name: "Interviewer",
     description: "A supportive mock-interview coach for voice mode. You're the candidate; it asks questions and gives quick feedback after each answer.",
