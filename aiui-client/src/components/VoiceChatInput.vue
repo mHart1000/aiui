@@ -17,12 +17,11 @@
       <div class="button-overlay" :class="{ 'overlay-centered': !expanded }">
         <div class="left-buttons">
           <AttachmentButton
-            :image-input="imageInput"
+            :images-supported="imagesSupported"
             :show-new-chat="showNewChat"
             :model-label="modelLabel"
             @files-selected="$emit('files-selected', $event)"
             @new-chat="$emit('new-chat')"
-            @refresh-capability="$emit('refresh-capability')"
           />
           <q-btn
             v-if="ttsAvailable"
@@ -132,9 +131,9 @@ export default {
       type: Array,
       default: () => []
     },
-    imageInput: {
-      type: String,
-      default: 'unknown'
+    imagesSupported: {
+      type: Boolean,
+      default: true
     },
     modelLabel: {
       type: String,
@@ -193,7 +192,7 @@ export default {
       default: 15000
     }
   },
-  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat', 'stop', 'toggle-mute', 'inactivity-timeout', 'toggle-voice-mode', 'files-selected', 'remove-attachment', 'refresh-capability'],
+  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat', 'stop', 'toggle-mute', 'inactivity-timeout', 'toggle-voice-mode', 'files-selected', 'remove-attachment'],
   data () {
     return {
       isLoading: false,

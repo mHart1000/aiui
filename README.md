@@ -109,12 +109,7 @@ To attach images to the **local** model, just start `llama-server` with a multim
   --port 8080 \
   --host 0.0.0.0
 ```
-
-No configuration is normally needed: the app reads `modalities.vision` from llama.cpp's `/props` endpoint. Verified results are cached for 60 seconds and unavailable results for 10 seconds. When discovery is unavailable, attaching and sending remain available with a warning. Set `LLAMA_VISION=true|false` in `.env` only to force the answer; invalid values are treated as unavailable.
-
-New image input is supported only for the local llama.cpp model. Cloud and other non-local models remain available for text but reject new image attachments.
-
-Images remain local browser previews until the message is sent, then upload with that message. Every image is autorotated and re-encoded to remove private metadata. Images above the fixed 6,000,000-pixel budget are downscaled; smaller images retain their dimensions. JPEG and PNG are supported, with an 8 MiB limit per image. See [docs/image-attachments-spec.md](docs/image-attachments-spec.md) for the complete local-first contract.
+the app reads the active model's `multimodal` capability from llama.cpp's `/v1/models` response. If that response is unavailable, image selection remains enabled.
 
 ---
 ## TTS setup:

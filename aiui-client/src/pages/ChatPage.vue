@@ -322,7 +322,7 @@
         :context-label="composerContextLabel"
         :voice-mode="voiceChatMode"
         :attachments="pendingAttachments"
-        :image-input="imageInput"
+        :images-supported="imagesSupported"
         :model-label="modelLabel"
         @error="handleSttError"
         @status="handleSttStatus"
@@ -332,7 +332,6 @@
         @toggle-voice-mode="toggleVoiceMode"
         @files-selected="onFilesSelected"
         @remove-attachment="removeAttachment"
-        @refresh-capability="refreshModelCapability"
         class="col message-input"
       />
       <VoiceChatInput
@@ -350,7 +349,7 @@
         :tts-available="ttsPlayer.isTtsAvailable.value"
         :voice-mode="voiceChatMode"
         :attachments="pendingAttachments"
-        :image-input="imageInput"
+        :images-supported="imagesSupported"
         :model-label="modelLabel"
         @error="handleSttError"
         @status="handleSttStatus"
@@ -362,7 +361,6 @@
         @inactivity-timeout="handleVoiceInactivityTimeout"
         @files-selected="onFilesSelected"
         @remove-attachment="removeAttachment"
-        @refresh-capability="refreshModelCapability"
         class="col message-input"
       />
     </div>
@@ -653,11 +651,8 @@ export default {
     selectedModel() {
       return this.models.find(m => String(m.id) === String(this.modelCode)) || null
     },
-    imageInput() {
-      if (this.selectedModel?.owned_by !== 'local') return 'unsupported'
-      if (this.localImageInput === true) return 'supported'
-      if (this.localImageInput === false) return 'unsupported'
-      return 'unknown'
+    imagesSupported() {
+      return this.selectedModel?.owned_by === 'local' && this.localImageInput !== false
     },
     modelLabel() {
       return this.selectedModel ? String(this.selectedModel.id).split('/').pop() : 'This model'
@@ -793,7 +788,7 @@ export default {
       }
     },
     onFilesSelected(files) {
-      if (this.imageInput === 'unsupported') return
+      if (!this.imagesSupported) return
       const room = Math.max(0, MAX_ATTACHMENTS - this.pendingAttachments.length)
       if (files.length > room) {
         this.$q.notify({
@@ -842,15 +837,6 @@ export default {
       } catch (err) {
         console.error('Error loading conversation', err)
         return false
-      }
-    },
-    async refreshModelCapability() {
-      try {
-        const response = await api.get('/api/models?refresh=1')
-        this.models = response.data.models
-        this.localImageInput = response.data.local_image_input
-      } catch {
-        this.$q.notify({ type: 'negative', message: 'Could not refresh model capabilities', timeout: 2000 })
       }
     },
     async updateActiveSkills(ids) {
@@ -924,7 +910,7 @@ export default {
       const attachments = this.pendingAttachments
 
       if (!text && !attachments.length) return
-      if (attachments.length && this.imageInput === 'unsupported') {
+      if (attachments.length && !this.imagesSupported) {
         this.$q.notify({ type: 'negative', message: `${this.modelLabel} does not accept images. Your selected images are still here.`, timeout: 3000 })
         return
       }

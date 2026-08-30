@@ -4,19 +4,15 @@
       <q-tooltip>Attach or start a new chat</q-tooltip>
       <q-menu anchor="top left" self="bottom left">
         <q-list style="min-width: 240px">
-          <q-item v-close-popup clickable :disable="imageInput === 'unsupported'" @click="pickFiles">
+          <q-item v-close-popup clickable :disable="!imagesSupported" @click="pickFiles">
             <q-item-section avatar>
               <q-icon name="image" />
             </q-item-section>
             <q-item-section>Attach image</q-item-section>
           </q-item>
-          <q-item v-if="imageInput !== 'supported'" dense class="attach-hint">
+          <q-item v-if="!imagesSupported" dense class="attach-hint">
             <q-item-section caption>
-              <template v-if="imageInput === 'unknown'">
-                Image support for {{ modelLabel }} could not be verified. You can still attach and send images.
-                <q-btn flat dense no-caps size="sm" label="Check again" @click.stop="$emit('refresh-capability')" />
-              </template>
-              <template v-else>{{ modelLabel }} can't read images</template>
+              {{ modelLabel }} can't read images
             </q-item-section>
           </q-item>
           <q-separator v-if="showNewChat" />
@@ -47,9 +43,9 @@ export default {
   name: 'AttachmentButton',
 
   props: {
-    imageInput: {
-      type: String,
-      default: 'unknown'
+    imagesSupported: {
+      type: Boolean,
+      default: true
     },
     showNewChat: {
       type: Boolean,
@@ -60,11 +56,11 @@ export default {
       default: 'This model'
     }
   },
-  emits: ['files-selected', 'new-chat', 'refresh-capability'],
+  emits: ['files-selected', 'new-chat'],
 
   methods: {
     pickFiles () {
-      if (this.imageInput === 'unsupported') return
+      if (!this.imagesSupported) return
       this.$refs.fileInput.click()
     },
     onFilesChosen (event) {

@@ -1,3 +1,5 @@
+require "net/http"
+
 AI_MODELS = [
  { "id"=>"local-llama", "object"=>"model", "created"=>1700000000, "owned_by"=>"local" },
  { "id"=>"openrouter/nvidia/nemotron-3-super-120b-a12b:free", "object"=>"model", "created"=>1764600000, "owned_by"=>"openrouter" },
@@ -142,18 +144,10 @@ module AiModels
     AI_MODELS.find { |model| model["id"] == model_id }&.dig("owned_by") == "local"
   end
 
-  # The local id is a sentinel that hides whichever gguf is loaded, so ask the
-  # server. LLAMA_VISION overrides it when set.
-  def self.local_image_input(refresh: false)
-    if ENV["LLAMA_VISION"].present?
-      LlamaCapabilities.reset! if refresh
-      return true if ENV["LLAMA_VISION"].casecmp?("true")
-      return false if ENV["LLAMA_VISION"].casecmp?("false")
-
-      Rails.logger.warn("AiModels: LLAMA_VISION must be true or false; treating it as unavailable")
-      return nil
-    end
-
-    LlamaCapabilities.image_input(refresh: refresh)
+  def self.local_image_input
+    url = "#{ENV.fetch("LLAMA_API_URL", "http://localhost:8080/v1")}/models"
+    JSON.parse(Net::HTTP.get(URI(url))).dig("models", 0, "capabilities")&.include?("multimodal")
+  rescue StandardError
+    nil
   end
 end

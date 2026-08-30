@@ -25,7 +25,7 @@ class Api::MessageImageUploadsControllerTest < ActionDispatch::IntegrationTest
     fixture_file_upload(filename, content_type)
   end
 
-  def stream_message(content:, images: [], model: MODEL, llama_vision: "true", &capture)
+  def stream_message(content:, images: [], model: MODEL, &capture)
     service = lambda do |**kwargs, &block|
       capture&.call(kwargs)
       block.call("answer", :response)
@@ -34,7 +34,7 @@ class Api::MessageImageUploadsControllerTest < ActionDispatch::IntegrationTest
         stats: nil, persona_version: nil, skill_versions: nil
       }
     end
-    with_env("LLAMA_VISION" => llama_vision) do
+    AiModels.stub(:local_image_input, true) do
       ChatService.stub(:call, service) do
         post "/api/conversations/#{@conversation.id}/messages/stream",
              params: { content: content, images: images, model_code: model },

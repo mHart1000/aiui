@@ -8,7 +8,7 @@ class AiModelsTest < ActiveSupport::TestCase
   end
 
   test "all non-local models reject new images" do
-    LlamaCapabilities.stub(:image_input, true) do
+    AiModels.stub(:local_image_input, true) do
       assert_not AiModels.images_allowed?("openrouter/google/gemma-4-31b-it:free")
       assert_not AiModels.images_allowed?("openrouter/nvidia/nemotron-nano-12b-v2-vl:free")
       assert_not AiModels.images_allowed?("claude-opus-4-5")
@@ -16,62 +16,23 @@ class AiModelsTest < ActiveSupport::TestCase
     end
   end
 
-  test "LLAMA_VISION overrides local discovery in both directions" do
-    with_env("LLAMA_VISION" => "true") do
-      LlamaCapabilities.stub(:image_input, false) do
-        assert_equal true, AiModels.local_image_input
-        assert AiModels.images_allowed?("local-llama")
-      end
-    end
-    with_env("LLAMA_VISION" => "false") do
-      LlamaCapabilities.stub(:image_input, true) do
-        assert_equal false, AiModels.local_image_input
-        assert_not AiModels.images_allowed?("local-llama")
-      end
+  test "local image input reads llama.cpp's model capabilities" do
+    response = { models: [ { capabilities: [ "completion", "multimodal" ] } ] }.to_json
+
+    Net::HTTP.stub(:get, response) do
+      assert AiModels.local_image_input
     end
   end
 
-  test "invalid LLAMA_VISION values fail open" do
-    with_env("LLAMA_VISION" => "sometimes") do
+  test "missing or unavailable capabilities fail open" do
+    Net::HTTP.stub(:get, { models: [ {} ] }.to_json) do
       assert_nil AiModels.local_image_input
       assert AiModels.images_allowed?("local-llama")
     end
-  end
 
-  test "local image input follows nullable discovery" do
-    with_env("LLAMA_VISION" => nil) do
-      [ true, false, nil ].each do |status|
-        LlamaCapabilities.stub(:image_input, status) do
-          if status.nil?
-            assert_nil AiModels.local_image_input
-          else
-            assert_equal status, AiModels.local_image_input
-          end
-          assert_equal status != false, AiModels.images_allowed?("local-llama")
-        end
-      end
+    Net::HTTP.stub(:get, ->(*) { raise Errno::ECONNREFUSED }) do
+      assert_nil AiModels.local_image_input
+      assert AiModels.images_allowed?("local-llama")
     end
-  end
-
-  test "refresh is forwarded to local discovery" do
-    calls = []
-    with_env("LLAMA_VISION" => nil) do
-      LlamaCapabilities.stub(:image_input, ->(refresh: false) { calls << refresh; nil }) do
-        AiModels.local_image_input(refresh: true)
-      end
-    end
-
-    assert_equal [ true ], calls
-  end
-
-  test "refresh resets discovery while an override is active" do
-    resets = 0
-    with_env("LLAMA_VISION" => "true") do
-      LlamaCapabilities.stub(:reset!, -> { resets += 1 }) do
-        AiModels.local_image_input(refresh: true)
-      end
-    end
-
-    assert_equal 1, resets
   end
 end

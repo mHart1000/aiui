@@ -3,10 +3,9 @@ require "net/http"
 module Api
   class ModelsController < ApplicationController
     def index
-      refresh = ActiveModel::Type::Boolean.new.cast(params[:refresh])
       render json: {
         models: AI_MODELS,
-        local_image_input: AiModels.local_image_input(refresh: refresh)
+        local_image_input: AiModels.local_image_input
       }
     end
 
