@@ -7,83 +7,63 @@ export function useStreamingChat() {
   const isStreaming = ref(false)
   const error = ref(null)
   const loadingPhase = ref('idle')
+  const wasStopped = ref(false)
 
-  let abortController = null
-  let reader = null
-  let activeTimeoutId = null
-  let requestSequence = 0
-  let stoppedRequest = null
+  let currentAbortController = null
+  let currentReader = null
+  let streamTimeoutId = null
 
   const STREAM_TIMEOUT_MS = 120000
 
-  function currentRequest (request) {
-    return request === requestSequence
-  }
-
-  function clearStream () {
-    clearTimeout(activeTimeoutId)
-    activeTimeoutId = null
-    reader = null
-    abortController = null
-  }
-
-  function cleanup () {
-    reader?.cancel().catch(err => console.warn('Error canceling reader:', err))
-    abortController?.abort()
-    clearTimeout(activeTimeoutId)
-    activeTimeoutId = null
-  }
-
-  function requestError (payload, fallback) {
+  function requestError(payload, fallback) {
     const details = payload?.error ?? payload
-    const message = typeof details === 'string' ? details : details?.message || details?.content
-    return new Error(message || fallback)
+    return new Error(
+      typeof details === 'string' ? details : details?.message || details?.content || fallback
+    )
   }
 
-  async function sendMessage (conversationId, content, token, modelCode = null, options = {}) {
+  async function sendMessage(conversationId, content, token, modelCode = null, options = {}) {
     cleanup()
-    const request = ++requestSequence
-    stoppedRequest = null
+
     thinkingText.value = ''
     responseText.value = ''
     stats.value = null
     error.value = null
+    wasStopped.value = false
     isStreaming.value = true
     loadingPhase.value = 'connecting'
-    const controller = new AbortController()
-    abortController = controller
+    currentAbortController = new AbortController()
     let streamStarted = false
-    let timeoutId = null
 
-    const resetStreamTimeout = () => {
-      clearTimeout(timeoutId)
-      timeoutId = setTimeout(() => {
-        if (!currentRequest(request)) return
-        error.value = new Error('Stream timeout - no data received for 2 minutes')
+    function resetStreamTimeout() {
+      clearTimeout(streamTimeoutId)
+      streamTimeoutId = setTimeout(() => {
+        cleanup()
+        const timeoutError = new Error('Stream timeout - no data received for 2 minutes')
+        timeoutError.streamStarted = streamStarted
+        error.value = timeoutError
         loadingPhase.value = 'idle'
         isStreaming.value = false
-        cleanup()
       }, STREAM_TIMEOUT_MS)
-      if (currentRequest(request)) activeTimeoutId = timeoutId
     }
 
     resetStreamTimeout()
 
     try {
-      const body = new FormData()
-      body.append('content', content)
-      if (modelCode) body.append('model_code', modelCode)
+      const requestBody = new FormData()
+      requestBody.append('content', content)
+      if (modelCode) requestBody.append('model_code', modelCode)
       if (options.regenerating) {
-        body.append('regenerating', 'true')
-        if (options.regeneratingMessageId) body.append('message_id', options.regeneratingMessageId)
+        requestBody.append('regenerating', 'true')
+        if (options.regeneratingMessageId) requestBody.append('message_id', options.regeneratingMessageId)
       }
-      options.images?.forEach(file => body.append('images[]', file, file.name))
+      options.images?.forEach(file => requestBody.append('images[]', file, file.name))
 
       const response = await fetch(`/api/conversations/${conversationId}/messages/stream`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
-        body,
-        signal: controller.signal
+        body: requestBody,
+        signal: currentAbortController.signal
       })
 
       if (!response.ok) {
@@ -93,22 +73,21 @@ export function useStreamingChat() {
       if (!response.body) throw new Error('Streaming not supported in this browser')
 
       streamStarted = true
-      const streamReader = response.body.getReader()
-      reader = streamReader
+      currentReader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
 
       while (true) {
-        const { done, value } = await streamReader.read()
+        const { done, value } = await currentReader.read()
         if (done) break
-        if (!currentRequest(request)) return { outcome: 'superseded' }
+
         resetStreamTimeout()
         buffer += decoder.decode(value, { stream: true })
         const events = buffer.split('\n\n')
         buffer = events.pop()
 
         for (const event of events) {
-          if (!event.startsWith('data: ')) continue
+          if (event.startsWith(':') || !event.startsWith('data: ')) continue
 
           let data
           try {
@@ -140,6 +119,7 @@ export function useStreamingChat() {
             case 'done':
               isStreaming.value = false
               loadingPhase.value = 'done'
+              clearTimeout(streamTimeoutId)
               break
             case 'error':
               throw requestError(data, 'Generation failed')
@@ -147,32 +127,38 @@ export function useStreamingChat() {
         }
       }
 
-      if (!currentRequest(request)) return { outcome: 'superseded' }
-      if (stoppedRequest === request) return { outcome: 'stopped' }
-      if (error.value) return { outcome: streamStarted ? 'failed_after_start' : 'failed_before_start' }
       isStreaming.value = false
       loadingPhase.value = 'done'
-      return { outcome: 'completed' }
+      clearTimeout(streamTimeoutId)
     } catch (err) {
-      if (!currentRequest(request)) return { outcome: 'superseded' }
-      if (stoppedRequest === request) return { outcome: 'stopped' }
-
-      error.value ||= err
-      loadingPhase.value = 'idle'
-      isStreaming.value = false
-      return { outcome: streamStarted ? 'failed_after_start' : 'failed_before_start' }
-    } finally {
-      clearTimeout(timeoutId)
-      if (currentRequest(request)) clearStream()
+      clearTimeout(streamTimeoutId)
+      if (err.name === 'AbortError' || wasStopped.value) {
+        isStreaming.value = false
+        if (!error.value) loadingPhase.value = 'done'
+      } else {
+        err.streamStarted = streamStarted
+        error.value = err
+        loadingPhase.value = 'idle'
+        isStreaming.value = false
+      }
     }
   }
 
-  function dismissError () {
+  function dismissError() {
     error.value = null
   }
 
-  function stop () {
-    stoppedRequest = requestSequence
+  function cleanup() {
+    currentReader?.cancel().catch(err => console.warn('Error canceling reader:', err))
+    currentReader = null
+    currentAbortController?.abort()
+    currentAbortController = null
+    clearTimeout(streamTimeoutId)
+    streamTimeoutId = null
+  }
+
+  function stop() {
+    wasStopped.value = true
     cleanup()
     isStreaming.value = false
     loadingPhase.value = 'done'
@@ -185,6 +171,7 @@ export function useStreamingChat() {
     isStreaming,
     error,
     loadingPhase,
+    wasStopped,
     sendMessage,
     dismissError,
     cleanup,

@@ -461,7 +461,6 @@ export default {
     modelCode: null,
     pendingAttachments: [],
     streamingMessageIndex: null,
-    lastStreamOutcome: null,
     expandedThinking: {},
     useScaffolding: true,
     usePersona: true,
@@ -515,7 +514,6 @@ export default {
     window.removeEventListener('keydown', this.handleVoiceEscape)
     this.cancelArm()
     this.clearAttachments()
-    this.revokeMessagePreviews()
   },
   watch: {
     modelCode() {
@@ -529,7 +527,6 @@ export default {
           this.conversationId = newId
           await this.loadConversation()
         } else {
-          this.revokeMessagePreviews()
           this.conversationId = null
           this.messages = []
           this.input = ''
@@ -685,7 +682,8 @@ export default {
       return this.streamingChat.isStreaming.value || this.ttsPlayer.isPlaying.value
     },
     canRetryStreamError() {
-      return !!this.streamingChat.error.value && this.lastStreamOutcome === 'failed_after_start'
+      const streamError = this.streamingChat.error.value
+      return !!streamError && streamError.streamStarted !== false
     },
     voiceShouldListen() {
       return this.voiceChatMode && !this.assistantBusy && this.editingMessageIndex === null
@@ -733,7 +731,7 @@ export default {
     handleRetry() {
       this.streamingChat.dismissError()
       const lastUser = [...this.messages].reverse().find(message => message.role === 'user')
-      if (lastUser) this.regenerateFromMessage(lastUser.content, lastUser.id)
+      if (lastUser) this.regenerateFromMessage(lastUser.content)
     },
     stopStreaming() {
       // Commit whatever streamed so far before flipping isStreaming off, so the
@@ -752,7 +750,7 @@ export default {
       if (!this.streamingChat.isStreaming.value && !this.ttsPlayer.isPlaying.value) return
 
       event.preventDefault()
-      this.stopStreaming()
+      this.streamingChat.stop()
       this.ttsPlayer.stop()
       this.$nextTick(() => {
         this.$refs.voice?.startRecording().catch((err) => {
@@ -779,7 +777,6 @@ export default {
     },
     newChat() {
       this.clearAttachments()
-      this.revokeMessagePreviews()
       if (this.$route.params.id) {
         this.$router.push('/chat')
       } else {
@@ -828,15 +825,9 @@ export default {
         entry.isPreview = false
       }
     },
-    revokeMessagePreviews() {
-      this.messages.forEach(message => {
-        message.images?.forEach(image => this.revokePreview(image))
-      })
-    },
     async loadConversation() {
       try {
         const res = await api.get(`/api/conversations/${this.conversationId}`)
-        this.revokeMessagePreviews()
         this.messages = res.data.messages
         this.modelCode = res.data.model_code || DEFAULT_MODEL_ID
         this.ragEnabled = res.data.rag_enabled || false
@@ -949,8 +940,7 @@ export default {
       const userIndex = this.messages.length
       const optimisticImages = attachments.map(attachment => ({
         url: attachment.url,
-        filename: attachment.filename,
-        isPreview: true
+        filename: attachment.filename
       }))
       this.messages.push({
         role: 'user',
@@ -972,7 +962,7 @@ export default {
       const token = localStorage.getItem('jwt')
 
       // Stream the response (composable handles state, computed merges into display)
-      const outcome = await this.streamingChat.sendMessage(
+      await this.streamingChat.sendMessage(
         this.conversationId,
         text,
         token,
@@ -980,36 +970,36 @@ export default {
         { images: attachments.map(attachment => attachment.file) }
       )
 
-      await this.finishStream({ outcome, myIndex, userIndex, text, attachments, navigate: true })
-    },
-    async finishStream({ outcome, myIndex, userIndex = null, text = '', attachments = [], navigate = false }) {
-      if (outcome === 'superseded') return
-
-      this.lastStreamOutcome = outcome
       const streamedMessage = this.messages[myIndex]
       if (streamedMessage) {
         streamedMessage.thinking = this.streamingChat.thinkingText.value
         streamedMessage.content = this.streamingChat.responseText.value
-        const finalStats = this.streamingChat.stats.value
-        if (finalStats) {
-          streamedMessage.total_tokens = finalStats.total_tokens
-          streamedMessage.tokens_per_second = finalStats.tokens_per_second
-          streamedMessage.generation_ms = finalStats.generation_ms
-        }
+      }
+      const finalStats = this.streamingChat.stats.value
+      if (finalStats && streamedMessage) {
+        streamedMessage.total_tokens = finalStats.total_tokens
+        streamedMessage.tokens_per_second = finalStats.tokens_per_second
+        streamedMessage.generation_ms = finalStats.generation_ms
       }
 
-      if (outcome === 'failed_before_start' && userIndex !== null) {
+      const streamError = this.streamingChat.error.value
+      const failedBeforeStream = streamError?.streamStarted === false
+      if (failedBeforeStream) {
         this.messages.splice(userIndex)
         this.input = text
         this.pendingAttachments = attachments
-      } else if (outcome !== 'stopped') {
-        if (navigate && this.$route.params.id !== String(this.conversationId)) {
+      } else if (!this.streamingChat.wasStopped.value) {
+        if (this.$route.params.id !== String(this.conversationId)) {
           await this.$router.replace(`/chat/${this.conversationId}`)
         }
-        await this.loadConversation()
+        if (await this.loadConversation()) {
+          attachments.forEach(attachment => this.revokePreview(attachment))
+        }
       }
 
-      if (this.streamingMessageIndex === myIndex) this.streamingMessageIndex = null
+      if (this.streamingMessageIndex === myIndex) {
+        this.streamingMessageIndex = null
+      }
       this.refreshConversations()
     },
     scrollToBottom() {
@@ -1275,14 +1265,13 @@ export default {
     },
 
     async regenerateMessage(message, messageIndex) {
-      if (!message || this.streamingChat.isStreaming.value) return
+      if (!message) return
       // Id anchors the server-side truncation; absent falls back to dropping trailing messages.
       const messageId = this.messages[messageIndex]?.id
       this.messages = this.messages.slice(0, messageIndex)
-      return this.regenerateFromMessage(message, messageId)
+      this.regenerateFromMessage(message, messageId)
     },
     async regenerateFromMessage(userMessageContent, messageId = null) {
-      if (this.streamingChat.isStreaming.value) return
       // Add placeholder for incoming stream
       const myIndex = this.messages.length
       this.streamingMessageIndex = myIndex
@@ -1295,7 +1284,7 @@ export default {
       const token = localStorage.getItem('jwt')
 
       // Stream the new response
-      const outcome = await this.streamingChat.sendMessage(
+      await this.streamingChat.sendMessage(
         this.conversationId,
         userMessageContent,
         token,
@@ -1303,7 +1292,20 @@ export default {
         { regenerating: true, regeneratingMessageId: messageId }
       )
 
-      await this.finishStream({ outcome, myIndex })
+      // Update placeholder with final content
+      const streamedMessage = this.messages[myIndex]
+      streamedMessage.thinking = this.streamingChat.thinkingText.value
+      streamedMessage.content = this.streamingChat.responseText.value
+
+      if (this.streamingChat.error.value) {
+        streamedMessage.failed = true
+      }
+
+      if (this.streamingMessageIndex === myIndex) {
+        this.streamingMessageIndex = null
+      }
+
+      this.refreshConversations()
     },
 
     async forkConversation(index) {
