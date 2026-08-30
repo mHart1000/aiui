@@ -26,12 +26,15 @@ module Api
         processed_images.each(&:close!)
       end
 
+      answering_id = answering_message.id
+      answering_stamp = answering_message.updated_at
       response.headers["Content-Type"] = "text/event-stream"
       response.headers["Cache-Control"] = "no-cache"
       response.headers["X-Accel-Buffering"] = "no"
 
       thinking_accumulator = ""
       reply_accumulator = ""
+      response_persisted = false
 
       current_api_user.reload
       rag_context = fetch_rag_context(conversation, answering_message.content)
@@ -63,15 +66,18 @@ module Api
 
         raise "Chat service failed: #{result[:error]}" if result&.dig(:error)
 
-        conversation.add_assistant_message(
+        response_persisted = persist_streamed_response(
+          conversation,
+          answering_id,
+          answering_stamp,
           reply: reply_accumulator,
           thinking: thinking_accumulator,
           tokens: result&.dig(:tokens),
           stats: result&.dig(:stats),
           persona_version: result&.dig(:persona_version),
-          skill_versions: result&.dig(:skill_versions)
+          skill_versions: result&.dig(:skill_versions),
+          entitle: true
         )
-        conversation.entitle_async(answering_message.content) if answering_message.content.present?
 
         if result&.dig(:stats)
           stats_event = {
@@ -86,6 +92,14 @@ module Api
         response.stream.write("data: #{({ type: 'done' }).to_json}\n\n")
       rescue ActionController::Live::ClientDisconnected
         Rails.logger.warn("MessagesController: client disconnected during stream")
+        persist_streamed_response(
+          conversation,
+          answering_id,
+          answering_stamp,
+          reply: reply_accumulator,
+          thinking: thinking_accumulator,
+          entitle: false
+        ) unless response_persisted
       rescue => e
         Rails.logger.error("MessagesController#create_streaming: #{e.full_message}")
         write_stream_error
@@ -138,6 +152,24 @@ module Api
 
     def image_uploads
       Array(params[:images]).reject(&:blank?)
+    end
+
+    def persist_streamed_response(conversation, answering_id, answering_stamp, reply:, thinking:, tokens: nil, stats: nil, persona_version: nil, skill_versions: nil, entitle:)
+      return false if reply.blank? && thinking.blank?
+
+      answering_message = conversation.messages.find_by(id: answering_id, updated_at: answering_stamp)
+      return false unless answering_message
+
+      conversation.add_assistant_message(
+        reply: reply,
+        thinking: thinking,
+        tokens: tokens,
+        stats: stats,
+        persona_version: persona_version,
+        skill_versions: skill_versions
+      )
+      conversation.entitle_async(answering_message.content) if entitle && answering_message.content.present?
+      true
     end
 
     def write_stream_error

@@ -1,261 +1,190 @@
 import { ref } from 'vue'
 
-/**
- * Composable for handling streaming chat responses with two-pass reasoning.
- *
- * Manages SSE (Server-Sent Events) streaming from the backend,
- * accumulating both thinking and response phases in real-time.
- *
- * @returns {Object} Reactive state and methods for streaming chat
- */
 export function useStreamingChat() {
   const thinkingText = ref('')
   const responseText = ref('')
-  const stats = ref(null) // { total_tokens, tokens_per_second, generation_ms }
+  const stats = ref(null)
   const isStreaming = ref(false)
   const error = ref(null)
-  const loadingPhase = ref('idle') // 'idle' | 'connecting' | 'thinking' | 'responding' | 'done'
+  const loadingPhase = ref('idle')
 
-  let activeStream = null
+  let abortController = null
+  let reader = null
+  let activeTimeoutId = null
+  let requestSequence = 0
+  let stoppedRequest = null
 
-  const STREAM_TIMEOUT_MS = 120000 // 2 minutes of inactivity
+  const STREAM_TIMEOUT_MS = 120000
 
-  function requestError(payload, fallback = 'The request failed') {
+  function currentRequest (request) {
+    return request === requestSequence
+  }
+
+  function clearStream () {
+    clearTimeout(activeTimeoutId)
+    activeTimeoutId = null
+    reader = null
+    abortController = null
+  }
+
+  function cleanup () {
+    reader?.cancel().catch(err => console.warn('Error canceling reader:', err))
+    abortController?.abort()
+    clearTimeout(activeTimeoutId)
+    activeTimeoutId = null
+  }
+
+  function requestError (payload, fallback) {
     const details = payload?.error ?? payload
-    const message = typeof details === 'string'
-      ? details
-      : details?.message || details?.content
+    const message = typeof details === 'string' ? details : details?.message || details?.content
     return new Error(message || fallback)
   }
 
-  /**
-   * Send a message and stream the response.
-   *
-   * @param {number} conversationId
-   * @param {string} content
-   * @param {string} token
-   * @param {string} modelCode
-   * @param {Object} options - Additional options like skipUserMessage
-   * @returns {Promise<void>}
-   */
-  async function sendMessage(conversationId, content, token, modelCode = null, options = {}) {
-    // Cancel any existing stream
+  async function sendMessage (conversationId, content, token, modelCode = null, options = {}) {
     cleanup()
-
-    // Reset state
+    const request = ++requestSequence
+    stoppedRequest = null
     thinkingText.value = ''
     responseText.value = ''
     stats.value = null
     error.value = null
     isStreaming.value = true
     loadingPhase.value = 'connecting'
-
-    const stream = {
-      abortController: new AbortController(),
-      reader: null,
-      timeoutId: null,
-      cancelled: false
-    }
-    activeStream = stream
+    const controller = new AbortController()
+    abortController = controller
     let streamStarted = false
+    let timeoutId = null
 
-    function resetStreamTimeout() {
-      clearTimeout(stream.timeoutId)
-      stream.timeoutId = setTimeout(() => {
-        cleanup()
-        const timeoutError = new Error('Stream timeout - no data received for 2 minutes')
-        timeoutError.streamStarted = streamStarted
-        error.value = timeoutError
+    const resetStreamTimeout = () => {
+      clearTimeout(timeoutId)
+      timeoutId = setTimeout(() => {
+        if (!currentRequest(request)) return
+        error.value = new Error('Stream timeout - no data received for 2 minutes')
         loadingPhase.value = 'idle'
         isStreaming.value = false
+        cleanup()
       }, STREAM_TIMEOUT_MS)
+      if (currentRequest(request)) activeTimeoutId = timeoutId
     }
 
     resetStreamTimeout()
 
     try {
-      const url = `/api/conversations/${conversationId}/messages/stream`
-      const requestBody = new FormData()
-      requestBody.append('content', content)
-      if (modelCode) requestBody.append('model_code', modelCode)
+      const body = new FormData()
+      body.append('content', content)
+      if (modelCode) body.append('model_code', modelCode)
       if (options.regenerating) {
-        requestBody.append('regenerating', 'true')
-        if (options.regeneratingMessageId) {
-          requestBody.append('message_id', options.regeneratingMessageId)
-        }
+        body.append('regenerating', 'true')
+        if (options.regeneratingMessageId) body.append('message_id', options.regeneratingMessageId)
       }
-      options.images?.forEach(file => requestBody.append('images[]', file, file.name))
+      options.images?.forEach(file => body.append('images[]', file, file.name))
 
-      const response = await fetch(url, {
+      const response = await fetch(`/api/conversations/${conversationId}/messages/stream`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        body: requestBody,
-        signal: stream.abortController.signal
+        headers: { Authorization: `Bearer ${token}` },
+        body,
+        signal: controller.signal
       })
 
       if (!response.ok) {
-        let payload = null
-        try {
-          payload = await response.json()
-        } catch {
-          payload = null
-        }
+        const payload = await response.json().catch(() => null)
         throw requestError(payload, `Request failed (${response.status})`)
       }
-
-      if (!response.body) {
-        throw new Error('Streaming not supported in this browser')
-      }
+      if (!response.body) throw new Error('Streaming not supported in this browser')
 
       streamStarted = true
-
-      stream.reader = response.body.getReader()
+      const streamReader = response.body.getReader()
+      reader = streamReader
       const decoder = new TextDecoder()
       let buffer = ''
-      let receivedDone = false
 
       while (true) {
-        const { done, value } = await stream.reader.read()
-
-        if (done) {
-          break
-        }
-
-        // Reset inactivity timeout on each chunk received
+        const { done, value } = await streamReader.read()
+        if (done) break
+        if (!currentRequest(request)) return { outcome: 'superseded' }
         resetStreamTimeout()
-
-        // Decode chunk and add to buffer
         buffer += decoder.decode(value, { stream: true })
+        const events = buffer.split('\n\n')
+        buffer = events.pop()
 
-        // Process complete SSE messages (format: "data: {...}\n\n")
-        const lines = buffer.split('\n\n')
-        buffer = lines.pop() // Keep incomplete message in buffer
+        for (const event of events) {
+          if (!event.startsWith('data: ')) continue
 
-        for (const line of lines) {
-          if (line.startsWith(':')) {
+          let data
+          try {
+            data = JSON.parse(event.substring(6))
+          } catch (parseError) {
+            console.warn('Failed to parse SSE event:', event, parseError)
             continue
           }
 
-          if (line.startsWith('data: ')) {
-            let data
-            try {
-              data = JSON.parse(line.substring(6))
-            } catch (parseError) {
-              console.warn('Failed to parse SSE event:', line, parseError)
-              continue
-            }
-
-            switch (data.type) {
-                case 'thinking':
-                  if (loadingPhase.value === 'connecting') {
-                    loadingPhase.value = 'thinking'
-                  }
-                  thinkingText.value += data.content
-                  break
-
-                case 'phase_change':
-                  loadingPhase.value = data.phase || 'responding'
-                  break
-
-                case 'response':
-                  if (loadingPhase.value !== 'responding') {
-                    loadingPhase.value = 'responding'
-                  }
-                  responseText.value += data.content
-                  break
-
-                case 'stats':
-                  stats.value = {
-                    total_tokens: data.total_tokens,
-                    tokens_per_second: data.tokens_per_second,
-                    generation_ms: data.generation_ms
-                  }
-                  break
-
-                case 'done':
-                  receivedDone = true
-                  isStreaming.value = false
-                  loadingPhase.value = 'done'
-                  clearTimeout(stream.timeoutId)
-                  break
-
-                case 'error':
-                  throw requestError(data)
-            }
+          switch (data.type) {
+            case 'thinking':
+              if (loadingPhase.value === 'connecting') loadingPhase.value = 'thinking'
+              thinkingText.value += data.content
+              break
+            case 'phase_change':
+              loadingPhase.value = data.phase || 'responding'
+              break
+            case 'response':
+              if (loadingPhase.value !== 'responding') loadingPhase.value = 'responding'
+              responseText.value += data.content
+              break
+            case 'stats':
+              stats.value = {
+                total_tokens: data.total_tokens,
+                tokens_per_second: data.tokens_per_second,
+                generation_ms: data.generation_ms
+              }
+              break
+            case 'done':
+              isStreaming.value = false
+              loadingPhase.value = 'done'
+              break
+            case 'error':
+              throw requestError(data, 'Generation failed')
           }
         }
       }
 
-      if (stream.cancelled) return
-
-      if (!receivedDone) {
-        throw new Error('The response stream ended before it was saved.')
-      }
-
-      // Stream completed successfully after the server persisted the response.
+      if (!currentRequest(request)) return { outcome: 'superseded' }
+      if (stoppedRequest === request) return { outcome: 'stopped' }
+      if (error.value) return { outcome: streamStarted ? 'failed_after_start' : 'failed_before_start' }
       isStreaming.value = false
       loadingPhase.value = 'done'
-      clearTimeout(stream.timeoutId)
-
+      return { outcome: 'completed' }
     } catch (err) {
-      const isCurrent = activeStream === stream
-      if (isCurrent) clearTimeout(stream.timeoutId)
-      if (err.name === 'AbortError' || stream.cancelled) {
-        // User stop, voice escape, or timeout cleanup — keep partial text;
-        // don't surface an error or let ChatPage splice the message.
-        if (isCurrent) {
-          isStreaming.value = false
-          if (!error.value) loadingPhase.value = 'done' // preserve a timeout error
-        }
-      } else if (isCurrent) {
-        err.streamStarted = streamStarted
-        error.value = err
-        loadingPhase.value = 'idle'
-        isStreaming.value = false
-      }
+      if (!currentRequest(request)) return { outcome: 'superseded' }
+      if (stoppedRequest === request) return { outcome: 'stopped' }
+
+      error.value ||= err
+      loadingPhase.value = 'idle'
+      isStreaming.value = false
+      return { outcome: streamStarted ? 'failed_after_start' : 'failed_before_start' }
     } finally {
-      if (activeStream === stream) activeStream = null
+      clearTimeout(timeoutId)
+      if (currentRequest(request)) clearStream()
     }
   }
 
-  function dismissError() {
+  function dismissError () {
     error.value = null
   }
 
-  function cleanup() {
-    if (!activeStream) return
-
-    activeStream.cancelled = true
-    if (activeStream.reader) {
-      activeStream.reader.cancel().catch(err => {
-        console.warn('Error canceling reader:', err)
-      })
-    }
-
-    activeStream.abortController.abort()
-
-    clearTimeout(activeStream.timeoutId)
-  }
-
-  // Stop streaming on user request and keep the partial response without an error.
-  function stop() {
+  function stop () {
+    stoppedRequest = requestSequence
     cleanup()
     isStreaming.value = false
     loadingPhase.value = 'done'
   }
 
   return {
-    // Reactive state
     thinkingText,
     responseText,
     stats,
     isStreaming,
     error,
     loadingPhase,
-
-    // Methods
     sendMessage,
     dismissError,
     cleanup,

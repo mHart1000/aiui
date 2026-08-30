@@ -57,7 +57,7 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
     controller
   end
 
-  test "create_streaming does not save partial content when client disconnects" do
+  test "create_streaming saves partial content when client disconnects" do
     controller = build_controller(@conversation)
 
     partial_chunks = [ "Hello", " world", " partial" ]
@@ -67,10 +67,13 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
     end
 
     ChatService.stub(:call, disconnecting_service) do
-      assert_no_difference "@conversation.messages.reload.count" do
+      assert_difference "@conversation.messages.reload.count", 1 do
         controller.create_streaming
       end
     end
+
+    saved = @conversation.messages.where(role: "assistant").last
+    assert_equal "Hello world partial", saved.content
   end
 
   test "create_streaming does not save when nothing was streamed before disconnect" do
@@ -162,6 +165,21 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
 
     assert_equal 1, @conversation.messages.where(role: "assistant").count
     assert_equal "one copy", @conversation.messages.find_by!(role: "assistant").content
+  end
+
+  test "does not save an answer after the user turn changes during generation" do
+    controller = build_controller(@conversation)
+    service = lambda do |**_kwargs, &block|
+      block.call("stale answer", :response)
+      @conversation.messages.find_by!(role: "user").update!(content: "Edited prompt")
+      { persona_version: nil }
+    end
+
+    ChatService.stub(:call, service) do
+      assert_no_difference "@conversation.messages.reload.where(role: 'assistant').count" do
+        controller.create_streaming
+      end
+    end
   end
 
   test "regenerating with message_id truncates the conversation to that message" do
