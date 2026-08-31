@@ -78,6 +78,7 @@ module Api
           skill_versions: result&.dig(:skill_versions),
           entitle: true
         )
+        return unless response_persisted
 
         if result&.dig(:stats)
           stats_event = {
@@ -91,7 +92,6 @@ module Api
 
         response.stream.write("data: #{({ type: 'done' }).to_json}\n\n")
       rescue ActionController::Live::ClientDisconnected
-        Rails.logger.warn("MessagesController: client disconnected during stream")
         persist_streamed_response(
           conversation,
           answering_id,

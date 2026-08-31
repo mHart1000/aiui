@@ -67,7 +67,7 @@ export function useStreamingChat() {
       })
 
       if (!response.ok) {
-        const payload = await response.json().catch(() => null)
+        const payload = await response.json()
         throw requestError(payload, `Request failed (${response.status})`)
       }
       if (!response.body) throw new Error('Streaming not supported in this browser')
@@ -76,6 +76,7 @@ export function useStreamingChat() {
       currentReader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+      let receivedDone = false
 
       while (true) {
         const { done, value } = await currentReader.read()
@@ -89,13 +90,7 @@ export function useStreamingChat() {
         for (const event of events) {
           if (event.startsWith(':') || !event.startsWith('data: ')) continue
 
-          let data
-          try {
-            data = JSON.parse(event.substring(6))
-          } catch (parseError) {
-            console.warn('Failed to parse SSE event:', event, parseError)
-            continue
-          }
+          const data = JSON.parse(event.substring(6))
 
           switch (data.type) {
             case 'thinking':
@@ -117,14 +112,17 @@ export function useStreamingChat() {
               }
               break
             case 'done':
+              receivedDone = true
               isStreaming.value = false
               loadingPhase.value = 'done'
               clearTimeout(streamTimeoutId)
               break
-            case 'error':
-              throw requestError(data, 'Generation failed')
           }
         }
+      }
+
+      if (!receivedDone && !wasStopped.value) {
+        throw new Error('The response stream ended unexpectedly.')
       }
 
       isStreaming.value = false
@@ -136,6 +134,7 @@ export function useStreamingChat() {
         isStreaming.value = false
         if (!error.value) loadingPhase.value = 'done'
       } else {
+        console.error('Chat stream failed:', err)
         err.streamStarted = streamStarted
         error.value = err
         loadingPhase.value = 'idle'
@@ -149,7 +148,6 @@ export function useStreamingChat() {
   }
 
   function cleanup() {
-    currentReader?.cancel().catch(err => console.warn('Error canceling reader:', err))
     currentReader = null
     currentAbortController?.abort()
     currentAbortController = null

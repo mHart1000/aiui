@@ -918,19 +918,14 @@ export default {
 
       const isNew = !this.conversationId
 
-      try {
-        if (isNew) {
-          const convRes = await api.post('/api/conversations')
-          this.conversationId = convRes.data.id
+      if (isNew) {
+        const convRes = await api.post('/api/conversations')
+        this.conversationId = convRes.data.id
 
-          // Toolbar settings chosen before the first send are applied here.
-          const initial = { use_skills: this.skillsEnabled, skill_ids: this.activeSkillIds }
-          if (this.ragEnabled) initial.rag_enabled = true
-          await api.patch(`/api/conversations/${this.conversationId}`, { conversation: initial })
-        }
-      } catch {
-        this.$q.notify({ type: 'negative', message: 'Could not start the conversation', timeout: 2500 })
-        return
+        // Toolbar settings chosen before the first send are applied here.
+        const initial = { use_skills: this.skillsEnabled, skill_ids: this.activeSkillIds }
+        if (this.ragEnabled) initial.rag_enabled = true
+        await api.patch(`/api/conversations/${this.conversationId}`, { conversation: initial })
       }
 
       // Add user message immediately (optimistic UI)
@@ -985,6 +980,8 @@ export default {
         this.messages.splice(userIndex)
         this.input = text
         this.pendingAttachments = attachments
+      } else if (streamError) {
+        streamedMessage.failed = true
       } else if (!this.streamingChat.wasStopped.value) {
         if (this.$route.params.id !== String(this.conversationId)) {
           await this.$router.replace(`/chat/${this.conversationId}`)

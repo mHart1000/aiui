@@ -154,6 +154,7 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
         controller.create_streaming
       end
     end
+    assert_not controller.stream_writes.any? { |event| event.include?('"type":"done"') }
   end
 
   test "regenerating with message_id truncates the conversation to that message" do
