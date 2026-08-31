@@ -81,7 +81,7 @@ class Conversation < ApplicationRecord
 
   def resolve_model_code(requested_code)
     validated = requested_code if AI_MODELS.any? { |model| model["id"] == requested_code }
-    validated || model_code || ChatService::FALLBACK_MODEL
+    validated || model_code
   end
 
   def add_assistant_message(reply:, thinking:, tokens:, stats: nil, persona_version: nil, skill_versions: nil)
@@ -152,7 +152,6 @@ class Conversation < ApplicationRecord
           io: StringIO.new(blob.download),
           filename: blob.filename.to_s,
           content_type: blob.content_type,
-          metadata: blob.metadata,
           identify: false
         )
       end

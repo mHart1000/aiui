@@ -55,13 +55,11 @@ class Api::MessageImageUploadsControllerTest < ActionDispatch::IntegrationTest
     assert_equal Conversation::PLACEHOLDER_TITLE, @conversation.reload.title
   end
 
-  test "accepts multiple images and stores normalized metadata" do
+  test "accepts multiple images" do
     stream_message(content: "compare", images: [ image, image ])
 
     assert_response :success
-    blobs = @conversation.messages.find_by!(role: "user").images.blobs
-    assert_equal 2, blobs.size
-    assert_equal [ [ 100, 80 ], [ 100, 80 ] ], blobs.map { |blob| blob.metadata.values_at("width", "height") }
+    assert_equal 2, @conversation.messages.find_by!(role: "user").images.blobs.size
   end
 
   test "rejects the entire request when one selected image is invalid" do

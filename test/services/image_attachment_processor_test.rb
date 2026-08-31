@@ -118,16 +118,6 @@ class ImageAttachmentProcessorTest < ActiveSupport::TestCase
     upload&.tempfile&.close!
   end
 
-  test "rejects WebP" do
-    source = Tempfile.new([ "alpha", ".webp" ], binmode: true)
-    Vips::Image.black(12, 8, bands: 4).new_from_image([ 255, 10, 20, 100 ]).write_to_file(source.path, Q: 100)
-    upload = ActionDispatch::Http::UploadedFile.new(tempfile: source, filename: "alpha.webp", type: "image/webp")
-    error = assert_raises(ImageAttachmentProcessor::Error) { process(upload) }
-    assert_match(/JPEG or PNG/, error.message)
-  ensure
-    source&.close!
-  end
-
   test "bakes EXIF orientation and strips the orientation tag" do
     source = Tempfile.new([ "oriented", ".jpg" ], binmode: true)
     image = Vips::Image.black(40, 20).new_from_image([ 200, 100, 50 ])

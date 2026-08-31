@@ -11,14 +11,13 @@ class ImageAttachmentProcessor
     "image/png" => "png"
   }.freeze
 
-  Result = Data.define(:tempfile, :filename, :content_type, :width, :height, :original_filename) do
+  Result = Data.define(:tempfile, :filename, :content_type, :width, :height) do
     def attachable
       {
         io: tempfile,
         filename: filename,
         content_type: content_type,
         identify: false,
-        metadata: { width: width, height: height, original_filename: original_filename }
       }
     end
 
@@ -71,8 +70,7 @@ class ImageAttachmentProcessor
       filename: normalized_filename(extension),
       content_type: content_type,
       width: normalized.width,
-      height: normalized.height,
-      original_filename: sanitized_filename
+      height: normalized.height
     )
     completed = true
     result

@@ -65,14 +65,9 @@ module Api
             tokens_per_second: m.tokens_per_second,
             generation_ms: m.generation_ms,
             images: m.images.attachments.map { |a|
-              metadata = a.blob.metadata
               {
                 id: a.id,
                 filename: a.blob.filename.to_s,
-                content_type: a.blob.content_type,
-                byte_size: a.blob.byte_size,
-                width: metadata["width"],
-                height: metadata["height"],
                 url: rails_storage_proxy_path(a.blob, disposition: "inline", only_path: true)
               }
             }

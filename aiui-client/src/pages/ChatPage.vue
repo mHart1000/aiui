@@ -800,11 +800,9 @@ export default {
 
       files.slice(0, room).forEach((file) => {
         this.pendingAttachments.push({
-          clientKey: `${Date.now()}-${Math.random()}`,
           file,
           filename: file.name,
-          url: URL.createObjectURL(file),
-          isPreview: true
+          url: URL.createObjectURL(file)
         })
       })
     },
@@ -820,9 +818,8 @@ export default {
       this.pendingAttachments = []
     },
     revokePreview(entry) {
-      if (entry.isPreview && entry.url) {
+      if (entry.url) {
         URL.revokeObjectURL(entry.url)
-        entry.isPreview = false
       }
     },
     async loadConversation() {

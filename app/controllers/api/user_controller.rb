@@ -15,9 +15,7 @@ module Api
       if current_api_user.update(attrs)
         render json: user_json
       else
-        render json: {
-          error: { code: "invalid_user_settings", message: current_api_user.errors.full_messages.to_sentence }
-        }, status: :unprocessable_entity
+        render json: { errors: current_api_user.errors.full_messages }, status: :unprocessable_entity
       end
     end
 

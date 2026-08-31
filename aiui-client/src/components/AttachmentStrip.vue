@@ -2,7 +2,7 @@
   <div v-if="attachments.length" class="attachment-strip">
     <div
       v-for="(attachment, index) in attachments"
-      :key="attachment.clientKey || attachment.url"
+      :key="attachment.url"
       class="attachment-thumb"
     >
       <img :src="attachment.url" :alt="attachment.filename" class="attachment-image" />

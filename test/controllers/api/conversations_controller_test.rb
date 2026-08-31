@@ -30,8 +30,7 @@ module Api
         io: File.open(Rails.root.join("test/fixtures/files/small.png")),
         filename: "small.png",
         content_type: "image/png",
-        identify: false,
-        metadata: { width: 100, height: 80, original_filename: "camera.png" }
+        identify: false
       )
 
       post "/api/conversations/#{@conversation.id}/fork",
@@ -46,8 +45,6 @@ module Api
       # Separate blobs, so purging one conversation cannot empty the other.
       assert_not_equal first.images.attachments.first.blob_id,
                        copied.images.attachments.first.blob_id
-      assert_equal 100, copied.images.attachments.first.blob.metadata["width"]
-      assert_equal "camera.png", copied.images.attachments.first.blob.metadata["original_filename"]
     end
 
     test "show serializes attached images" do
@@ -64,7 +61,6 @@ module Api
       images = JSON.parse(response.body)["messages"].first["images"]
       assert_equal 1, images.size
       assert_equal "small.png", images.first["filename"]
-      assert_equal "image/png", images.first["content_type"]
       assert_match %r{\A/rails/active_storage/blobs/proxy/}, images.first["url"]
       assert_nil images.first["download_url"]
 
