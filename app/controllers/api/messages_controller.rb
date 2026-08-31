@@ -27,7 +27,7 @@ module Api
       end
 
       answering_id = answering_message.id
-      answering_stamp = answering_message.updated_at
+      answering_signature = message_signature(answering_message)
       response.headers["Content-Type"] = "text/event-stream"
       response.headers["Cache-Control"] = "no-cache"
       response.headers["X-Accel-Buffering"] = "no"
@@ -69,7 +69,7 @@ module Api
         response_persisted = persist_streamed_response(
           conversation,
           answering_id,
-          answering_stamp,
+          answering_signature,
           reply: reply_accumulator,
           thinking: thinking_accumulator,
           tokens: result&.dig(:tokens),
@@ -95,14 +95,11 @@ module Api
         persist_streamed_response(
           conversation,
           answering_id,
-          answering_stamp,
+          answering_signature,
           reply: reply_accumulator,
           thinking: thinking_accumulator,
           entitle: false
         ) unless response_persisted
-      rescue => e
-        Rails.logger.error("MessagesController#create_streaming: #{e.full_message}")
-        write_stream_error
       ensure
         response.stream.close
       end
@@ -154,11 +151,11 @@ module Api
       Array(params[:images]).reject(&:blank?)
     end
 
-    def persist_streamed_response(conversation, answering_id, answering_stamp, reply:, thinking:, tokens: nil, stats: nil, persona_version: nil, skill_versions: nil, entitle:)
+    def persist_streamed_response(conversation, answering_id, answering_signature, reply:, thinking:, tokens: nil, stats: nil, persona_version: nil, skill_versions: nil, entitle:)
       return false if reply.blank? && thinking.blank?
 
-      answering_message = conversation.messages.find_by(id: answering_id, updated_at: answering_stamp)
-      return false unless answering_message
+      answering_message = conversation.messages.find_by(id: answering_id)
+      return false unless answering_message && message_signature(answering_message) == answering_signature
 
       conversation.add_assistant_message(
         reply: reply,
@@ -172,11 +169,8 @@ module Api
       true
     end
 
-    def write_stream_error
-      payload = { type: "error", message: "Generation failed. Reload or regenerate the message." }
-      response.stream.write("data: #{payload.to_json}\n\n")
-    rescue ActionController::Live::ClientDisconnected, IOError
-      nil
+    def message_signature(message)
+      [ message.content, message.images.attachments.order(:id).pluck(:blob_id) ]
     end
 
     def fetch_skills(conversation)

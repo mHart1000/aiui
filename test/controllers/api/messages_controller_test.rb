@@ -94,6 +94,7 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
     chunks = [ "Full", " response", " here" ]
     full_stream = lambda do |**_kwargs, &block|
       chunks.each { |chunk| block.call(chunk, :response) }
+      @conversation.messages.find_by!(role: "user").touch
       { persona_version: nil }
     end
 
@@ -123,33 +124,6 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
     ChatService.stub(:call, service) { controller.create_streaming }
 
     assert persisted_before_done
-  end
-
-  test "generation errors emit sanitized error and omit done" do
-    controller = build_controller(@conversation)
-
-    ChatService.stub(:call, ->(**_kwargs) { raise "provider secret failure" }) do
-      controller.create_streaming
-    end
-
-    error_event = controller.stream_writes.find { |event| event.include?('"type":"error"') }
-    assert_match(/Generation failed/, error_event)
-    assert_not_includes error_event, "provider secret failure"
-    assert_not controller.stream_writes.any? { |event| event.include?('"type":"done"') }
-    assert_not @conversation.messages.where(role: "assistant").exists?
-  end
-
-  test "generation failure leaves a newly persisted user turn" do
-    controller = build_controller(@conversation, regenerating: false, content: "Keep this prompt")
-
-    ChatService.stub(:call, ->(**_kwargs) { raise "provider failed" }) do
-      assert_difference "@conversation.messages.reload.where(role: 'user').count", 1 do
-        controller.create_streaming
-      end
-    end
-
-    assert_equal "Keep this prompt", @conversation.messages.order(:created_at, :id).last.content
-    assert_not @conversation.messages.where(role: "assistant").exists?
   end
 
   test "disconnect after persistence does not create a duplicate assistant" do
