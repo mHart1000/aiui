@@ -100,15 +100,6 @@ Server-side downscaling needs libvips:
 sudo apt install libvips42
 ```
 
-To attach images to the **local** model, just start `llama-server` with a multimodal projector:
-
-```bash
-./build/bin/llama-server \
-  -m "$MODEL_DIR/$MODEL_NAME" \
-  --mmproj "$MODEL_DIR/$MMPROJ_NAME" \
-  --port 8080 \
-  --host 0.0.0.0
-```
 the app reads the active model's `multimodal` capability from llama.cpp's `/v1/models` response. If that response is unavailable, image selection remains enabled.
 
 ---
