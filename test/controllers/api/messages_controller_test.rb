@@ -8,6 +8,8 @@ require "test_helper"
 # Instead we test the controller's private logic directly by calling the method
 # on a minimal controller instance with all I/O stubbed out.
 class Api::MessagesControllerTest < ActiveSupport::TestCase
+  self.use_transactional_tests = false
+
   def setup
     @user = User.create!(email: "test@example.com", password: "password123")
     @conversation = @user.conversations.create!(title: "Test Chat")
@@ -53,6 +55,7 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
 
     controller.define_singleton_method(:response) { fake_response }
     controller.define_singleton_method(:stream_writes) { writes }
+    controller.define_singleton_method(:render) { |json:| json }
 
     controller
   end
@@ -155,6 +158,89 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
       end
     end
     assert_not controller.stream_writes.any? { |event| event.include?('"type":"done"') }
+  end
+
+  test "does not save a streamed answer when an edit commits first" do
+    message = @conversation.messages.find_by!(role: "user")
+    controller = build_controller(@conversation, id: message.id, content: "Edited prompt")
+    signature = controller.send(:message_signature, message)
+    errors = Queue.new
+
+    edit = Thread.new do
+      ActiveRecord::Base.connection_pool.with_connection { controller.update }
+    rescue => error
+      errors << error
+    end
+    edit.join
+
+    stream = Thread.new do
+      ActiveRecord::Base.connection_pool.with_connection do
+        controller.send(
+          :persist_streamed_response,
+          Conversation.find(@conversation.id),
+          message.id,
+          signature,
+          reply: "stale answer",
+          thinking: "",
+          entitle: false
+        )
+      end
+    rescue => error
+      errors << error
+    end
+    persisted = stream.value
+    raise errors.pop unless errors.empty?
+
+    assert_not persisted
+    assert_equal 0, @conversation.messages.where(role: "assistant").count
+  end
+
+  test "edit removes an assistant persisted while it waits for the conversation lock" do
+    message = @conversation.messages.find_by!(role: "user")
+    controller = build_controller(@conversation, id: message.id, content: "Edited prompt")
+    signature = controller.send(:message_signature, message)
+    assistant_insert_started = Queue.new
+    release_assistant_insert = Queue.new
+    edit_finished = Queue.new
+    errors = Queue.new
+
+    stream = Thread.new do
+      ActiveRecord::Base.connection_pool.with_connection do
+        conversation = Conversation.find(@conversation.id)
+        conversation.define_singleton_method(:add_assistant_message) do |**attributes|
+          assistant_insert_started << true
+          release_assistant_insert.pop
+          super(**attributes)
+        end
+        controller.send(
+          :persist_streamed_response, conversation, message.id, signature,
+          reply: "old answer", thinking: "", entitle: false
+        )
+      end
+    rescue => error
+      errors << error
+    end
+
+    assistant_insert_started.pop
+    edit = Thread.new do
+      ActiveRecord::Base.connection_pool.with_connection do
+        controller.update
+      end
+      edit_finished << true
+    rescue => error
+      errors << error
+    end
+
+    sleep 0.1
+    assert edit_finished.empty?
+    assert_equal 0, @conversation.messages.where(role: "assistant").count
+
+    release_assistant_insert << true
+    [ stream, edit ].each(&:join)
+    raise errors.pop unless errors.empty?
+
+    assert_equal "Edited prompt", @conversation.messages.find(message.id).content
+    assert_equal 0, @conversation.messages.where(role: "assistant").count
   end
 
   test "regenerating with message_id truncates the conversation to that message" do
