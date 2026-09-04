@@ -150,7 +150,11 @@ module Api
     end
 
     def image_uploads
-      Array(params[:images]).reject(&:blank?)
+      uploads = Array(params[:images]).reject(&:blank?)
+      if uploads.size > 4
+        raise ImageAttachmentProcessor::Error, "You can attach up to 4 images."
+      end
+      uploads
     end
 
     def persist_streamed_response(conversation, answering_id, answering_signature, reply:, thinking:, tokens: nil, stats: nil, persona_version: nil, skill_versions: nil, entitle:)
