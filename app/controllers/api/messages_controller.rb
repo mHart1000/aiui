@@ -5,10 +5,11 @@ module Api
 
     def update
       conversation = current_api_user.conversations.find(params[:conversation_id])
-      message = conversation.messages.find(params[:id])
-
-      conversation.messages.where("created_at > ?", message.created_at).destroy_all
-      message.update!(content: params[:content].to_s)
+      conversation.with_lock do
+        message = conversation.messages.find(params[:id])
+        conversation.messages.where("created_at > ?", message.created_at).destroy_all
+        message.update!(content: params[:content].to_s)
+      end
       render json: { message: message }
     end
 
@@ -112,20 +113,21 @@ module Api
         return create_user_message!(conversation, params[:content].to_s, processed_images, model_code: model_code)
       end
 
-      conversation.apply_model_code(model_code)
+      conversation.with_lock do
+        conversation.apply_model_code(model_code)
 
-      if params[:message_id].present?
-        conversation.truncate_from_message(conversation.messages.find(params[:message_id]))
-      else
-        while (last_message = conversation.messages.order(:created_at, :id).last)&.role == "assistant"
-          last_message.destroy
+        if params[:message_id].present?
+          conversation.truncate_from_message(conversation.messages.find(params[:message_id]))
+        else
+          while (last_message = conversation.messages.order(:created_at, :id).last)&.role == "assistant"
+            last_message.destroy
+          end
         end
+
+        message = conversation.messages.order(:created_at, :id).last
+        raise ActiveRecord::RecordNotFound, "There is no user message to regenerate" unless message&.role == "user"
+        message
       end
-
-      message = conversation.messages.order(:created_at, :id).last
-      raise ActiveRecord::RecordNotFound, "There is no user message to regenerate" unless message&.role == "user"
-
-      message
     end
 
     def create_user_message!(conversation, content, processed_images, model_code:)
@@ -154,19 +156,21 @@ module Api
     def persist_streamed_response(conversation, answering_id, answering_signature, reply:, thinking:, tokens: nil, stats: nil, persona_version: nil, skill_versions: nil, entitle:)
       return false if reply.blank? && thinking.blank?
 
-      answering_message = conversation.messages.find_by(id: answering_id)
-      return false unless answering_message && message_signature(answering_message) == answering_signature
+      conversation.with_lock do
+        answering_message = conversation.messages.find_by(id: answering_id)
+        next false unless answering_message && message_signature(answering_message) == answering_signature
 
-      conversation.add_assistant_message(
-        reply: reply,
-        thinking: thinking,
-        tokens: tokens,
-        stats: stats,
-        persona_version: persona_version,
-        skill_versions: skill_versions
-      )
-      conversation.entitle_async(answering_message.content) if entitle && answering_message.content.present?
-      true
+        conversation.add_assistant_message(
+          reply: reply,
+          thinking: thinking,
+          tokens: tokens,
+          stats: stats,
+          persona_version: persona_version,
+          skill_versions: skill_versions
+        )
+        conversation.entitle_async(answering_message.content) if entitle && answering_message.content.present?
+        true
+      end
     end
 
     def message_signature(message)
