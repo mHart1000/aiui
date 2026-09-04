@@ -1,6 +1,6 @@
 <template>
   <div class="attachment-button">
-    <q-btn icon="add" color="secondary" round flat>
+    <q-btn icon="add" color="secondary" round flat aria-label="Attach an image or start a new chat">
       <q-tooltip>Attach or start a new chat</q-tooltip>
       <q-menu anchor="top left" self="bottom left">
         <q-list style="min-width: 240px">
