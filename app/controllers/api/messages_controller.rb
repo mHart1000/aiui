@@ -5,6 +5,7 @@ module Api
 
     def update
       conversation = current_api_user.conversations.find(params[:conversation_id])
+      message = nil
       conversation.with_lock do
         message = conversation.messages.find(params[:id])
         conversation.messages.where("created_at > ?", message.created_at).destroy_all
