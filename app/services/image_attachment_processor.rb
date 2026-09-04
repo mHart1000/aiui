@@ -17,7 +17,7 @@ class ImageAttachmentProcessor
         io: tempfile,
         filename: filename,
         content_type: content_type,
-        identify: false,
+        identify: false
       }
     end
 

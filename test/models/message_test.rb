@@ -54,5 +54,4 @@ class MessageTest < ActiveSupport::TestCase
 
     assert_equal "read this\n\n[Image attached: small.png]", payload[:content]
   end
-
 end
