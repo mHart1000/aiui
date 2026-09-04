@@ -25,8 +25,8 @@ gem "tzinfo-data", platforms: %i[ windows jruby ]
 # Reduces boot times through caching; required in config/boot.rb
 gem "bootsnap", require: false
 
-# Use Active Storage variants [https://guides.rubyonrails.org/active_storage_overview.html#transforming-images]
-# gem "image_processing", "~> 1.2"
+# Image resizing for chat attachments (libvips backend) [docs/image-attachments-spec.md]
+gem "image_processing", "~> 1.2"
 
 # CORS handling for Vue frontend
 gem "rack-cors"

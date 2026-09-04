@@ -109,6 +109,49 @@ class ChatServiceTest < ActiveSupport::TestCase
     assert user_msg[:content].start_with?("[Context]"), "RAG block should be prepended before the original question"
   end
 
+  test "rag_context lands on the text part when the turn carries images" do
+    captured = nil
+    image_part = { type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } }
+    service = ChatService.new(
+      messages: [ { role: "user", content: [ { type: "text", text: "What is this?" }, image_part ] } ],
+      model: "gpt-4o",
+      use_persona: false,
+      use_scaffolding: false,
+      stream: false,
+      max_tokens: nil,
+      rag_context: "[Context]\nit is a cat\n[/Context]"
+    )
+    adapter = service.instance_variable_get(:@adapter)
+    adapter.stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) do
+      service.call
+    end
+
+    content = captured.find { |m| m[:role] == "user" }[:content]
+    assert_instance_of Array, content, "array content must not be stringified"
+    assert_equal image_part, content.last, "image part must survive injection untouched"
+    assert content.first[:text].start_with?("[Context]")
+    assert_includes content.first[:text], "What is this?"
+  end
+
+  test "dev mode echoes only the text part, never the base64 image" do
+    service = ChatService.new(
+      messages: [ { role: "user", content: [
+        { type: "text", text: "describe" },
+        { type: "image_url", image_url: { url: "data:image/png;base64,SECRETBLOB" } }
+      ] } ],
+      model: "gpt-4o",
+      use_persona: false,
+      use_scaffolding: false,
+      stream: false,
+      max_tokens: nil
+    )
+
+    result = with_env("AI_ENABLED" => "false") { service.call }
+
+    assert_includes result[:reply], "describe"
+    assert_not_includes result[:reply], "SECRETBLOB"
+  end
+
   test "rag_context is injected only on execution pass in two-pass mode" do
     planning_captured = nil
     execution_captured = nil

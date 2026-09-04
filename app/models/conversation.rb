@@ -2,6 +2,7 @@ class Conversation < ApplicationRecord
   PLACEHOLDER_TITLE = "New Chat".freeze
 
   # Message columns carried over by a fork. Explicit so new columns have to opt in.
+  # Attached images are not columns; copy_attachments handles them.
   COPIED_MESSAGE_COLUMNS = %w[
     role content thinking prompt_tokens completion_tokens total_tokens
     generation_ms tokens_per_second persona_version skill_versions
@@ -16,8 +17,10 @@ class Conversation < ApplicationRecord
     ConversationEntitleJob.perform_later(id, content)
   end
 
-  def messages_for_ai
-    messages.order(:created_at).map { |m| { role: m.role, content: m.content } }
+  def messages_for_ai(multimodal: false)
+    messages.order(:created_at)
+            .includes(images_attachments: :blob)
+            .map { |m| m.to_ai_payload(multimodal: multimodal) }
   end
 
   # Copies this conversation and its messages up to and including `message`.
@@ -35,10 +38,12 @@ class Conversation < ApplicationRecord
         use_skills: use_skills,
         skill_ids: skill_ids
       )
+      source_slice = ordered[0..cutoff]
       # insert_all! skips the touch callback, so the source keeps its sidebar position.
-      Message.insert_all!(ordered[0..cutoff].map { |m|
+      Message.insert_all!(source_slice.map { |m|
         m.attributes.slice(*COPIED_MESSAGE_COLUMNS).merge("conversation_id" => forked.id)
       })
+      copy_attachments(source_slice, forked)
       forked
     end
   end
@@ -69,10 +74,14 @@ class Conversation < ApplicationRecord
   end
 
   def apply_model_code(requested_code)
-    validated = requested_code if AI_MODELS.map { |m| m["id"] }.include?(requested_code)
-    resolved = validated || model_code
+    resolved = resolve_model_code(requested_code)
     update!(model_code: resolved) if model_code != resolved
     resolved
+  end
+
+  def resolve_model_code(requested_code)
+    validated = requested_code if AI_MODELS.any? { |model| model["id"] == requested_code }
+    validated || model_code
   end
 
   def add_assistant_message(reply:, thinking:, tokens:, stats: nil, persona_version: nil, skill_versions: nil)
@@ -129,6 +138,25 @@ class Conversation < ApplicationRecord
   end
 
   private
+
+  # Blobs are copied rather than shared: a shared blob gets purged when either
+  # conversation is destroyed, silently emptying the other one's images.
+  def copy_attachments(source_messages, forked)
+    return unless source_messages.any? { |m| m.images.attachments.any? }
+
+    forked_messages = forked.messages.order(:created_at, :id).to_a
+    source_messages.each_with_index do |source, i|
+      source.images.attachments.each do |attachment|
+        blob = attachment.blob
+        forked_messages[i].images.attach(
+          io: StringIO.new(blob.download),
+          filename: blob.filename.to_s,
+          content_type: blob.content_type,
+          identify: false
+        )
+      end
+    end
+  end
 
   def fork_title
     return PLACEHOLDER_TITLE if title.blank? || placeholder_title?

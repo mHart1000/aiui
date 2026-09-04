@@ -1,3 +1,5 @@
+require "net/http"
+
 AI_MODELS = [
  { "id"=>"local-llama", "object"=>"model", "created"=>1700000000, "owned_by"=>"local" },
  { "id"=>"openrouter/nvidia/nemotron-3-super-120b-a12b:free", "object"=>"model", "created"=>1764600000, "owned_by"=>"openrouter" },
@@ -130,3 +132,22 @@ AI_MODELS = [
  { "id"=>"whisper-1", "object"=>"model", "created"=>1677532384, "owned_by"=>"openai-internal" },
  { "id"=>"text-embedding-ada-002", "object"=>"model", "created"=>1671217299, "owned_by"=>"openai-internal" }
 ].freeze
+
+module AiModels
+  def self.images_allowed?(model_id)
+    local?(model_id) && local_image_input != false
+  end
+
+  # Keyed off the catalogue rather than the id string, so a second local entry
+  # is picked up without duplicating ChatService's adapter-routing rules.
+  def self.local?(model_id)
+    AI_MODELS.find { |model| model["id"] == model_id }&.dig("owned_by") == "local"
+  end
+
+  def self.local_image_input
+    url = "#{ENV.fetch("LLAMA_API_URL", "http://localhost:8080/v1")}/models"
+    JSON.parse(Net::HTTP.get(URI(url))).dig("models", 0, "capabilities")&.include?("multimodal")
+  rescue Errno::ECONNREFUSED, Errno::ETIMEDOUT, SocketError, Net::OpenTimeout, Net::ReadTimeout
+    nil
+  end
+end

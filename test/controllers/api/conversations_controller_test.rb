@@ -24,6 +24,51 @@ module Api
       assert_equal [ "one", "two" ], forked.messages.order(:created_at).map(&:content)
     end
 
+    test "fork copies attached images onto its own blobs" do
+      first = @conversation.messages.order(:created_at).first
+      first.images.attach(
+        io: File.open(Rails.root.join("test/fixtures/files/small.png")),
+        filename: "small.png",
+        content_type: "image/png",
+        identify: false
+      )
+
+      post "/api/conversations/#{@conversation.id}/fork",
+           params: { message_id: @answer.id }, headers: @headers, as: :json
+      assert_response :created
+
+      forked = Conversation.find(JSON.parse(response.body)["id"])
+      copied = forked.messages.order(:created_at).first
+
+      assert_equal 1, copied.images.attachments.size
+      assert_equal "small.png", copied.images.attachments.first.blob.filename.to_s
+      # Separate blobs, so purging one conversation cannot empty the other.
+      assert_not_equal first.images.attachments.first.blob_id,
+                       copied.images.attachments.first.blob_id
+    end
+
+    test "show serializes attached images" do
+      first = @conversation.messages.order(:created_at).first
+      first.images.attach(
+        io: File.open(Rails.root.join("test/fixtures/files/small.png")),
+        filename: "small.png",
+        content_type: "image/png"
+      )
+
+      get "/api/conversations/#{@conversation.id}", headers: @headers
+      assert_response :success
+
+      images = JSON.parse(response.body)["messages"].first["images"]
+      assert_equal 1, images.size
+      assert_equal "small.png", images.first["filename"]
+      assert_match %r{\A/rails/active_storage/blobs/proxy/}, images.first["url"]
+      assert_nil images.first["download_url"]
+
+      get images.first["url"]
+      assert_response :success
+      assert_equal "image/png", response.media_type
+    end
+
     test "fork rejects another user's conversation" do
       other = User.create!(email: "other_#{SecureRandom.hex(4)}@example.com", password: "password123")
       theirs = other.conversations.create!(title: "Theirs")

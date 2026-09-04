@@ -1,60 +1,48 @@
 import { ref } from 'vue'
 
-/**
- * Composable for handling streaming chat responses with two-pass reasoning.
- *
- * Manages SSE (Server-Sent Events) streaming from the backend,
- * accumulating both thinking and response phases in real-time.
- *
- * @returns {Object} Reactive state and methods for streaming chat
- */
 export function useStreamingChat() {
   const thinkingText = ref('')
   const responseText = ref('')
-  const stats = ref(null) // { total_tokens, tokens_per_second, generation_ms }
+  const stats = ref(null)
   const isStreaming = ref(false)
   const error = ref(null)
-  const loadingPhase = ref('idle') // 'idle' | 'connecting' | 'thinking' | 'responding' | 'done'
-  const lastRequest = ref(null) // Store for retry
+  const loadingPhase = ref('idle')
+  const wasStopped = ref(false)
 
   let currentAbortController = null
   let currentReader = null
   let streamTimeoutId = null
 
-  const STREAM_TIMEOUT_MS = 120000 // 2 minutes of inactivity
+  const STREAM_TIMEOUT_MS = 120000
 
-  /**
-   * Send a message and stream the response.
-   *
-   * @param {number} conversationId
-   * @param {string} content
-   * @param {string} token
-   * @param {string} modelCode
-   * @param {Object} options - Additional options like skipUserMessage
-   * @returns {Promise<void>}
-   */
+  function requestError(payload, fallback) {
+    const details = payload?.error ?? payload
+    return new Error(
+      typeof details === 'string' ? details : details?.message || details?.content || fallback
+    )
+  }
+
   async function sendMessage(conversationId, content, token, modelCode = null, options = {}) {
-    // Store request for potential retry
-    lastRequest.value = { conversationId, content, token, modelCode, options }
-
-    // Cancel any existing stream
     cleanup()
 
-    // Reset state
     thinkingText.value = ''
     responseText.value = ''
     stats.value = null
     error.value = null
+    wasStopped.value = false
     isStreaming.value = true
     loadingPhase.value = 'connecting'
-
     currentAbortController = new AbortController()
+    let streamStarted = false
 
     function resetStreamTimeout() {
       clearTimeout(streamTimeoutId)
       streamTimeoutId = setTimeout(() => {
         cleanup()
-        error.value = new Error('Stream timeout - no data received for 2 minutes')
+        const timeoutError = new Error('Stream timeout - no data received for 2 minutes')
+        timeoutError.streamStarted = streamStarted
+        error.value = timeoutError
+        loadingPhase.value = 'idle'
         isStreaming.value = false
       }, STREAM_TIMEOUT_MS)
     }
@@ -62,133 +50,96 @@ export function useStreamingChat() {
     resetStreamTimeout()
 
     try {
-      const url = `/api/conversations/${conversationId}/messages/stream`
-      const requestBody = { content }
-      if (modelCode) {
-        requestBody.model_code = modelCode
-      }
+      const requestBody = new FormData()
+      requestBody.append('content', content)
+      if (modelCode) requestBody.append('model_code', modelCode)
       if (options.regenerating) {
-        requestBody.regenerating = true
-        if (options.regeneratingMessageId) {
-          requestBody.message_id = options.regeneratingMessageId
-        }
+        requestBody.append('regenerating', 'true')
+        if (options.regeneratingMessageId) requestBody.append('message_id', options.regeneratingMessageId)
       }
+      options.images?.forEach(file => requestBody.append('images[]', file, file.name))
 
-      const response = await fetch(url, {
+      const response = await fetch(`/api/conversations/${conversationId}/messages/stream`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(requestBody),
+        headers: { Authorization: `Bearer ${token}` },
+        body: requestBody,
         signal: currentAbortController.signal
       })
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+        const payload = await response.json()
+        throw requestError(payload, `Request failed (${response.status})`)
       }
+      if (!response.body) throw new Error('Streaming not supported in this browser')
 
-      if (!response.body) {
-        throw new Error('Streaming not supported in this browser')
-      }
-
+      streamStarted = true
       currentReader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+      let receivedDone = false
 
       while (true) {
         const { done, value } = await currentReader.read()
+        if (done) break
 
-        if (done) {
-          break
-        }
-
-        // Reset inactivity timeout on each chunk received
         resetStreamTimeout()
-
-        // Decode chunk and add to buffer
         buffer += decoder.decode(value, { stream: true })
+        const events = buffer.split('\n\n')
+        buffer = events.pop()
 
-        // Process complete SSE messages (format: "data: {...}\n\n")
-        const lines = buffer.split('\n\n')
-        buffer = lines.pop() // Keep incomplete message in buffer
+        for (const event of events) {
+          if (event.startsWith(':') || !event.startsWith('data: ')) continue
 
-        for (const line of lines) {
-          if (line.startsWith(':')) {
-            continue
-          }
+          const data = JSON.parse(event.substring(6))
 
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.substring(6))
-
-              switch (data.type) {
-                case 'thinking':
-                  if (loadingPhase.value === 'connecting') {
-                    loadingPhase.value = 'thinking'
-                  }
-                  thinkingText.value += data.content
-                  break
-
-                case 'phase_change':
-                  loadingPhase.value = data.phase || 'responding'
-                  break
-
-                case 'response':
-                  if (loadingPhase.value !== 'responding') {
-                    loadingPhase.value = 'responding'
-                  }
-                  responseText.value += data.content
-                  break
-
-                case 'stats':
-                  stats.value = {
-                    total_tokens: data.total_tokens,
-                    tokens_per_second: data.tokens_per_second,
-                    generation_ms: data.generation_ms
-                  }
-                  break
-
-                case 'done':
-                  isStreaming.value = false
-                  loadingPhase.value = 'done'
-                  clearTimeout(streamTimeoutId)
-                  break
-
-                case 'error':
-                  throw new Error(data.content)
+          switch (data.type) {
+            case 'thinking':
+              if (loadingPhase.value === 'connecting') loadingPhase.value = 'thinking'
+              thinkingText.value += data.content
+              break
+            case 'phase_change':
+              loadingPhase.value = data.phase || 'responding'
+              break
+            case 'response':
+              if (loadingPhase.value !== 'responding') loadingPhase.value = 'responding'
+              responseText.value += data.content
+              break
+            case 'stats':
+              stats.value = {
+                total_tokens: data.total_tokens,
+                tokens_per_second: data.tokens_per_second,
+                generation_ms: data.generation_ms
               }
-            } catch (parseError) {
-              console.warn('Failed to parse SSE event:', line, parseError)
-            }
+              break
+            case 'done':
+              receivedDone = true
+              isStreaming.value = false
+              loadingPhase.value = 'done'
+              clearTimeout(streamTimeoutId)
+              break
           }
         }
       }
 
-      // Stream completed successfully
+      if (!receivedDone && !wasStopped.value) {
+        throw new Error('The response stream ended unexpectedly.')
+      }
+
       isStreaming.value = false
       loadingPhase.value = 'done'
       clearTimeout(streamTimeoutId)
-
     } catch (err) {
       clearTimeout(streamTimeoutId)
-      if (err.name === 'AbortError') {
-        // User stop, voice escape, or timeout cleanup — keep partial text;
-        // don't surface an error or let ChatPage splice the message.
+      if (err.name === 'AbortError' || wasStopped.value) {
         isStreaming.value = false
-        if (!error.value) loadingPhase.value = 'done' // preserve a timeout error
+        if (!error.value) loadingPhase.value = 'done'
       } else {
+        console.error('Chat stream failed:', err)
+        err.streamStarted = streamStarted
         error.value = err
         loadingPhase.value = 'idle'
         isStreaming.value = false
       }
-    }
-  }
-
-  async function retryLastMessage() {
-    if (lastRequest.value) {
-      const { conversationId, content, token, modelCode, options } = lastRequest.value
-      await sendMessage(conversationId, content, token, modelCode, options)
     }
   }
 
@@ -197,45 +148,29 @@ export function useStreamingChat() {
   }
 
   function cleanup() {
-    if (currentReader) {
-      currentReader.cancel().catch(err => {
-        console.warn('Error canceling reader:', err)
-      })
-      currentReader = null
-    }
-
-    if (currentAbortController) {
-      currentAbortController.abort()
-      currentAbortController = null
-    }
-
-    if (streamTimeoutId) {
-      clearTimeout(streamTimeoutId)
-      streamTimeoutId = null
-    }
+    currentReader = null
+    currentAbortController?.abort()
+    currentAbortController = null
+    clearTimeout(streamTimeoutId)
+    streamTimeoutId = null
   }
 
-  // Stop streaming on user request: abort the connection and settle state so the
-  // partial response is kept (no error). Distinct from cleanup(), which is a pure
-  // teardown used on unmount and before starting a new stream.
   function stop() {
+    wasStopped.value = true
     cleanup()
     isStreaming.value = false
     loadingPhase.value = 'done'
   }
 
   return {
-    // Reactive state
     thinkingText,
     responseText,
     stats,
     isStreaming,
     error,
     loadingPhase,
-
-    // Methods
+    wasStopped,
     sendMessage,
-    retryLastMessage,
     dismissError,
     cleanup,
     stop

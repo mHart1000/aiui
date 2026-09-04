@@ -110,7 +110,7 @@
       </template>
       <div class="text-body2">{{ streamingChat.error.value?.message || streamingChat.error.value }}</div>
       <template v-slot:action>
-        <q-btn flat dense label="Retry" @click="handleRetry" color="white" />
+        <q-btn v-if="canRetryStreamError" flat dense label="Retry" @click="handleRetry" color="white" />
         <q-btn flat dense label="Dismiss" @click="streamingChat.dismissError()" color="white" />
       </template>
     </q-banner>
@@ -156,6 +156,17 @@
         </q-expansion-item>
 
         <div :class="msg.role" class="bubble q-pa-sm q-rounded-borders">
+          <div v-if="msg.images && msg.images.length" class="message-images">
+            <a
+              v-for="image in msg.images"
+              :key="image.id || image.url"
+              :href="image.url"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <img :src="image.url" :alt="image.filename" class="message-image" />
+            </a>
+          </div>
           <div v-if="!msg.content && isActivelyStreaming(i) && streamingChat.loadingPhase.value === 'connecting'" class="loading-placeholder">
             <div class="typing-indicator">
               <span class="dot"></span>
@@ -199,10 +210,13 @@
           <div v-else v-html="msg.role === 'user' ? formatUserMessage(msg.content) : formatMessage(msg.content)" @click="handleMessageContentClick" />
           <q-spinner v-if="isActivelyStreaming(i) && msg.content" color="primary" size="20px" class="q-mt-sm" />
 
-          <div class="message-footer" v-if="msg.role === 'assistant' || (msg.role === 'user' && !isActivelyStreaming(i) && editingMessageIndex !== i)">
+          <div
+            class="message-footer"
+            v-if="(msg.role === 'assistant' && (msg.content?.trim() || msg.failed)) || (msg.role === 'user' && !isActivelyStreaming(i) && editingMessageIndex !== i)"
+          >
             <template v-if="msg.role === 'assistant'">
               <q-btn
-                v-if="msg.content"
+                v-if="msg.content?.trim()"
                 flat
                 dense
                 round
@@ -225,7 +239,7 @@
                 <q-tooltip>Regenerate response</q-tooltip>
               </q-btn>
               <q-btn
-                v-if="msg.content"
+                v-if="msg.content?.trim()"
                 flat
                 dense
                 round
@@ -307,12 +321,17 @@
         :context-usage="composerContextPercent"
         :context-label="composerContextLabel"
         :voice-mode="voiceChatMode"
+        :attachments="pendingAttachments"
+        :images-supported="imagesSupported"
+        :model-label="modelLabel"
         @error="handleSttError"
         @status="handleSttStatus"
         @send-message="sendMessage"
         @stop="stopStreaming"
         @new-chat="newChat"
         @toggle-voice-mode="toggleVoiceMode"
+        @files-selected="onFilesSelected"
+        @remove-attachment="removeAttachment"
         class="col message-input"
       />
       <VoiceChatInput
@@ -329,6 +348,9 @@
         :muted="!ttsPlayer.isEnabled.value"
         :tts-available="ttsPlayer.isTtsAvailable.value"
         :voice-mode="voiceChatMode"
+        :attachments="pendingAttachments"
+        :images-supported="imagesSupported"
+        :model-label="modelLabel"
         @error="handleSttError"
         @status="handleSttStatus"
         @send-message="sendMessage"
@@ -337,6 +359,8 @@
         @toggle-mute="handleToggleMute"
         @toggle-voice-mode="toggleVoiceMode"
         @inactivity-timeout="handleVoiceInactivityTimeout"
+        @files-selected="onFilesSelected"
+        @remove-attachment="removeAttachment"
         class="col message-input"
       />
     </div>
@@ -390,6 +414,8 @@ import { useTtsPlayer } from 'src/composables/useTtsPlayer'
 import { onBeforeUnmount, onMounted} from 'vue'
 
 const DEFAULT_MODEL_ID = import.meta.env.VITE_DEFAULT_MODEL_ID || null
+// This is a composer affordance; the processor enforces file safety limits.
+const MAX_ATTACHMENTS = 4
 
 const COMPOSER_EXPAND_AT_PX = 16
 const COMPOSER_COLLAPSE_AT_PX = 140
@@ -431,7 +457,9 @@ export default {
     toolbarHovered: false,
     conversationId: null,
     models: [],
+    localImageInput: null,
     modelCode: null,
+    pendingAttachments: [],
     streamingMessageIndex: null,
     expandedThinking: {},
     useScaffolding: true,
@@ -457,6 +485,7 @@ export default {
   async mounted() {
     const modelsRes = await api.get('/api/models')
     this.models = modelsRes.data.models
+    this.localImageInput = modelsRes.data.local_image_input
     if (!this.modelCode && this.models.length > 0) {
       this.modelCode = DEFAULT_MODEL_ID || String(this.models[0].id)
     }
@@ -484,6 +513,7 @@ export default {
   beforeUnmount() {
     window.removeEventListener('keydown', this.handleVoiceEscape)
     this.cancelArm()
+    this.clearAttachments()
   },
   watch: {
     modelCode() {
@@ -491,7 +521,8 @@ export default {
     },
     '$route.params.id': {
       immediate: true,
-      async handler(newId) {
+      async handler(newId, oldId) {
+        if (oldId !== undefined && String(newId || '') !== String(oldId || '')) this.clearAttachments()
         if (newId) {
           this.conversationId = newId
           await this.loadConversation()
@@ -617,6 +648,15 @@ export default {
       const code = (this.modelCode || '').toLowerCase()
       return code.includes('llama') || code.includes('local') || code.endsWith('.gguf')
     },
+    selectedModel() {
+      return this.models.find(m => String(m.id) === String(this.modelCode)) || null
+    },
+    imagesSupported() {
+      return this.selectedModel?.owned_by === 'local' && this.localImageInput !== false
+    },
+    modelLabel() {
+      return this.selectedModel ? String(this.selectedModel.id).split('/').pop() : 'This model'
+    },
     lastContextTokens() {
       for (let i = this.messages.length - 1; i >= 0; i--) {
         const msg = this.messages[i]
@@ -640,6 +680,10 @@ export default {
     },
     assistantBusy() {
       return this.streamingChat.isStreaming.value || this.ttsPlayer.isPlaying.value
+    },
+    canRetryStreamError() {
+      const streamError = this.streamingChat.error.value
+      return !!streamError && streamError.streamStarted !== false
     },
     voiceShouldListen() {
       return this.voiceChatMode && !this.assistantBusy && this.editingMessageIndex === null
@@ -685,7 +729,9 @@ export default {
       }
     },
     handleRetry() {
-      this.streamingChat.retryLastMessage()
+      this.streamingChat.dismissError()
+      const lastUser = [...this.messages].reverse().find(message => message.role === 'user')
+      if (lastUser) this.regenerateFromMessage(lastUser.content)
     },
     stopStreaming() {
       // Commit whatever streamed so far before flipping isStreaming off, so the
@@ -730,6 +776,7 @@ export default {
       }
     },
     newChat() {
+      this.clearAttachments()
       if (this.$route.params.id) {
         this.$router.push('/chat')
       } else {
@@ -740,6 +787,41 @@ export default {
         this.activeSkillIds = this.defaultSkillIds
       }
     },
+    onFilesSelected(files) {
+      if (!this.imagesSupported) return
+      const room = Math.max(0, MAX_ATTACHMENTS - this.pendingAttachments.length)
+      if (files.length > room) {
+        this.$q.notify({
+          message: `You can attach up to ${MAX_ATTACHMENTS} images`,
+          position: 'top',
+          timeout: 2000
+        })
+      }
+
+      files.slice(0, room).forEach((file) => {
+        this.pendingAttachments.push({
+          file,
+          filename: file.name,
+          url: URL.createObjectURL(file)
+        })
+      })
+    },
+    removeAttachment(index) {
+      const [removed] = this.pendingAttachments.splice(index, 1)
+      if (!removed) return
+      this.revokePreview(removed)
+    },
+    clearAttachments() {
+      this.pendingAttachments.forEach((entry) => {
+        this.revokePreview(entry)
+      })
+      this.pendingAttachments = []
+    },
+    revokePreview(entry) {
+      if (entry.url) {
+        URL.revokeObjectURL(entry.url)
+      }
+    },
     async loadConversation() {
       try {
         const res = await api.get(`/api/conversations/${this.conversationId}`)
@@ -748,8 +830,10 @@ export default {
         this.ragEnabled = res.data.rag_enabled || false
         this.skillsEnabled = res.data.use_skills || false
         this.activeSkillIds = res.data.skill_ids || []
+        return true
       } catch (err) {
         console.error('Error loading conversation', err)
+        return false
       }
     },
     async updateActiveSkills(ids) {
@@ -820,9 +904,13 @@ export default {
     async sendMessage() {
       const text = this.input.trim()
       const model = this.modelCode
+      const attachments = this.pendingAttachments
 
-      if (!text) return
-
+      if (!text && !attachments.length) return
+      if (attachments.length && !this.imagesSupported) {
+        this.$q.notify({ type: 'negative', message: `${this.modelLabel} does not accept images. Your selected images are still here.`, timeout: 3000 })
+        return
+      }
       // Stop any current TTS playback
       if (this.ttsPlayer.isEnabled.value) {
         this.ttsPlayer.stop()
@@ -841,11 +929,18 @@ export default {
       }
 
       // Add user message immediately (optimistic UI)
+      const userIndex = this.messages.length
+      const optimisticImages = attachments.map(attachment => ({
+        url: attachment.url,
+        filename: attachment.filename
+      }))
       this.messages.push({
         role: 'user',
-        content: text
+        content: text,
+        images: optimisticImages
       })
       this.input = ''
+      this.pendingAttachments = []
 
       // Add placeholder for incoming stream
       const myIndex = this.messages.length
@@ -863,34 +958,42 @@ export default {
         this.conversationId,
         text,
         token,
-        model
+        model,
+        { images: attachments.map(attachment => attachment.file) }
       )
 
-      // Update placeholder message with final content from composable
       const streamedMessage = this.messages[myIndex]
-      streamedMessage.thinking = this.streamingChat.thinkingText.value
-      streamedMessage.content = this.streamingChat.responseText.value
+      if (streamedMessage) {
+        streamedMessage.thinking = this.streamingChat.thinkingText.value
+        streamedMessage.content = this.streamingChat.responseText.value
+      }
       const finalStats = this.streamingChat.stats.value
-      if (finalStats) {
+      if (finalStats && streamedMessage) {
         streamedMessage.total_tokens = finalStats.total_tokens
         streamedMessage.tokens_per_second = finalStats.tokens_per_second
         streamedMessage.generation_ms = finalStats.generation_ms
       }
 
-      if (this.streamingChat.error.value) {
-        // Keep the placeholder for a regenerate button.
+      const streamError = this.streamingChat.error.value
+      const failedBeforeStream = streamError?.streamStarted === false
+      if (failedBeforeStream) {
+        this.messages.splice(userIndex)
+        this.input = text
+        this.pendingAttachments = attachments
+      } else if (streamError) {
         streamedMessage.failed = true
+      } else if (!this.streamingChat.wasStopped.value) {
+        if (this.$route.params.id !== String(this.conversationId)) {
+          await this.$router.replace(`/chat/${this.conversationId}`)
+        }
+        if (await this.loadConversation()) {
+          attachments.forEach(attachment => this.revokePreview(attachment))
+        }
       }
 
-      // Only clear the shared index if a newer send hasn't taken it over.
       if (this.streamingMessageIndex === myIndex) {
         this.streamingMessageIndex = null
       }
-
-      if (isNew && this.$route.params.id !== String(this.conversationId)) {
-        this.$router.replace(`/chat/${this.conversationId}`)
-      }
-
       this.refreshConversations()
     },
     scrollToBottom() {
@@ -1275,6 +1378,19 @@ export default {
   line-height: 1.5;
   border-radius: 5px;
   position: relative;
+}
+.message-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.message-image {
+  max-width: 220px;
+  max-height: 220px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: block;
 }
 .message-footer {
   display: flex;

@@ -1,40 +1,45 @@
 # AIUI - AI Chat Interface
 
-Full-feature, local-first AI chat app interfacing with Llama.cpp with the option to connect to cloud models. Features enhanced reasoning & memory recall with offline speech-to-text.
+AIUI is a full-featured, local-first AI chat application. It connects to llama.cpp. You can also connect it to cloud models.
 
 ## Features
 
-- 💬 Real-time AI chat with various models
-- 🤖 Designed for local models (llama.cpp)
+- 💬 Real-time AI chat with different models
+- 🤖 Support for local models (llama.cpp)
 - 🎤 Offline speech-to-text (Whisper.cpp)
 - 🔊 Offline text-to-speech (Kokoro)
 - 🧮 Offline embedding
-- 🏗️ Optional scaffolding (user-toggle)
+- 🏗️ Optional scaffolding that the user can enable or disable
 - 🎭 Optional personalization
-- 🔍 Robust RAG system
+- 🔍 RAG system
 - 💾 Conversation history
 - 📄 Document upload
-- 🔒 Privacy-focused (all inference happens locally by default, zero telemetry)
-- ☁️ Option to connect to cloud models with API keys
+- 🖼️ Image attachments for models that support vision
+- 🔒 Privacy focus: inference is local by default and there is no telemetry
+- ☁️ Connection to cloud models with API keys
 
 ---
-## Multi-pc setup:
 
-### To access app from another device on LAN:
-- Microphone access requires HTTPS or localhost
-- Use SSH tunnel: 
+## Multi-PC setup
+
+### Access the application from another device on the LAN
+
+- Microphone access requires HTTPS or localhost.
+- Use an SSH tunnel:
+
 ```bash
 ssh -L 9100:localhost:9100 user@server-ip
 ```
-- Then access via `http://localhost:9100`
 
-### Llama.cpp tunnel setup
+- Then go to `http://localhost:9100`.
 
-If you are hosting llama.cpp on a separate Windows/WSL2 machine, follow these steps to bridge the connection to the Rails app.
+### llama.cpp tunnel setup
 
-**1. Start the LLM Server (Remote Machine)**
+If you host llama.cpp on a separate Windows/WSL2 machine, use this procedure to connect it to the Rails application.
 
-On the machine with the GPU (WSL2), run the `llama.cpp` server (adjust flags as needed):
+**1. Start the LLM server (remote machine)**
+
+On the GPU machine (WSL2), start the llama.cpp server. Adjust the options as necessary.
 
 ```bash
 ./build/bin/llama-server \
@@ -48,7 +53,7 @@ On the machine with the GPU (WSL2), run the `llama.cpp` server (adjust flags as 
   --cache-type-v q8_0
 ```
 
-Run a second llama.cpp instance for the embedding model required by the RAG system:
+Start a second llama.cpp instance for the embedding model that the RAG system requires.
 
 ```bash
 ./build/bin/llama-server \
@@ -64,57 +69,74 @@ Run a second llama.cpp instance for the embedding model required by the RAG syst
   --no-mmap
 ```
 
-**2. Establish SSH Tunnel (App Machine)**
+**2. Start the SSH tunnel (application machine)**
 
-Run this on the machine hosting the Rails app to securely bridge the WSL2 port (8080) to your local environment:
+On the machine that hosts the Rails application, run this command to connect WSL2 port 8080 to your local environment:
 
 ```bash
 ssh -f -N -L 8080:127.0.0.1:8080 WINDOWS_USER@IP
 ```
 
-And this to connect to the embedder:
+Run this command to connect the embedder:
+
 ```bash
 ssh -f -N -L 8090:127.0.0.1:8090 WINDOWS_USER@IP
 ```
-Test the connection from the app machine:
+
+Test the connection from the application machine:
+
 ```bash
 curl http://localhost:8080/v1/models
-
 ```
 
-**3. Environment Configuration**
+**3. Configure the environment**
 
-Point the application to the local end of the SSH tunnel. No API key is required if the tunnel is active.
+Set the application to use the local end of the SSH tunnel. No API key is required when the tunnel is active.
 
 ```bash
 LLAMA_API_URL: http://localhost:8080/v1
-
 ```
 
-## TTS setup:
-The TTS engine is selected with `TTS_ADAPTER` in `.env` (`kokoro`, `qwen3`, or `chatterbox`; default `kokoro`). Restart the backend after switching.
+## Image attachments
+
+Server-side image downscaling requires libvips:
+
+```bash
+sudo apt install libvips42
+```
+
+The application reads the `multimodal` capability of the active model from the llama.cpp `/v1/models` response. If this response is not available, image selection stays enabled.
+
+---
+
+## TTS setup
+
+Select the TTS engine with `TTS_ADAPTER` in `.env`. The available values are `kokoro`, `qwen3`, and `chatterbox`. The default value is `kokoro`. Restart the backend after you change this value.
 
 ### Kokoro (local CPU)
-Start Kokoro engine:
+
+Start the Kokoro engine:
+
 ```bash
 docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu
-
 ```
 
-### Qwen3 TTS (remote GPU, via SSH tunnel)
+### Qwen3 TTS (remote GPU, through an SSH tunnel)
 
-Served on the GPU machine (like llama.cpp) via [faster-qwen3-tts](https://github.com/andimarafioti/faster-qwen3-tts) — CUDA-graph inference that runs Qwen3-TTS faster than realtime on the 3090 (RTF ≈ 0.42 measured on the live 0.6B streaming path; [spec](docs/faster-qwen3-tts-spec.md), [latency tuning](docs/qwen3-latency-optimization-spec.md)). Its `openai_server.py` only *clones* voices (OpenAI `/v1/audio/speech` + `/health`, no voices endpoint), so we register one reference clip. One-time setup on the remote machine (WSL2):
+Use [faster-qwen3-tts](https://github.com/andimarafioti/faster-qwen3-tts) on the GPU machine, as with llama.cpp. It uses CUDA-graph inference and runs Qwen3-TTS faster than real time on the 3090. The measured RTF is approximately 0.42 on the live 0.6B streaming path. See the [specification](docs/faster-qwen3-tts-spec.md) and [latency tuning](docs/qwen3-latency-optimization-spec.md).
+
+Its `openai_server.py` only clones voices. It supports OpenAI `/v1/audio/speech` and `/health`, but no voices endpoint. Register one reference clip. Do this one time on the remote machine (WSL2):
 
 ```bash
-sudo apt install -y sox        # for playing/inspecting wavs
+sudo apt install -y sox        # Use this to play or inspect WAV files.
 git clone https://github.com/andimarafioti/faster-qwen3-tts
 cd faster-qwen3-tts
-python3 -m venv .venv          # python 3.10+
+python3 -m venv .venv          # Python 3.10 or later.
 source .venv/bin/activate
 pip install -U pip && pip install -e ".[demo]"
 ```
 
-Render a reference clip from a built-in CustomVoice speaker (CLI-only — the HTTP server has no speaker mode), keeping `--text` as its transcript:
+Create a reference clip from a built-in CustomVoice speaker. Use the CLI because the HTTP server has no speaker mode. Keep the `--text` value as its transcript.
 
 ```bash
 faster-qwen3-tts custom --model Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
@@ -123,36 +145,38 @@ faster-qwen3-tts custom --model Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
   --output ref_aiden.wav
 ```
 
-Register it in `voices.json` (the adapter sends `voice: "aiden"`, matching `QWEN3_TTS_VOICES`):
+Register the clip in `voices.json`. The adapter sends `voice: "aiden"`, which must match `QWEN3_TTS_VOICES`.
 
 ```json
 { "aiden": { "ref_audio": "ref_aiden.wav", "ref_text": "Some clean, natural paragraph about ten seconds long when spoken aloud.", "language": "English", "chunk_size": 4 } }
 ```
 
-`chunk_size` (per voice) sets time-to-first-audio — `N/12`s of audio per flush. Default `12` ≈ 520ms, `4` ≈ 297ms. See [latency tuning](docs/qwen3-latency-optimization-spec.md).
+The `chunk_size` value for each voice sets the time to first audio. `N/12` is the number of seconds of audio for each flush. The default value, `12`, is approximately 520 ms. A value of `4` is approximately 297 ms. See [latency tuning](docs/qwen3-latency-optimization-spec.md).
 
-Start the server — 0.6B is the fast clone model; weights download and the CUDA graph captures once on first run:
+Start the server. The 0.6B model is the fast clone model. The weights download and the CUDA graph captures one time during the first run:
 
 ```bash
 source .venv/bin/activate
 python examples/openai_server.py --model Qwen/Qwen3-TTS-12Hz-0.6B-Base --voices voices.json --port 8881
 ```
 
-Tunnel and verify from the app machine:
+Start the tunnel and verify it from the application machine:
 
 ```bash
 ssh -f -N -L 8881:127.0.0.1:8881 WINDOWS_USER@IP
 curl http://localhost:8881/health   # -> {"status":"ok","model_loaded":true}
 ```
 
-Then in `.env`:
+Then set these values in `.env`:
+
 ```bash
 TTS_ADAPTER=qwen3
 QWEN3_TTS_URL=http://localhost:8881
-QWEN3_TTS_VOICES=aiden   # comma-separated; must match voices.json keys
+QWEN3_TTS_VOICES=aiden   # Comma-separated. Must match the voices.json keys.
 ```
 
-**Adding custom voices** — clone any clean ~5–15s WAV (mono/24 kHz;
+**Add custom voices** — Clone a clean WAV file of approximately 5 to 15 seconds. The file must be mono and 24 kHz:
+
 ```bash
 ffmpeg -i reference-clip.mp4 \
   -vn \
@@ -161,16 +185,15 @@ ffmpeg -i reference-clip.mp4 \
   reference-clip.wav
 ```
 
-1. Add an entry to `voices.json` on the GPU box: `"kerry": { "ref_audio": "kerry.wav", "ref_text": "<exact transcript of the clip>", "language": "English", "chunk_size": 4 }`, and restart the server.
-2. Append the name to `QWEN3_TTS_VOICES` environment variable. Names must match the `voices.json` keys.
+1. Add an entry to `voices.json` on the GPU machine: `"kerry": { "ref_audio": "kerry.wav", "ref_text": "<exact transcript of the clip>", "language": "English", "chunk_size": 4 }`. Then restart the server.
+2. Add the name to the `QWEN3_TTS_VOICES` environment variable. The names must match the `voices.json` keys.
 
+### Chatterbox (remote GPU, through an SSH tunnel)
 
-### Chatterbox (remote GPU, via SSH tunnel)
-
-Served via [Chatterbox-TTS-Server](https://github.com/devnen/Chatterbox-TTS-Server) (OpenAI-compatible `/v1/audio/speech`). One-time setup on the remote machine (WSL2):
+Use [Chatterbox-TTS-Server](https://github.com/devnen/Chatterbox-TTS-Server). It provides an OpenAI-compatible `/v1/audio/speech` endpoint. Do this one time on the remote machine (WSL2):
 
 ```bash
-sudo apt install -y ffmpeg    # required for mp3 encoding
+sudo apt install -y ffmpeg    # Required for MP3 encoding.
 git clone https://github.com/devnen/Chatterbox-TTS-Server.git
 cd Chatterbox-TTS-Server
 python3 -m venv venv
@@ -178,41 +201,43 @@ source venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements-nvidia.txt
 pip install --no-deps git+https://github.com/devnen/chatterbox-v2.git@master s3tokenizer==0.3.0 onnx==1.16.0
-# onnx needs protobuf 4.x (skipped by --no-deps); perth needs pkg_resources (removed in setuptools 81)
+# onnx requires protobuf 4.x. The --no-deps option skips it. perth requires pkg_resources, which setuptools 81 removed.
 pip install "protobuf>=4.25,<5" "setuptools<81"
 ```
 
-Start the server (defaults to `0.0.0.0:8004`, configurable in its `config.yaml`; model downloads on first run):
+Start the server. Its default address is `0.0.0.0:8004`. You can configure the address in `config.yaml`. The model downloads during the first run:
 
 ```bash
 python server.py
 ```
 
-Bridge the port from the app machine and test:
+Connect the port from the application machine and test it:
 
 ```bash
 ssh -f -N -L 8004:127.0.0.1:8004 WINDOWS_USER@IP
 curl http://localhost:8004/v1/audio/voices
 ```
 
-Then in `.env`:
+Then set these values in `.env`:
+
 ```bash
 TTS_ADAPTER=chatterbox
 CHATTERBOX_TTS_URL=http://localhost:8004
 ```
 
-## STT setup (Whisper):
-Build whisper.cpp once, outside the repo:
+## STT setup (Whisper)
+
+Build whisper.cpp one time outside the repository:
 
 ```bash
-sudo apt install cmake ffmpeg   # cmake to build, ffmpeg used by whisper-server's --convert
+sudo apt install cmake ffmpeg   # Use cmake to build. whisper-server uses ffmpeg with --convert.
 mkdir -p ~/whisper && cd ~/whisper
 git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git .
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-bash ./models/download-ggml-model.sh base.en   # or small.en for slightly better accuracy
+bash ./models/download-ggml-model.sh base.en   # Or use small.en for slightly better accuracy.
 ```
 
-Start the server (keep it running alongside the Rails app):
+Start the server. Keep it running with the Rails application:
 
 ```bash
 ~/whisper/build/bin/whisper-server \
@@ -221,4 +246,4 @@ Start the server (keep it running alongside the Rails app):
   --convert --no-gpu -nt -sns
 ```
 
-`-sns` (suppress non-speech tokens) 
+`-sns` suppresses non-speech tokens.
