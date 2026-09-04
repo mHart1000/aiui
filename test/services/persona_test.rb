@@ -25,11 +25,12 @@ class PersonaTest < ActiveSupport::TestCase
     assert_equal "persona1", Persona.default.id
   end
 
-  test "registry: all three personas are registered" do
+  test "registry: expected personas are registered" do
     ids = Persona.ids
     assert_includes ids, "persona1"
     assert_includes ids, "persona2"
     assert_includes ids, "persona2-condensed"
+    assert_includes ids, "teacher2"
   end
 
   test "load returns content and 8-char sha version" do

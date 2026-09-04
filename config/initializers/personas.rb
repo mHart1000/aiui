@@ -64,8 +64,8 @@ Rails.application.config.to_prepare do
 
   Persona.register(
     id: "teacher2",
-    name: "Teacher2",
-    description: "Breaks down complex topics in plain language without oversimplifying. Explains new terms, keeps the nuance, and picks whatever format shows the idea best.",
+    name: "Teacher 2",
+    description: "A right-sized teaching persona that adapts its depth to the task, explains non-obvious choices, and keeps unrelated user context out of the topic.",
     path: Rails.root.join("persona", "teacher2.md")
   )
 
