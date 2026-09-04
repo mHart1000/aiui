@@ -14,6 +14,7 @@
         round
         dense
         unelevated
+        :aria-label="`Remove ${attachment.filename}`"
         @click="$emit('remove', index)"
       />
       <q-tooltip>{{ attachment.filename }}</q-tooltip>
