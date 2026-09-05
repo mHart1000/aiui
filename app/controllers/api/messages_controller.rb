@@ -60,9 +60,9 @@ module Api
             reply_accumulator += chunk
           end
 
-          if phase == :web_search
+          event_data = if phase == :web_search
             research_metadata = chunk if chunk[:status].present?
-            event_data = { type: "web_search", **chunk }
+            { type: "web_search", **chunk }
           elsif phase == :phase_change
             { type: "phase_change", phase: "responding" }
           else

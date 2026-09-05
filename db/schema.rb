@@ -62,6 +62,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_04_000001) do
     t.bigint "conversation_id", null: false
     t.datetime "created_at", null: false
     t.integer "generation_ms"
+    t.jsonb "image_data", default: []
     t.string "persona_version"
     t.integer "prompt_tokens"
     t.string "role", null: false

@@ -100,14 +100,45 @@ LLAMA_API_URL: http://localhost:8080/v1
 
 ### Optional web research
 
-Web research is off by default. To enable it per conversation, run a private SearXNG instance with JSON output enabled and configure:
+Web research is off by default. It requires a private SearXNG instance with JSON output enabled. The container port below is internal; it does not conflict with a local llama.cpp server on port 8080.
+
+```bash
+mkdir -p ~/services/aiui-searxng/{config,data}
+```
+
+Generate a secret with `openssl rand -hex 32`, then create `~/services/aiui-searxng/config/settings.yml` with that value:
+
+```yaml
+use_default_settings: true
+general:
+  debug: false
+search:
+  formats: [html, json]
+server:
+  bind_address: "0.0.0.0"
+  port: 8080
+  secret_key: "replace-with-your-generated-secret"
+  public_instance: false
+```
+
+Start it with Docker:
+
+```bash
+docker run -d --name aiui-searxng --restart unless-stopped \
+  -p 127.0.0.1:8888:8080 \
+  -v "$HOME/services/aiui-searxng/config:/etc/searxng" \
+  -v "$HOME/services/aiui-searxng/data:/var/cache/searxng" \
+  docker.io/searxng/searxng:latest
+```
+
+Then add:
 
 ```bash
 WEB_SEARCH_ADAPTER=searxng
 SEARXNG_URL=http://127.0.0.1:8888
 ```
 
-Start the chat llama.cpp server with `--jinja` and a GGUF whose chat template supports the `research_web` function call. SearXNG can improve deployment privacy, but it still forwards search queries to its configured upstream engines. Bind it to loopback or a private network, disable debug mode, and use a unique secret. Restart the Rails backend and Vue frontend after configuration changes.
+Start the chat llama.cpp server with `--jinja` and a GGUF whose chat template supports the `research_web` function call. SearXNG still forwards queries to its configured upstream engines. Restart the Rails backend and Vue frontend after configuration changes.
 
 ## Image attachments
 

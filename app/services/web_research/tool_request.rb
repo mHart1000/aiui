@@ -7,6 +7,7 @@ module WebResearch
     MAX_QUERIES = 2
     MAX_URLS = 3
     MAX_QUERY_LENGTH = 240
+    MAX_URL_LENGTH = 2_048
 
     class InvalidRequest < StandardError; end
 
@@ -14,7 +15,7 @@ module WebResearch
 
     def self.parse!(tool_calls:, latest_user_content:)
       calls = Array(tool_calls)
-      raise InvalidRequest, "expected exactly one web research request" unless calls.length == 1
+      raise InvalidRequest, "expected exactly one web research request, received #{calls.length}" unless calls.length == 1
 
       call = calls.first
       function = call.is_a?(Hash) ? (call["function"] || call[:function] || call) : nil
@@ -31,6 +32,9 @@ module WebResearch
     end
 
     def initialize(arguments, latest_user_content:)
+      unknown_keys = arguments.keys.map(&:to_s) - %w[queries urls]
+      raise InvalidRequest, "tool arguments contained unknown fields" if unknown_keys.any?
+
       @queries = normalize_queries(arguments["queries"] || arguments[:queries])
       @urls = normalize_urls(arguments["urls"] || arguments[:urls], latest_user_content)
       raise InvalidRequest, "research request was empty" if @queries.empty? && @urls.empty?
@@ -45,7 +49,9 @@ module WebResearch
       raise InvalidRequest, "too many search queries" if values.length > MAX_QUERIES
 
       values.map do |value|
-        query = value.to_s.strip
+        raise InvalidRequest, "search query must be a string" unless value.is_a?(String)
+
+        query = value.strip
         if query.empty? || query.length > MAX_QUERY_LENGTH || query.match?(/[\u0000-\u001f\u007f]/)
           raise InvalidRequest, "invalid search query"
         end
@@ -69,6 +75,8 @@ module WebResearch
     end
 
     def normalize_url(value)
+      return nil unless value.is_a?(String) && value.length <= MAX_URL_LENGTH
+
       uri = URI.parse(value.to_s.strip)
       return nil unless uri.is_a?(URI::HTTP) && uri.host.present? && uri.userinfo.nil?
       return nil unless [ 80, 443 ].include?(uri.port)

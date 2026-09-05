@@ -40,5 +40,9 @@ class WebResearch::ToolRequestTest < ActiveSupport::TestCase
     assert_raises(WebResearch::ToolRequest::InvalidRequest) do
       WebResearch::ToolRequest.parse!(tool_calls: tool_call(queries: [ "x" * 241 ]), latest_user_content: "")
     end
+
+    assert_raises(WebResearch::ToolRequest::InvalidRequest) do
+      WebResearch::ToolRequest.parse!(tool_calls: tool_call(queries: [ "one" ], extra: "ignored"), latest_user_content: "")
+    end
   end
 end

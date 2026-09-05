@@ -500,6 +500,8 @@ export default {
     personas: [],
     ragEnabled: false,
     webSearchMode: 'off',
+    persistedWebSearchMode: 'off',
+    webSearchSync: Promise.resolve(true),
     skillsOpen: false,
     skillsEnabled: false,
     activeSkillIds: [],
@@ -556,6 +558,7 @@ export default {
       immediate: true,
       async handler(newId, oldId) {
         if (oldId !== undefined && String(newId || '') !== String(oldId || '')) this.clearAttachments()
+        if (oldId !== undefined && String(newId || '') !== String(oldId || '')) this.webSearchSync = Promise.resolve(true)
         if (newId) {
           this.conversationId = newId
           await this.loadConversation()
@@ -564,6 +567,8 @@ export default {
           this.messages = []
           this.input = ''
           this.modelCode = DEFAULT_MODEL_ID
+          this.webSearchMode = 'off'
+          this.persistedWebSearchMode = 'off'
         }
       }
     },
@@ -825,6 +830,9 @@ export default {
         this.input = ''
         this.modelCode = DEFAULT_MODEL_ID
         this.activeSkillIds = this.defaultSkillIds
+        this.webSearchMode = 'off'
+        this.persistedWebSearchMode = 'off'
+        this.webSearchSync = Promise.resolve(true)
       }
     },
     onFilesSelected(files) {
@@ -869,6 +877,7 @@ export default {
         this.modelCode = res.data.model_code || DEFAULT_MODEL_ID
         this.ragEnabled = res.data.rag_enabled || false
         this.webSearchMode = res.data.web_search_mode || 'off'
+        this.persistedWebSearchMode = this.webSearchMode
         this.skillsEnabled = res.data.use_skills || false
         this.activeSkillIds = res.data.skill_ids || []
         return true
@@ -942,24 +951,39 @@ export default {
         })
       }
     },
-    async updateWebSearchMode(value) {
-      if (!this.conversationId) return
-      try {
-        await api.patch(`/api/conversations/${this.conversationId}`, {
+    updateWebSearchMode(value) {
+      if (!this.conversationId) {
+        this.persistedWebSearchMode = value
+        return Promise.resolve(true)
+      }
+
+      const conversationId = this.conversationId
+
+      this.webSearchSync = this.webSearchSync.then(async () => {
+        await api.patch(`/api/conversations/${conversationId}`, {
           conversation: { web_search_mode: value }
         })
-      } catch (err) {
+        if (this.conversationId === conversationId) this.persistedWebSearchMode = value
+        return true
+      }).catch((err) => {
         console.error('Error updating web research mode:', err)
-        this.webSearchMode = 'off'
-        this.$q.notify({ type: 'negative', message: 'Failed to update web research setting', position: 'top', timeout: 2000 })
-      }
+        if (this.conversationId === conversationId) {
+          this.webSearchMode = this.persistedWebSearchMode
+          this.$q.notify({ type: 'negative', message: 'Failed to update web research setting', position: 'top', timeout: 2000 })
+        }
+        return false
+      })
+      return this.webSearchSync
     },
     async sendMessage() {
       const text = this.input.trim()
       const model = this.modelCode
       const attachments = this.pendingAttachments
+      const conversationIdAtSend = this.conversationId
 
       if (!text && !attachments.length) return
+      if (!await this.webSearchSync) return
+      if (this.conversationId !== conversationIdAtSend) return
       if (attachments.length && !this.imagesSupported) {
         this.$q.notify({ type: 'negative', message: `${this.modelLabel} does not accept images. Your selected images are still here.`, timeout: 3000 })
         return

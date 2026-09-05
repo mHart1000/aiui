@@ -4,12 +4,15 @@ require "uri"
 
 module AiAdapters
   class LlamaAdapter < BaseAdapter
+    class Error < StandardError; end
+
     def initialize(model:, log_stats: true)
       super(model: model)
       @log_stats = log_stats
     end
 
-    def chat(messages:, stream: false, max_tokens: nil, tools: nil, tool_choice: nil, &block)
+    def chat(messages:, stream: false, max_tokens: nil, tools: nil, tool_choice: nil, temperature: 0.7, chat_template_kwargs: nil,
+             thinking_budget_tokens: nil, reasoning_budget_message: nil, &block)
       base_url = ENV["LLAMA_API_URL"] || "http://host.docker.internal:8080/v1"
       uri = URI("#{base_url}/chat/completions")
 
@@ -17,12 +20,15 @@ module AiAdapters
       payload = {
         model: @model, # e.g. "llama-3-8b"
         messages: messages,
-        temperature: 0.7,
+        temperature: temperature,
         stream: stream
       }
       payload[:max_tokens] = max_tokens if max_tokens
       payload[:tools] = tools if tools.present?
       payload[:tool_choice] = tool_choice if tool_choice.present?
+      payload[:chat_template_kwargs] = chat_template_kwargs if chat_template_kwargs.present?
+      payload[:thinking_budget_tokens] = thinking_budget_tokens unless thinking_budget_tokens.nil?
+      payload[:reasoning_budget_message] = reasoning_budget_message if reasoning_budget_message.present?
       # Ask llama.cpp to include a final usage chunk so we can log tokens/sec.
       payload[:stream_options] = { include_usage: true } if stream
 
@@ -50,7 +56,7 @@ module AiAdapters
 
       unless response.is_a?(Net::HTTPSuccess)
         Rails.logger.error("Llama API Error: #{response.body}")
-        raise "Llama API Error: #{response.code} - #{response.message}"
+        raise Error, "Llama API Error: #{response.code} - #{response.message}"
       end
 
       json = JSON.parse(response.body)
@@ -62,9 +68,12 @@ module AiAdapters
         content: json.dig("choices", 0, "message", "content"),
         reasoning: json.dig("choices", 0, "message", "reasoning_content"),
         tool_calls: json.dig("choices", 0, "message", "tool_calls") || [ json.dig("choices", 0, "message", "function_call") ].compact,
+        finish_reason: json.dig("choices", 0, "finish_reason"),
         tokens: tokens,
         stats: stats
       }
+    rescue Net::OpenTimeout, Net::ReadTimeout, SocketError, EOFError, IOError, Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::EHOSTUNREACH, Errno::ENETUNREACH, Errno::ETIMEDOUT => e
+      raise Error, "Llama API request failed: #{e.message}"
     end
 
     def perform_streaming_request(uri, payload)
