@@ -25,7 +25,9 @@ module WebResearch
         if response.is_a?(Net::HTTPRedirection)
           location = response["location"]
           raise Error, "redirect missing location" if location.blank?
-          current = URI.join(uri, location).to_s
+          redirected = URI.join(uri, location).to_s
+          AuditLog.info("redirect_followed", from: AuditLog.safe_url(current), to: AuditLog.safe_url(redirected), status: response.code.to_i)
+          current = redirected
           next
         end
         raise Error, "source returned #{response.code}" unless response.is_a?(Net::HTTPSuccess)
@@ -97,6 +99,8 @@ module WebResearch
           raise Error, "research deadline exceeded" if monotonic_now >= deadline
         end
       end
+      AuditLog.info("http_response", url: AuditLog.safe_url(uri.to_s), status: response.code.to_i,
+        content_type: response.content_type.to_s.downcase, body_bytes: body.bytesize)
       [ response, body ]
     rescue Net::OpenTimeout, Net::ReadTimeout, SocketError, OpenSSL::SSL::SSLError, EOFError, IOError, Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::EHOSTUNREACH, Errno::ENETUNREACH, Errno::ETIMEDOUT => e
       raise Error, e.message
