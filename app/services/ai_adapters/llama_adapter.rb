@@ -9,7 +9,7 @@ module AiAdapters
       @log_stats = log_stats
     end
 
-    def chat(messages:, stream: false, max_tokens: nil, &block)
+    def chat(messages:, stream: false, max_tokens: nil, tools: nil, tool_choice: nil, &block)
       base_url = ENV["LLAMA_API_URL"] || "http://host.docker.internal:8080/v1"
       uri = URI("#{base_url}/chat/completions")
 
@@ -21,6 +21,8 @@ module AiAdapters
         stream: stream
       }
       payload[:max_tokens] = max_tokens if max_tokens
+      payload[:tools] = tools if tools.present?
+      payload[:tool_choice] = tool_choice if tool_choice.present?
       # Ask llama.cpp to include a final usage chunk so we can log tokens/sec.
       payload[:stream_options] = { include_usage: true } if stream
 
@@ -59,6 +61,7 @@ module AiAdapters
       {
         content: json.dig("choices", 0, "message", "content"),
         reasoning: json.dig("choices", 0, "message", "reasoning_content"),
+        tool_calls: json.dig("choices", 0, "message", "tool_calls") || [ json.dig("choices", 0, "message", "function_call") ].compact,
         tokens: tokens,
         stats: stats
       }

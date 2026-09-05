@@ -50,7 +50,8 @@ On the GPU machine (WSL2), start the llama.cpp server. Adjust the options as nec
   --flash-attn on \
   -c 32768 \
   --cache-type-k q8_0 \
-  --cache-type-v q8_0
+  --cache-type-v q8_0 \
+  --jinja
 ```
 
 Start a second llama.cpp instance for the embedding model that the RAG system requires.
@@ -96,6 +97,17 @@ Set the application to use the local end of the SSH tunnel. No API key is requir
 ```bash
 LLAMA_API_URL: http://localhost:8080/v1
 ```
+
+### Optional web research
+
+Web research is off by default. To enable it per conversation, run a private SearXNG instance with JSON output enabled and configure:
+
+```bash
+WEB_SEARCH_ADAPTER=searxng
+SEARXNG_URL=http://127.0.0.1:8888
+```
+
+Start the chat llama.cpp server with `--jinja` and a GGUF whose chat template supports the `research_web` function call. SearXNG can improve deployment privacy, but it still forwards search queries to its configured upstream engines. Bind it to loopback or a private network, disable debug mode, and use a unique secret. Restart the Rails backend and Vue frontend after configuration changes.
 
 ## Image attachments
 

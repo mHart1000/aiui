@@ -36,6 +36,7 @@ module Api
 
       thinking_accumulator = ""
       reply_accumulator = ""
+      research_metadata = nil
       response_persisted = false
 
       current_api_user.reload
@@ -50,7 +51,8 @@ module Api
           use_scaffolding: current_api_user.use_scaffolding,
           stream: true,
           rag_context: rag_context,
-          skills: fetch_skills(conversation)
+          skills: fetch_skills(conversation),
+          web_search_mode: conversation.web_search_mode
         ) do |chunk, phase|
           if phase == :thinking
             thinking_accumulator += chunk
@@ -58,7 +60,10 @@ module Api
             reply_accumulator += chunk
           end
 
-          event_data = if phase == :phase_change
+          if phase == :web_search
+            research_metadata = chunk if chunk[:status].present?
+            event_data = { type: "web_search", **chunk }
+          elsif phase == :phase_change
             { type: "phase_change", phase: "responding" }
           else
             { type: phase.to_s, content: chunk }
@@ -78,6 +83,7 @@ module Api
           stats: result&.dig(:stats),
           persona_version: result&.dig(:persona_version),
           skill_versions: result&.dig(:skill_versions),
+          web_search_data: result&.dig(:web_search_data) || research_metadata || {},
           entitle: true
         )
         return unless response_persisted
@@ -100,7 +106,8 @@ module Api
           answering_signature,
           reply: reply_accumulator,
           thinking: thinking_accumulator,
-          entitle: false
+          entitle: false,
+          web_search_data: research_metadata || {}
         ) unless response_persisted
       ensure
         response.stream.close
@@ -158,7 +165,7 @@ module Api
       uploads
     end
 
-    def persist_streamed_response(conversation, answering_id, answering_signature, reply:, thinking:, tokens: nil, stats: nil, persona_version: nil, skill_versions: nil, entitle:)
+    def persist_streamed_response(conversation, answering_id, answering_signature, reply:, thinking:, tokens: nil, stats: nil, persona_version: nil, skill_versions: nil, web_search_data: {}, entitle:)
       return false if reply.blank? && thinking.blank?
 
       conversation.with_lock do
@@ -171,7 +178,8 @@ module Api
           tokens: tokens,
           stats: stats,
           persona_version: persona_version,
-          skill_versions: skill_versions
+          skill_versions: skill_versions,
+          web_search_data: web_search_data
         )
         conversation.entitle_async(answering_message.content) if entitle && answering_message.content.present?
         true

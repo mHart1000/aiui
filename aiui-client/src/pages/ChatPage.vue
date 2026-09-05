@@ -37,6 +37,16 @@
         @update:model-value="updateRagEnabled"
         color="primary"
       />
+      <q-select
+        v-model="webSearchMode"
+        :options="webSearchOptions"
+        label="Web research"
+        emit-value
+        map-options
+        dense
+        style="min-width: 140px"
+        @update:model-value="updateWebSearchMode"
+      />
       <q-btn
         flat
         dense
@@ -208,7 +218,28 @@
             Failed to generate a response.
           </div>
           <div v-else v-html="msg.role === 'user' ? formatUserMessage(msg.content) : formatMessage(msg.content)" @click="handleMessageContentClick" />
+          <div v-if="msg.role === 'assistant' && isActivelyStreaming(i) && streamingChat.webSearch.value" class="web-research-progress text-caption q-mt-sm">
+            <q-spinner color="primary" size="16px" class="q-mr-xs" />
+            {{ webResearchProgressLabel(streamingChat.webSearch.value) }}
+          </div>
           <q-spinner v-if="isActivelyStreaming(i) && msg.content" color="primary" size="20px" class="q-mt-sm" />
+
+          <q-expansion-item v-if="msg.role === 'assistant' && msg.web_search_data?.status" icon="travel_explore" label="Web sources" dense class="web-sources q-mt-sm">
+            <q-card flat bordered>
+              <q-card-section class="q-py-sm">
+                <div class="text-caption text-grey-7">
+                  {{ msg.web_search_data.provider }} · {{ formatSearchTime(msg.web_search_data.searched_at) }}
+                </div>
+                <div v-if="msg.web_search_data.queries?.length" class="text-caption q-mt-xs">Queries: {{ msg.web_search_data.queries.join(' · ') }}</div>
+                <div v-if="msg.web_search_data.warning" class="text-caption text-warning q-mt-xs">{{ msg.web_search_data.warning }}</div>
+                <div v-for="source in msg.web_search_data.sources || []" :key="source.id" class="web-source-card q-mt-sm">
+                  <a v-if="safeWebUrl(source.url)" :href="safeWebUrl(source.url)" target="_blank" rel="noopener noreferrer">[{{ source.id }}] {{ source.title }}</a>
+                  <span v-else>[{{ source.id }}] {{ source.title }}</span>
+                  <div class="text-caption text-grey-7">{{ source.domain }}<span v-if="source.published_at"> · {{ source.published_at }}</span></div>
+                </div>
+              </q-card-section>
+            </q-card>
+          </q-expansion-item>
 
           <div
             class="message-footer"
@@ -378,6 +409,7 @@
 <script>
 import { api } from 'boot/axios'
 import { Marked } from 'marked'
+import DOMPurify from 'dompurify'
 import hljs from 'highlight.js'
 import 'highlight.js/styles/base16/ashes.css' // highlightjs.org/examples
 import SpeechToTextInput from 'components/SpeechToTextInput.vue'
@@ -467,6 +499,7 @@ export default {
     personaId: 'persona1',
     personas: [],
     ragEnabled: false,
+    webSearchMode: 'off',
     skillsOpen: false,
     skillsEnabled: false,
     activeSkillIds: [],
@@ -613,6 +646,13 @@ export default {
       return [
         { label: 'Off', value: 'off' },
         ...this.personas.map(p => ({ label: p.name, value: p.id }))
+      ]
+    },
+    webSearchOptions() {
+      return [
+        { label: 'Off', value: 'off' },
+        { label: 'Auto', value: 'auto' },
+        { label: 'Always', value: 'always' }
       ]
     },
     skillsLabel() {
@@ -828,6 +868,7 @@ export default {
         this.messages = res.data.messages
         this.modelCode = res.data.model_code || DEFAULT_MODEL_ID
         this.ragEnabled = res.data.rag_enabled || false
+        this.webSearchMode = res.data.web_search_mode || 'off'
         this.skillsEnabled = res.data.use_skills || false
         this.activeSkillIds = res.data.skill_ids || []
         return true
@@ -901,6 +942,18 @@ export default {
         })
       }
     },
+    async updateWebSearchMode(value) {
+      if (!this.conversationId) return
+      try {
+        await api.patch(`/api/conversations/${this.conversationId}`, {
+          conversation: { web_search_mode: value }
+        })
+      } catch (err) {
+        console.error('Error updating web research mode:', err)
+        this.webSearchMode = 'off'
+        this.$q.notify({ type: 'negative', message: 'Failed to update web research setting', position: 'top', timeout: 2000 })
+      }
+    },
     async sendMessage() {
       const text = this.input.trim()
       const model = this.modelCode
@@ -925,6 +978,7 @@ export default {
         // Toolbar settings chosen before the first send are applied here.
         const initial = { use_skills: this.skillsEnabled, skill_ids: this.activeSkillIds }
         if (this.ragEnabled) initial.rag_enabled = true
+        if (this.webSearchMode !== 'off') initial.web_search_mode = this.webSearchMode
         await api.patch(`/api/conversations/${this.conversationId}`, { conversation: initial })
       }
 
@@ -1015,10 +1069,39 @@ export default {
       return index === this.streamingMessageIndex && this.streamingChat.isStreaming.value
     },
     formatMessage(text) {
-      return marked.parse(text)
+      return this.sanitizeMarkdown(marked.parse(text))
     },
     formatUserMessage(text) {
-      return markedUser.parse(text)
+      return this.sanitizeMarkdown(markedUser.parse(text))
+    },
+    sanitizeMarkdown(html) {
+      return DOMPurify.sanitize(html, {
+        FORBID_TAGS: ['style', 'form', 'svg', 'math', 'iframe', 'object', 'embed', 'img'],
+        FORBID_ATTR: ['style'],
+        ALLOW_DATA_ATTR: true
+      })
+    },
+    webResearchProgressLabel(research) {
+      const labels = {
+        deciding: 'Deciding whether to research…',
+        searching: `Searching: ${(research.queries || []).join(' · ')}`,
+        fetching: 'Reading web sources…',
+        complete: 'Web research complete',
+        partial: 'Web research partially complete',
+        failed: research.warning || 'Web research unavailable'
+      }
+      return labels[research.stage] || 'Researching the web…'
+    },
+    formatSearchTime(value) {
+      return value ? new Date(value).toLocaleString() : 'Research attempted'
+    },
+    safeWebUrl(value) {
+      try {
+        const url = new URL(value)
+        return ['http:', 'https:'].includes(url.protocol) ? url.href : null
+      } catch {
+        return null
+      }
     },
 
     async copyTextWithFallback(text, successMessage) {
@@ -1404,6 +1487,15 @@ export default {
   font-size: 0.75rem;
   opacity: 0.55;
   white-space: nowrap;
+}
+.web-research-progress {
+  color: var(--text-subtle);
+}
+.web-sources {
+  max-width: 100%;
+}
+.web-source-card a {
+  overflow-wrap: anywhere;
 }
 .failed-message {
   display: flex;
