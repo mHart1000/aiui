@@ -475,6 +475,158 @@ class ChatServiceTest < ActiveSupport::TestCase
     assert_includes selection_request[:messages].last[:content], "USER:\nWhat changed today?"
   end
 
+  test "web selector keeps only the newest four messages within its character budget" do
+    messages = 6.times.map do |index|
+      { role: index.even? ? "user" : "assistant", content: "marker-#{index} #{"x" * 3_000}" }
+    end
+    service = ChatService.new(
+      messages: messages,
+      model: "local-llama",
+      use_persona: false,
+      use_scaffolding: false,
+      stream: false,
+      max_tokens: nil,
+      web_search_mode: "always"
+    )
+
+    transcript = service.send(:tool_selection_messages).last[:content]
+
+    refute_includes transcript, "marker-0"
+    refute_includes transcript, "marker-1"
+    refute_includes transcript, "marker-2"
+    assert_includes transcript, "marker-3"
+    assert_includes transcript, "marker-5"
+    transcript_body = transcript[/Conversation transcript:\n\n(.*)\n\nRoute the latest USER request now\./m, 1]
+    assert_operator transcript_body.length, :<=, ChatService::WEB_SELECTOR_MAX_TRANSCRIPT_CHARS
+  end
+
+  test "web selection usage is included in final generation usage" do
+    service = ChatService.new(
+      messages: [ { role: "user", content: "What changed today?" } ],
+      model: "local-llama",
+      use_persona: false,
+      use_scaffolding: false,
+      stream: false,
+      max_tokens: nil,
+      web_search_mode: "always"
+    )
+    adapter = service.instance_variable_get(:@adapter)
+    selection = {
+      tool_calls: [ { "function" => { "name" => "research_web", "arguments" => '{"queries":["today"]}' } } ],
+      tokens: { prompt_tokens: 4, completion_tokens: 3, total_tokens: 7 },
+      stats: { elapsed_ms: 100 }
+    }
+    research_service = Object.new
+    research_service.define_singleton_method(:call) { { evidence: "evidence", metadata: { status: "complete", sources: [] } } }
+    responses = [ selection, FAKE_RESPONSE.merge(stats: { elapsed_ms: 200 }) ]
+
+    WebResearch::Service.stub(:new, ->(**_) { research_service }) do
+      adapter.stub(:chat, ->(**_kwargs) { responses.shift }) do
+        result = service.call
+
+        assert_equal 14, result.dig(:tokens, :prompt_tokens)
+        assert_equal 8, result.dig(:tokens, :completion_tokens)
+        assert_equal 22, result.dig(:tokens, :total_tokens)
+        assert_equal selection[:tokens], result.dig(:tokens, :web_selection)
+        assert_equal 300, result.dig(:stats, :elapsed_ms)
+        assert_equal "computed", result.dig(:stats, :tps_source)
+      end
+    end
+  end
+
+  test "slot experiment isolates selector and answer requests when fully configured" do
+    with_env("WEB_RESEARCH_SELECTOR_SLOT_ID" => "0", "WEB_RESEARCH_ANSWER_SLOT_ID" => "1") do
+      service = ChatService.new(
+        messages: [ { role: "user", content: "What changed today?" } ],
+        model: "local-llama",
+        use_persona: false,
+        use_scaffolding: false,
+        stream: false,
+        max_tokens: nil,
+        web_search_mode: "always"
+      )
+      adapter = service.instance_variable_get(:@adapter)
+      selection = { tool_calls: [ { "function" => { "name" => "research_web", "arguments" => '{"queries":["today"]}' } } ] }
+      research_service = Object.new
+      research_service.define_singleton_method(:call) { { evidence: "evidence", metadata: { status: "complete", sources: [] } } }
+      requests = []
+
+      WebResearch::Service.stub(:new, ->(**_) { research_service }) do
+        adapter.stub(:chat, ->(**kwargs) { requests << kwargs; requests.length == 1 ? selection : FAKE_RESPONSE }) do
+          service.call
+        end
+      end
+
+      assert_equal 0, requests.first[:id_slot]
+      assert_equal 1, requests.last[:id_slot]
+      assert requests.first[:cache_prompt]
+      assert requests.last[:cache_prompt]
+    end
+  end
+
+  test "slot experiment is inert when only one slot ID is configured" do
+    with_env("WEB_RESEARCH_SELECTOR_SLOT_ID" => "0", "WEB_RESEARCH_ANSWER_SLOT_ID" => nil) do
+      service = ChatService.new(
+        messages: [ { role: "user", content: "What changed today?" } ],
+        model: "local-llama",
+        use_persona: false,
+        use_scaffolding: false,
+        stream: false,
+        max_tokens: nil,
+        web_search_mode: "always"
+      )
+      adapter = service.instance_variable_get(:@adapter)
+      selection = { tool_calls: [ { "function" => { "name" => "research_web", "arguments" => '{"queries":["today"]}' } } ] }
+      research_service = Object.new
+      research_service.define_singleton_method(:call) { { evidence: "evidence", metadata: { status: "complete", sources: [] } } }
+      requests = []
+
+      WebResearch::Service.stub(:new, ->(**_) { research_service }) do
+        adapter.stub(:chat, ->(**kwargs) { requests << kwargs; requests.length == 1 ? selection : FAKE_RESPONSE }) do
+          service.call
+        end
+      end
+
+      refute requests.any? { |request| request.key?(:id_slot) || request.key?(:cache_prompt) }
+    end
+  end
+
+  test "web latency log records the first non-empty reasoning output" do
+    service = ChatService.new(
+      messages: [ { role: "user", content: "What changed today?" } ],
+      model: "local-llama",
+      use_persona: false,
+      use_scaffolding: false,
+      stream: true,
+      max_tokens: nil,
+      web_search_mode: "always"
+    )
+    adapter = service.instance_variable_get(:@adapter)
+    selection = { tool_calls: [ { "function" => { "name" => "research_web", "arguments" => '{"queries":["today"]}' } } ] }
+    research_service = Object.new
+    research_service.define_singleton_method(:call) { { evidence: "evidence", metadata: { status: "complete", sources: [] } } }
+    calls = 0
+    fake_chat = ->(**_kwargs, &stream) do
+      calls += 1
+      next selection if calls == 1
+
+      stream.call("", :reasoning)
+      stream.call("visible reasoning", :reasoning)
+      { tokens: {}, stats: {} }
+    end
+
+    WebResearch::Service.stub(:new, ->(**_) { research_service }) do
+      adapter.stub(:chat, fake_chat) do
+        log_output = capture_rails_logs { service.call { |_chunk, _phase| } }
+
+        assert_includes log_output, "event=selector_stage_latency"
+        assert_includes log_output, "event=research_stage_latency"
+        assert_includes log_output, "event=turn_latency"
+        assert_includes log_output, '"first_visible_output":"reasoning"'
+      end
+    end
+  end
+
   test "invalid web tool output logs safe response diagnostics and falls back" do
     service = ChatService.new(
       messages: [ { role: "user", content: "Research a private topic" } ],

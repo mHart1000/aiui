@@ -28,7 +28,7 @@ class WebResearch::PageFetcherTest < ActiveSupport::TestCase
       [ { title: "Private", url: "http://169.254.169.254/latest", snippet: "do not expose", published_at: nil } ]
     end
     fetcher = Object.new
-    fetcher.define_singleton_method(:validate_target!) do |*_args|
+    fetcher.define_singleton_method(:fetch) do |*_args|
       raise WebResearch::PageFetcher::UnsafeTarget, "private address"
     end
 

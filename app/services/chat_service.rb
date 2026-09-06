@@ -3,6 +3,9 @@ require "json"
 class ChatService
   FALLBACK_MODEL = ENV.fetch("DEFAULT_MODEL", "local-llama")
   DEFAULT_MAX_TOKENS = 16000
+  WEB_SELECTOR_MAX_MESSAGES = 4
+  WEB_SELECTOR_MAX_MESSAGE_CHARS = 2_000
+  WEB_SELECTOR_MAX_TRANSCRIPT_CHARS = 6_000
 
   PLANNING_PROMPT = <<~PROMPT
     You are in two-pass reasoning mode. This is the planning phase.
@@ -51,6 +54,8 @@ class ChatService
     @web_search_mode = web_search_mode.to_s
     @log_stats = log_stats
     @adapter = select_adapter(@model_id)
+    @web_latency = {}
+    @web_slots = web_slot_configuration
   end
 
   def call(&block)
@@ -60,16 +65,18 @@ class ChatService
 
     Rails.logger.info("ChatService: using #{@adapter.class.name} for model #{@model_id}")
 
+    @web_latency[:turn_started_at] = monotonic_now if web_search_enabled?
     research = perform_web_research(&block)
     @web_evidence = research[:evidence]
     @web_search_data = research[:metadata]
     @web_tool_messages = research[:tool_call] ? [ research[:tool_call], { role: "tool", tool_call_id: research[:tool_call][:tool_calls].first[:id], content: research_tool_content } ] : []
 
-    if @use_scaffolding
+    result = if @use_scaffolding
       two_pass_call(&block)
     else
       single_pass_call(&block)
     end
+    include_web_selection_usage(result)
   end
 
   private
@@ -100,7 +107,9 @@ class ChatService
     if @stream && block_given?
       saw_reasoning = false
       switched_to_response = false
-      adapter_result = @adapter.chat(messages: messages_to_send, stream: true, max_tokens: @max_tokens) do |chunk, kind|
+      mark_web_answer_started
+      adapter_result = @adapter.chat(messages: messages_to_send, stream: true, max_tokens: @max_tokens, **web_answer_request_options) do |chunk, kind|
+        record_web_first_visible_output(chunk, kind == :reasoning ? :reasoning : :content)
         if kind == :reasoning
           saw_reasoning = true
           yield chunk, :thinking
@@ -121,7 +130,7 @@ class ChatService
         web_search_data: @web_search_data
       }
     else
-      response = @adapter.chat(messages: messages_to_send, stream: false, max_tokens: @max_tokens)
+      response = @adapter.chat(messages: messages_to_send, stream: false, max_tokens: @max_tokens, **web_answer_request_options)
       {
         reply: response[:content],
         thinking: response[:reasoning],
@@ -152,7 +161,9 @@ class ChatService
     Rails.logger.info("Starting planning pass...")
 
     if @stream && block_given?
-      planning_result = @adapter.chat(messages: planning_messages, stream: true, max_tokens: @max_tokens) do |content|
+      mark_web_answer_started
+      planning_result = @adapter.chat(messages: planning_messages, stream: true, max_tokens: @max_tokens, **web_auxiliary_request_options) do |content|
+        record_web_first_visible_output(content, :thinking)
         thinking += content
         yield content, :thinking
       end
@@ -162,7 +173,7 @@ class ChatService
       end
       yield nil, :phase_change
     else
-      response = @adapter.chat(messages: planning_messages, stream: false, max_tokens: @max_tokens)
+      response = @adapter.chat(messages: planning_messages, stream: false, max_tokens: @max_tokens, **web_auxiliary_request_options)
       thinking = response[:content]
       planning_tokens = response[:tokens]
       planning_stats = response[:stats]
@@ -186,7 +197,8 @@ class ChatService
 
     if @stream && block_given?
       reply = ""
-      execution_result = @adapter.chat(messages: execution_messages, stream: true, max_tokens: @max_tokens) do |chunk, kind|
+      execution_result = @adapter.chat(messages: execution_messages, stream: true, max_tokens: @max_tokens, **web_answer_request_options) do |chunk, kind|
+        record_web_first_visible_output(chunk, kind == :reasoning ? :reasoning : :content)
         # Native reasoning during the execution pass goes to the thinking stream,
         # never into the saved reply.
         if kind == :reasoning
@@ -212,7 +224,7 @@ class ChatService
         web_search_data: @web_search_data
       }
     else
-      response = @adapter.chat(messages: execution_messages, stream: false, max_tokens: @max_tokens)
+      response = @adapter.chat(messages: execution_messages, stream: false, max_tokens: @max_tokens, **web_answer_request_options)
       reply = response[:content]
       execution_tokens = response[:tokens]
       execution_stats = response[:stats]
@@ -361,7 +373,7 @@ class ChatService
   end
 
   def perform_web_research(&block)
-    return {} unless %w[auto always].include?(@web_search_mode)
+    return {} unless web_search_enabled?
     unless @adapter.is_a?(AiAdapters::LlamaAdapter)
       metadata = failed_research_metadata("Web research is available only with local llama.cpp models.")
       emit_research_event(block, :failed, metadata)
@@ -370,26 +382,33 @@ class ChatService
 
     emit_research_event(block, :deciding)
     selection = nil
-    selection = @adapter.chat(
-      messages: tool_selection_messages,
-      stream: false,
-      max_tokens: 400,
-      temperature: 0,
-      chat_template_kwargs: { reasoning_effort: "low" },
-      thinking_budget_tokens: 128,
-      reasoning_budget_message: "Proceed directly to the required tool call.",
-      tools: [ RESEARCH_TOOL ],
-      tool_choice: @web_search_mode == "always" ? { type: "function", function: { name: "research_web" } } : "auto"
-    )
+    selection = measure_web_stage(:selector) do
+      @adapter.chat(
+        messages: tool_selection_messages,
+        stream: false,
+        max_tokens: 400,
+        temperature: 0,
+        chat_template_kwargs: { reasoning_effort: "low" },
+        thinking_budget_tokens: 128,
+        reasoning_budget_message: "Proceed directly to the required tool call.",
+        tools: [ RESEARCH_TOOL ],
+        tool_choice: @web_search_mode == "always" ? { type: "function", function: { name: "research_web" } } : "auto",
+        **web_auxiliary_request_options
+      )
+    end
+    @web_selection_tokens = selection[:tokens]
+    @web_selection_stats = selection[:stats]
     calls = selection[:tool_calls]
     return {} if calls.blank? && @web_search_mode == "auto"
 
     request = WebResearch::ToolRequest.parse!(tool_calls: calls, latest_user_content: latest_user_text)
-    outcome = WebResearch::Service.new(
-      request: request,
-      max_evidence_chars: @rag_context ? 11_500 : 23_500,
-      on_progress: ->(stage, data) { emit_research_event(block, stage, data) }
-    ).call
+    outcome = measure_web_stage(:research) do
+      WebResearch::Service.new(
+        request: request,
+        max_evidence_chars: @rag_context ? 11_500 : 23_500,
+        on_progress: ->(stage, data) { emit_research_event(block, stage, data) }
+      ).call
+    end
     outcome.merge(tool_call: normalized_tool_call(request))
   rescue WebResearch::ToolRequest::InvalidRequest, AiAdapters::LlamaAdapter::Error, JSON::ParserError, Net::OpenTimeout, Net::ReadTimeout, SocketError, EOFError, IOError => e
     Rails.logger.warn(web_selection_error_log(e, selection))
@@ -411,10 +430,19 @@ class ChatService
   end
 
   def tool_selection_messages
-    recent = @messages.last(8).filter_map do |message|
+    remaining = WEB_SELECTOR_MAX_TRANSCRIPT_CHARS
+    recent = @messages.last(WEB_SELECTOR_MAX_MESSAGES).reverse_each.filter_map do |message|
       text = text_of(message[:content]).strip
-      "#{message[:role].to_s.upcase}:\n#{text[0, 2_000]}" if text.present?
-    end
+      next if text.blank?
+
+      prefix = "#{message[:role].to_s.upcase}:\n"
+      available = [ WEB_SELECTOR_MAX_MESSAGE_CHARS, remaining - prefix.length ].min
+      next unless available.positive?
+
+      entry = "#{prefix}#{text[0, available]}"
+      remaining -= entry.length + 2
+      entry
+    end.reverse
     instruction =
       if @web_search_mode == "always"
         "You are a web-research router. You must call research_web exactly once. Return only the tool call; do not answer or explain."
@@ -454,6 +482,99 @@ class ChatService
 
   def emit_research_event(block, stage, data = {})
     block&.call(data.merge(stage: stage), :web_search)
+  end
+
+  def web_search_enabled?
+    %w[auto always].include?(@web_search_mode)
+  end
+
+  def measure_web_stage(stage)
+    started_at = monotonic_now
+    yield
+  ensure
+    elapsed = ((monotonic_now - started_at) * 1000).round
+    @web_latency["#{stage}_ms".to_sym] = elapsed
+    WebResearch::AuditLog.info("#{stage}_stage_latency", elapsed_ms: elapsed,
+      slot_id: stage == :selector ? @web_slots[:selector] : nil)
+  end
+
+  def mark_web_answer_started
+    @web_latency[:answer_started_at] ||= monotonic_now if web_search_enabled?
+  end
+
+  def record_web_first_visible_output(chunk, kind)
+    return unless web_search_enabled? && chunk.present?
+    return if @web_latency[:first_visible_output_at]
+
+    now = monotonic_now
+    @web_latency[:first_visible_output_at] = now
+    WebResearch::AuditLog.info("turn_latency",
+      mode: @web_search_mode,
+      first_visible_output: kind,
+      selector_ms: @web_latency[:selector_ms],
+      research_ms: @web_latency[:research_ms],
+      answer_to_first_visible_ms: elapsed_ms_between(@web_latency[:answer_started_at], now),
+      turn_to_first_visible_ms: elapsed_ms_between(@web_latency[:turn_started_at], now),
+      selector_slot_id: @web_slots[:selector],
+      answer_slot_id: @web_slots[:answer])
+  end
+
+  def include_web_selection_usage(result)
+    return result unless result.is_a?(Hash) && @web_selection_tokens
+
+    answer_tokens = result[:tokens] || {}
+    combined_tokens = answer_tokens.merge(
+      web_selection: @web_selection_tokens,
+      prompt_tokens: answer_tokens.fetch(:prompt_tokens, 0) + @web_selection_tokens.fetch(:prompt_tokens, 0),
+      completion_tokens: answer_tokens.fetch(:completion_tokens, 0) + @web_selection_tokens.fetch(:completion_tokens, 0),
+      total_tokens: answer_tokens.fetch(:total_tokens, 0) + @web_selection_tokens.fetch(:total_tokens, 0)
+    )
+    combined_tokens[:total] = combined_tokens[:total_tokens] if answer_tokens.key?(:total)
+
+    answer_stats = result[:stats] || {}
+    selector_elapsed = @web_selection_stats&.fetch(:elapsed_ms, 0) || 0
+    combined_elapsed = answer_stats.fetch(:elapsed_ms, 0) + selector_elapsed
+    completion = combined_tokens[:completion_tokens]
+    combined_stats = answer_stats.merge(
+      elapsed_ms: combined_elapsed,
+      tokens_per_second: combined_elapsed.positive? ? completion * 1000.0 / combined_elapsed : nil,
+      tps_source: "computed"
+    )
+
+    result.merge(tokens: combined_tokens, stats: combined_stats)
+  end
+
+  def web_slot_configuration
+    return {} unless web_search_enabled? && @adapter.is_a?(AiAdapters::LlamaAdapter)
+
+    selector_raw = ENV["WEB_RESEARCH_SELECTOR_SLOT_ID"].presence
+    answer_raw = ENV["WEB_RESEARCH_ANSWER_SLOT_ID"].presence
+    return {} unless selector_raw || answer_raw
+
+    selector = Integer(selector_raw, exception: false)
+    answer = Integer(answer_raw, exception: false)
+    unless selector && selector >= 0 && answer && answer >= 0 && selector != answer
+      Rails.logger.warn("WebResearch slot experiment disabled: configure distinct non-negative selector and answer slot IDs")
+      return {}
+    end
+
+    { selector: selector, answer: answer }
+  end
+
+  def web_auxiliary_request_options
+    @web_slots[:selector] ? { id_slot: @web_slots[:selector], cache_prompt: true } : {}
+  end
+
+  def web_answer_request_options
+    @web_slots[:answer] ? { id_slot: @web_slots[:answer], cache_prompt: true } : {}
+  end
+
+  def elapsed_ms_between(started_at, finished_at)
+    ((finished_at - started_at) * 1000).round if started_at && finished_at
+  end
+
+  def monotonic_now
+    Process.clock_gettime(Process::CLOCK_MONOTONIC)
   end
 
   def dev_mode_response(&block)
