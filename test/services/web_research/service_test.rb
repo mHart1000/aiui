@@ -81,6 +81,64 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
     assert_equal 3, result[:metadata][:sources].length
   end
 
+  test "deduplicates provider results by normalized URL" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "primary", "fallback" ] }, latest_user_content: "")
+    adapter = Object.new
+    adapter.define_singleton_method(:search) do |query, **_options|
+      if query == "primary"
+        [
+          { title: "One", url: "https://example.com/one", snippet: "first", published_at: nil },
+          { title: "Duplicate", url: "https://example.com/one", snippet: "duplicate", published_at: nil }
+        ]
+      else
+        [
+          { title: "Duplicate again", url: "https://example.com/one", snippet: "duplicate", published_at: nil },
+          { title: "Two", url: "https://example.com/two", snippet: "second", published_at: nil }
+        ]
+      end
+    end
+    fetcher = Object.new
+    fetcher.define_singleton_method(:fetch) { |url, **| "Text from #{url}" }
+
+    result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
+
+    assert_equal %w[one two], result[:metadata][:sources].map { |source| URI(source[:url]).path.delete_prefix("/") }
+  end
+
+  test "uses a bounded search snippet after an ordinary fetch failure" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
+    adapter = Object.new
+    adapter.define_singleton_method(:search) do |_query, **_options|
+      [ { title: "One", url: "https://example.com/one", snippet: "Provider snippet", published_at: nil } ]
+    end
+    fetcher = Object.new
+    fetcher.define_singleton_method(:fetch) { |*, **| raise WebResearch::PageFetcher::Error, "unsupported content encoding" }
+
+    result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
+
+    assert_equal "partial", result[:metadata][:status]
+    assert_equal 1, result[:metadata][:sources].length
+    assert_includes result[:evidence], '"content":"Provider snippet"'
+    assert_includes result[:evidence], '"content_type":"search_snippet"'
+  end
+
+  test "returns a warning without evidence when every source fails" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
+    adapter = Object.new
+    adapter.define_singleton_method(:search) do |_query, **_options|
+      [ { title: "One", url: "https://example.com/one", snippet: "", published_at: nil } ]
+    end
+    fetcher = Object.new
+    fetcher.define_singleton_method(:fetch) { |*, **| raise WebResearch::PageFetcher::Error, "timeout" }
+
+    result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
+
+    assert_nil result[:evidence]
+    assert_equal "failed", result[:metadata][:status]
+    assert_equal "Web research did not return usable evidence.", result[:metadata][:warning]
+    assert_empty result[:metadata][:sources]
+  end
+
   test "fetches candidates concurrently and preserves candidate order" do
     request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
     adapter = Object.new

@@ -45,4 +45,42 @@ class WebResearch::ToolRequestTest < ActiveSupport::TestCase
       WebResearch::ToolRequest.parse!(tool_calls: tool_call(queries: [ "one" ], extra: "ignored"), latest_user_content: "")
     end
   end
+
+  test "rejects unsafe direct URL forms" do
+    unsafe_urls = [
+      "ftp://example.com/file",
+      "https://user:password@example.com/private",
+      "https://example.com:8443/article",
+      "//example.com/article",
+      "/relative/article"
+    ]
+
+    unsafe_urls.each do |url|
+      assert_raises(WebResearch::ToolRequest::InvalidRequest, url) do
+        WebResearch::ToolRequest.parse!(tool_calls: tool_call(urls: [ url ]), latest_user_content: "Check #{url}")
+      end
+    end
+  end
+
+  test "rejects malformed, empty, excessive, and control-character queries" do
+    invalid_arguments = [
+      { queries: "not an array" },
+      { queries: [] },
+      { queries: [ "one", "two", "three" ] },
+      { queries: [ "line\nbreak" ] },
+      { queries: [ 123 ] },
+      { urls: [ "https://one.example", "https://two.example", "https://three.example", "https://four.example" ] }
+    ]
+
+    invalid_arguments.each do |arguments|
+      assert_raises(WebResearch::ToolRequest::InvalidRequest, arguments.inspect) do
+        WebResearch::ToolRequest.parse!(tool_calls: tool_call(arguments), latest_user_content: arguments.values.flatten.join(" "))
+      end
+    end
+
+    malformed_call = [ { "function" => { "name" => "research_web", "arguments" => "{" } } ]
+    assert_raises(WebResearch::ToolRequest::InvalidRequest) do
+      WebResearch::ToolRequest.parse!(tool_calls: malformed_call, latest_user_content: "")
+    end
+  end
 end
