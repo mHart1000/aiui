@@ -5,6 +5,7 @@ module WebResearch
   class Service
     PROVIDER = "searxng".freeze
     MAX_PAGES = 3
+    MAX_FETCH_ATTEMPTS = 5
     MAX_EVIDENCE_CHARS = 24_000
 
     def initialize(request:, on_progress: nil, adapter: SearxngAdapter.new, fetcher: PageFetcher.new, max_evidence_chars: MAX_EVIDENCE_CHARS)
@@ -23,7 +24,7 @@ module WebResearch
       executed_queries = []
       results = []
       AuditLog.info("research_started", candidate_queries: @request.queries, direct_urls: @request.urls.map { |url| AuditLog.safe_url(url) })
-      search_capacity = [ MAX_PAGES - @request.urls.length, 0 ].max
+      search_capacity = [ MAX_FETCH_ATTEMPTS - @request.urls.length, 0 ].max
       @request.queries.each do |query|
         break if distinct_search_results(results).length >= search_capacity
 
@@ -33,7 +34,7 @@ module WebResearch
         query_sent_at = Time.current.iso8601(3)
         first_query_sent_at ||= query_sent_at
         AuditLog.info("search_started", query: query, sent_at: query_sent_at)
-        search_results = @adapter.search(query, deadline: deadline)
+        search_results = @adapter.search(query, deadline: deadline).map { |result| result.merge(research_query: query) }
         AuditLog.info("search_completed", query: query, result_count: search_results.length,
           urls: search_results.map { |result| AuditLog.safe_url(result[:url]) }, elapsed_ms: elapsed_ms(search_started))
         results.concat(search_results)
@@ -41,32 +42,30 @@ module WebResearch
       results = distinct_search_results(results)
       search_completed_monotonic = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       candidates = direct_results + results.reject { |result| @request.urls.include?(result[:url]) }
-      candidates = candidates.first(MAX_PAGES)
+      candidates = candidates.first(MAX_FETCH_ATTEMPTS).each_with_index.map { |result, index| result.merge(candidate_order: index) }
       AuditLog.info("fetch_candidates_selected", count: candidates.length,
         urls: candidates.map { |result| AuditLog.safe_url(result[:url]) })
       emit(:fetching)
 
+      outcomes = fetch_with_backfill(candidates, deadline)
       records = []
-      failures = 0
-      fetch_candidates(candidates, deadline).each do |outcome|
+      failures = outcomes.count { |outcome| outcome[:error] }
+      successful = outcomes.select { |outcome| outcome[:text] }.first(MAX_PAGES)
+      fallbacks = outcomes.select do |outcome|
+        outcome[:error] && !outcome[:error].is_a?(PageFetcher::UnsafeTarget) && outcome[:result][:snippet].present?
+      end
+      selected = (successful + fallbacks.first(MAX_PAGES - successful.length)).sort_by { |outcome| outcome[:result][:candidate_order] }
+      selected.each do |outcome|
         result = outcome[:result]
         source_id = records.length + 1
         if outcome[:text]
           text = outcome[:text]
-          records << [ source_metadata(result, source_id), text, false ]
+          records << [ source_metadata(result, source_id, content_truncated: outcome[:content_truncated]), text, false ]
           AuditLog.info("page_extract_ready", source_id: source_id, url: AuditLog.safe_url(result[:url]),
-            extracted_chars: text.length, excerpt: AuditLog.excerpt(text), elapsed_ms: outcome[:elapsed_ms])
-        elsif outcome[:error].is_a?(PageFetcher::UnsafeTarget)
-          failures += 1
-          AuditLog.warn("fetch_rejected", url: AuditLog.safe_url(result[:url]), domain: safe_domain(result[:url]),
-            error_class: outcome[:error].class.name, error: outcome[:error].message, elapsed_ms: outcome[:elapsed_ms])
+            extracted_chars: text.length, content_truncated: outcome[:content_truncated], excerpt: AuditLog.excerpt(text),
+            elapsed_ms: outcome[:elapsed_ms])
         else
-          failures += 1
-          AuditLog.warn("fetch_failed", url: AuditLog.safe_url(result[:url]), domain: safe_domain(result[:url]),
-            error_class: outcome[:error].class.name, error: outcome[:error].message, elapsed_ms: outcome[:elapsed_ms])
-          next if result[:snippet].blank?
-
-          records << [ source_metadata(result, source_id), result[:snippet], true ]
+          records << [ source_metadata(result, source_id, content_truncated: true), result[:snippet], true ]
           AuditLog.info("search_snippet_used", source_id: source_id, url: AuditLog.safe_url(result[:url]),
             snippet_chars: result[:snippet].length, excerpt: AuditLog.excerpt(result[:snippet]))
         end
@@ -105,9 +104,16 @@ module WebResearch
         thread = Thread.new do
           fetch_started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
           AuditLog.info("fetch_started", url: AuditLog.safe_url(result[:url]), title: result[:title])
-          text = @fetcher.fetch(result[:url], deadline: deadline)
-          { result: result, text: text, elapsed_ms: elapsed_ms(fetch_started) }
+          fetched = @fetcher.fetch(result[:url], deadline: deadline, query: result[:research_query] || @request.queries.join(" "))
+          if fetched.is_a?(PageFetcher::FetchResult)
+            { result: result, text: fetched.text, content_truncated: fetched.truncated, elapsed_ms: elapsed_ms(fetch_started) }
+          else
+            { result: result, text: fetched, content_truncated: false, elapsed_ms: elapsed_ms(fetch_started) }
+          end
         rescue PageFetcher::UnsafeTarget, PageFetcher::Error => e
+          event = e.is_a?(PageFetcher::UnsafeTarget) ? "fetch_rejected" : "fetch_failed"
+          AuditLog.warn(event, url: AuditLog.safe_url(result[:url]),
+            domain: safe_domain(result[:url]), error_class: e.class.name, error: e.message, elapsed_ms: elapsed_ms(fetch_started))
           { result: result, error: e, elapsed_ms: elapsed_ms(fetch_started) }
         end
         thread.report_on_exception = false
@@ -124,12 +130,29 @@ module WebResearch
       threads.map(&:value)
     end
 
+    def fetch_with_backfill(candidates, deadline)
+      outcomes = []
+      next_index = 0
+      batch_size = [ MAX_PAGES, candidates.length ].min
+      while batch_size.positive? && outcomes.count { |outcome| outcome[:text] } < MAX_PAGES
+        batch = candidates.slice(next_index, batch_size)
+        break if batch.blank?
+
+        outcomes.concat(fetch_candidates(batch, deadline))
+        next_index += batch.length
+        missing = MAX_PAGES - outcomes.count { |outcome| outcome[:text] }
+        batch_size = [ missing, candidates.length - next_index ].min
+      end
+      outcomes
+    end
+
     def direct_results
       @request.urls.map { |url| { title: URI(url).host, url: url, snippet: "", published_at: nil } }
     end
 
-    def source_metadata(result, id)
-      { id: id, title: result[:title], url: result[:url], domain: safe_domain(result[:url]), published_at: result[:published_at] }
+    def source_metadata(result, id, content_truncated:)
+      { id: id, title: result[:title], url: result[:url], domain: safe_domain(result[:url]), published_at: result[:published_at],
+        content_truncated: content_truncated }
     end
 
     def format_evidence(records)

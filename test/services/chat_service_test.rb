@@ -56,16 +56,18 @@ class ChatServiceTest < ActiveSupport::TestCase
       blk.call("thinking ", :reasoning)
       blk.call("more ", :reasoning)
       blk.call("answer", :content)
-      { tokens: { total_tokens: 5 }, stats: {} }
+      { finish_reason: "stop", tokens: { total_tokens: 5 }, stats: {} }
     }
     events = []
+    result = nil
     adapter.stub(:chat, fake_stream) do
-      service.call { |chunk, phase| events << [ phase, chunk ] }
+      result = service.call { |chunk, phase| events << [ phase, chunk ] }
     end
     assert_equal [ :thinking, "thinking " ], events[0]
     assert_equal [ :thinking, "more " ], events[1]
     assert_equal [ :phase_change, nil ], events[2]
     assert_equal [ :response, "answer" ], events[3]
+    assert_equal "stop", result[:finish_reason]
   end
 
   test "single pass treats untagged chunks as response with no phase_change" do

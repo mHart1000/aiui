@@ -132,7 +132,9 @@ class WebResearch::PageFetcherTest < ActiveSupport::TestCase
 
     Resolv.stub(:getaddresses, [ "8.8.8.8" ]) do
       Net::HTTP.stub(:new, ->(*arguments) { net_http_arguments = arguments; http }) do
-        assert_equal "Pinned response", fetcher.fetch("https://public.example/article")
+        fetched = fetcher.fetch("https://public.example/article")
+        assert_equal "Pinned response", fetched.text
+        refute fetched.truncated
       end
     end
 
@@ -155,7 +157,9 @@ class WebResearch::PageFetcherTest < ActiveSupport::TestCase
       [ URI.parse(url), "8.8.8.8" ]
     }) do
       fetcher.stub(:request, ->(*_) { responses.shift }) do
-        assert_equal "Final text", fetcher.fetch("https://initial.example/start")
+        fetched = fetcher.fetch("https://initial.example/start")
+        assert_equal "Final text", fetched.text
+        refute fetched.truncated
       end
     end
 
@@ -292,9 +296,54 @@ class WebResearch::PageFetcherTest < ActiveSupport::TestCase
 
     extracted = fetcher.send(:extract_text, html, "text/html")
 
-    assert_equal "Useful article text", extracted
+    assert_equal "Useful article text", extracted.text
+    refute extracted.truncated
     capped = fetcher.send(:extract_text, "x" * (WebResearch::PageFetcher::MAX_TEXT_LENGTH + 1), "text/plain")
-    assert_equal WebResearch::PageFetcher::MAX_TEXT_LENGTH, capped.length
+    assert_operator capped.text.length, :<=, WebResearch::PageFetcher::MAX_TEXT_LENGTH
+    assert capped.truncated
+  end
+
+  test "prefers semantic main content over the surrounding page shell" do
+    fetcher = WebResearch::PageFetcher.new
+    html = <<~HTML
+      <html><body>
+        <div>Account and promotional shell</div>
+        <main><h1>Article title</h1><p>Useful article content.</p></main>
+        <div>Unrelated recommendations</div>
+      </body></html>
+    HTML
+
+    extracted = fetcher.send(:extract_text, html, "text/html")
+
+    assert_equal "Article title\n\nUseful article content.", extracted.text
+    refute_includes extracted.text, "promotional shell"
+    refute_includes extracted.text, "recommendations"
+  end
+
+  test "selects query-relevant passages from long content and marks truncation" do
+    fetcher = WebResearch::PageFetcher.new
+    unrelated = 7.times.map do |index|
+      "<p>Section #{index} discusses unrelated background material. #{'filler ' * 180}</p>"
+    end.join
+    html = "<article>#{unrelated}<p>Needleterm appears in the relevant passage with the requested facts.</p></article>"
+
+    extracted = fetcher.send(:extract_text, html, "text/html", query: "needleterm facts")
+
+    assert extracted.truncated
+    assert_includes extracted.text, "Needleterm appears"
+    refute_includes extracted.text, "Section 0"
+    assert_operator extracted.text.length, :<=, WebResearch::PageFetcher::MAX_TEXT_LENGTH
+  end
+
+  test "uses a readable boundary when a selected passage must be clipped" do
+    fetcher = WebResearch::PageFetcher.new
+    text = "A complete sentence. " * 400
+
+    extracted = fetcher.send(:extract_text, text, "text/plain")
+
+    assert extracted.truncated
+    assert_match(/[.!?](?:…)?\z/, extracted.text)
+    assert_operator extracted.text.length, :<=, WebResearch::PageFetcher::MAX_TEXT_LENGTH
   end
 
   test "rejects HTML without readable content" do

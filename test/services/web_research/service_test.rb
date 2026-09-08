@@ -43,13 +43,13 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
     assert_includes log_output, 'event=research_latency'
   end
 
-  test "skips the second query when the first fills the page capacity" do
+  test "skips the second query when the first fills the candidate pool" do
     request = WebResearch::ToolRequest.new({ "queries" => [ "primary", "fallback" ] }, latest_user_content: "")
     searched = []
     adapter = Object.new
     adapter.define_singleton_method(:search) do |query, **_options|
       searched << query
-      3.times.map do |index|
+      WebResearch::Service::MAX_FETCH_ATTEMPTS.times.map do |index|
         { title: "Result #{index}", url: "https://example.com/#{index}", snippet: "", published_at: nil }
       end
     end
@@ -166,6 +166,60 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
   ensure
     3.times { release << true } if release
     service_thread&.join(1)
+  end
+
+  test "backfills failed initial candidates and retains three successful pages" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
+    adapter = Object.new
+    adapter.define_singleton_method(:search) do |_query, **_options|
+      %w[one two three four five].map do |suffix|
+        { title: suffix, url: "https://example.com/#{suffix}", snippet: "Snippet #{suffix}", published_at: nil }
+      end
+    end
+    fetched = Queue.new
+    fetcher = Object.new
+    fetcher.define_singleton_method(:fetch) do |url, query:, **_options|
+      suffix = URI(url).path.delete_prefix("/")
+      fetched << [ suffix, query ]
+      raise WebResearch::PageFetcher::Error, "blocked" if %w[one two].include?(suffix)
+
+      WebResearch::PageFetcher::FetchResult.new(text: "Text from #{suffix}", truncated: suffix == "three")
+    end
+
+    result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
+    attempts = 5.times.map { fetched.pop }
+
+    assert_equal %w[one two three four five].sort, attempts.map(&:first).sort
+    assert attempts.all? { |_suffix, query| query == "example" }
+    assert_equal %w[three four five], result[:metadata][:sources].map { |source| URI(source[:url]).path.delete_prefix("/") }
+    assert_equal [ true, false, false ], result[:metadata][:sources].map { |source| source[:content_truncated] }
+    assert_equal 3, result[:metadata][:sources].length
+    assert_equal "partial", result[:metadata][:status]
+    assert_includes result[:evidence], '"content_truncated":true'
+    refute_includes result[:evidence], "Snippet one"
+  end
+
+  test "limits page attempts and then uses available snippets" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
+    adapter = Object.new
+    adapter.define_singleton_method(:search) do |_query, **_options|
+      6.times.map do |index|
+        { title: index.to_s, url: "https://example.com/#{index}", snippet: "Snippet #{index}", published_at: nil }
+      end
+    end
+    fetched = Queue.new
+    fetcher = Object.new
+    fetcher.define_singleton_method(:fetch) do |url, **_options|
+      fetched << url
+      raise WebResearch::PageFetcher::Error, "blocked"
+    end
+
+    result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
+
+    assert_equal WebResearch::Service::MAX_FETCH_ATTEMPTS, fetched.length
+    assert_equal WebResearch::Service::MAX_PAGES, result[:metadata][:sources].length
+    assert result[:metadata][:sources].all? { |source| source[:content_truncated] }
+    assert_not_includes result[:metadata][:sources].map { |source| source[:url] }, "https://example.com/5"
   end
 
   private

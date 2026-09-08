@@ -42,4 +42,45 @@ class AiAdapters::LlamaAdapterTest < ActiveSupport::TestCase
       assert_equal 1, result[:tool_calls].length
     end
   end
+
+  test "streaming chat returns and logs the final finish reason" do
+    chunks = [
+      "data: #{ { choices: [ { delta: { content: "Done" }, finish_reason: nil } ] }.to_json }\n\n",
+      "data: #{ { choices: [ { delta: {}, finish_reason: "length" } ] }.to_json }\n\n",
+      "data: #{ { choices: [], usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 } }.to_json }\n\n",
+      "data: [DONE]\n\n"
+    ]
+    response = Object.new
+    response.define_singleton_method(:read_body) { |&block| chunks.each { |chunk| block.call(chunk) } }
+    http = Object.new
+    http.define_singleton_method(:request) { |_request, &block| block.call(response) }
+    streamed = []
+
+    log_output = capture_rails_logs do
+      Net::HTTP.stub(:start, ->(*_args, &block) { block.call(http) }) do
+        result = AiAdapters::LlamaAdapter.new(model: "local-llama").chat(
+          messages: [ { role: "user", content: "respond" } ],
+          stream: true
+        ) { |chunk, kind| streamed << [ chunk, kind ] }
+
+        assert_equal "length", result[:finish_reason]
+        assert_equal 6, result.dig(:tokens, :total_tokens)
+      end
+    end
+
+    assert_equal [ [ "Done", :content ] ], streamed
+    assert_includes log_output, "Finish     — length"
+  end
+
+  private
+
+  def capture_rails_logs
+    original_logger = Rails.logger
+    io = StringIO.new
+    Rails.logger = ActiveSupport::Logger.new(io)
+    yield
+    io.string
+  ensure
+    Rails.logger = original_logger
+  end
 end

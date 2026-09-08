@@ -11,12 +11,17 @@ module WebResearch
     MAX_REDIRECTS = 3
     MAX_BODY_BYTES = 1_048_576
     MAX_TEXT_LENGTH = 6_000
+    MAX_PASSAGE_LENGTH = 1_200
+    MAX_QUERY_TERMS = 24
     ALLOWED_CONTENT_TYPES = %w[text/html application/xhtml+xml text/plain].freeze
+    QUERY_STOP_WORDS = %w[and are for from how into latest that the this what when where which who why with].freeze
+
+    FetchResult = Data.define(:text, :truncated)
 
     class Error < StandardError; end
     class UnsafeTarget < Error; end
 
-    def fetch(url, deadline: monotonic_now + 20)
+    def fetch(url, deadline: monotonic_now + 20, query: nil)
       current = url
       (MAX_REDIRECTS + 1).times do
         raise Error, "research deadline exceeded" if monotonic_now >= deadline
@@ -34,7 +39,7 @@ module WebResearch
 
         type = response.content_type.to_s.downcase
         raise Error, "unsupported content type" unless ALLOWED_CONTENT_TYPES.include?(type)
-        return extract_text(body, type)
+        return extract_text(body, type, query: query)
       end
       raise Error, "too many redirects"
     rescue URI::InvalidURIError, Net::HTTPBadResponse, Net::ProtocolError => e
@@ -106,14 +111,128 @@ module WebResearch
       raise Error, e.message
     end
 
-    def extract_text(body, content_type)
-      return body.encode("UTF-8", invalid: :replace, undef: :replace, replace: "") [0, MAX_TEXT_LENGTH] if content_type == "text/plain"
+    def extract_text(body, content_type, query: nil)
+      blocks =
+        if content_type == "text/plain"
+          plain_text_blocks(body)
+        else
+          html_text_blocks(body)
+        end
+      raise Error, "page had no readable text" if blocks.empty?
 
+      blocks = blocks.flat_map { |block| split_long_block(block) }
+      full_length = blocks.sum(&:length) + ([ blocks.length - 1, 0 ].max * 2)
+      truncated = full_length > MAX_TEXT_LENGTH
+      selected = truncated ? relevant_blocks(blocks, query) : blocks
+      FetchResult.new(text: render_bounded(selected), truncated: truncated)
+    end
+
+    def plain_text_blocks(body)
+      text = body.encode("UTF-8", invalid: :replace, undef: :replace, replace: "")
+      text.split(/\n\s*\n+/).filter_map { |block| normalize_text(block).presence }
+    end
+
+    def html_text_blocks(body)
       document = Nokogiri::HTML5.parse(body)
       document.css("script, style, form, iframe, object, embed, nav, header, footer, aside, noscript").remove
-      text = document.text.gsub(/\s+/, " ").strip
-      raise Error, "page had no readable text" if text.empty?
-      text[0, MAX_TEXT_LENGTH]
+      root = document.at_css("article") || document.at_css("main") || document.at_css('[role="main"]') || document.at_css("body") || document
+      blocks = root.css("h1, h2, h3, h4, h5, h6, p, li, blockquote, pre").filter_map do |node|
+        normalize_text(node.text).presence
+      end
+      blocks = [ normalize_text(root.text) ] if blocks.empty?
+      blocks.filter(&:present?).uniq
+    end
+
+    def normalize_text(text)
+      text.to_s.gsub(/\s+/, " ").strip
+    end
+
+    def split_long_block(text)
+      return [ text ] if text.length <= MAX_PASSAGE_LENGTH
+
+      chunks = []
+      remaining = text
+      while remaining.length > MAX_PASSAGE_LENGTH
+        window = remaining[0, MAX_PASSAGE_LENGTH + 1]
+        boundary = window.rindex(/(?<=[.!?])\s/) || window.rindex(/\s/)
+        boundary = MAX_PASSAGE_LENGTH if boundary.nil? || boundary < MAX_PASSAGE_LENGTH / 2
+        chunks << remaining.slice!(0, boundary).strip
+        remaining = remaining.lstrip
+      end
+      chunks << remaining if remaining.present?
+      chunks
+    end
+
+    def relevant_blocks(blocks, query)
+      terms = query_terms(query)
+      return blocks if terms.empty?
+
+      ranked = blocks.each_index.filter_map do |index|
+        normalized = blocks[index].downcase
+        score = terms.sum { |term| normalized.scan(/(?<![[:alnum:]])#{Regexp.escape(term)}(?![[:alnum:]])/).length * [ term.length, 8 ].min }
+        [ score, index ] if score.positive?
+      end.sort_by { |score, index| [ -score, index ] }
+      return blocks if ranked.empty?
+
+      selected = {}
+      selected_length = 0
+      ranked.each do |_score, index|
+        [ index, index - 1, index + 1 ].each do |candidate|
+          next unless candidate.between?(0, blocks.length - 1)
+          next if selected.key?(candidate)
+
+          added_length = blocks[candidate].length + (selected.empty? ? 0 : 2)
+          next if selected_length + added_length > MAX_TEXT_LENGTH
+
+          selected[candidate] = true
+          selected_length += added_length
+        end
+      end
+      selected.keys.sort.map { |index| blocks[index] }
+    end
+
+    def query_terms(query)
+      query.to_s.downcase.scan(/[[:alnum:]]{3,}/).uniq.reject { |term| QUERY_STOP_WORDS.include?(term) }.first(MAX_QUERY_TERMS)
+    end
+
+    def render_bounded(blocks)
+      output = +""
+      blocks.each do |block|
+        separator = output.empty? ? "" : "\n\n"
+        remaining = MAX_TEXT_LENGTH - output.length - separator.length
+        break if remaining <= 0
+
+        output << separator
+        if block.length <= remaining
+          output << block
+        else
+          clipped = truncate_at_boundary(block, remaining, require_sentence: output.present?)
+          if clipped.empty?
+            output.delete_suffix!(separator)
+          else
+            output << clipped
+          end
+          break
+        end
+      end
+      output
+    end
+
+    def truncate_at_boundary(text, limit, require_sentence: false)
+      return "" if limit <= 0
+
+      slice = text[0, limit]
+      minimum = (limit * 0.6).floor
+      boundary = slice.rindex(/(?<=[.!?])\s/)
+      return "" if require_sentence && (boundary.nil? || boundary < minimum)
+
+      boundary = slice.rindex(/\s/) if boundary.nil? || boundary < minimum
+      clipped = boundary && boundary >= minimum ? slice[0, boundary] : slice
+      return clipped if clipped.length >= text.length
+
+      clipped = clipped.rstrip
+      clipped = clipped[0, limit - 1].rstrip if clipped.length >= limit
+      "#{clipped}…"
     end
 
     def remaining_seconds(deadline)

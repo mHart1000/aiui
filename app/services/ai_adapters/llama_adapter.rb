@@ -64,13 +64,14 @@ module AiAdapters
       json = JSON.parse(response.body)
       tokens = extract_token_usage(json)
       stats = build_stats(tokens: tokens, timings: json["timings"], elapsed: elapsed, ttft_ms: nil)
-      log_throughput(tokens: tokens, stats: stats)
+      finish_reason = json.dig("choices", 0, "finish_reason")
+      log_throughput(tokens: tokens, stats: stats, finish_reason: finish_reason)
 
       {
         content: json.dig("choices", 0, "message", "content"),
         reasoning: json.dig("choices", 0, "message", "reasoning_content"),
         tool_calls: json.dig("choices", 0, "message", "tool_calls") || [ json.dig("choices", 0, "message", "function_call") ].compact,
-        finish_reason: json.dig("choices", 0, "finish_reason"),
+        finish_reason: finish_reason,
         tokens: tokens,
         stats: stats
       }
@@ -81,6 +82,7 @@ module AiAdapters
     def perform_streaming_request(uri, payload)
       final_usage = nil
       final_timings = nil
+      finish_reason = nil
       # Stage timestamps, all relative to started_at, to pinpoint where latency
       # accrues: connect -> first raw byte (TTFB) -> first SSE event -> first
       # content delta (TTFT). A large TTFB means bytes are held upstream; a large
@@ -129,6 +131,7 @@ module AiAdapters
                     final_usage = json["usage"]
                     final_timings = json["timings"]
                   end
+                  finish_reason = json.dig("choices", 0, "finish_reason") || finish_reason
                   # Reasoning models (e.g. Qwen3) stream chain-of-thought in
                   # reasoning_content, then switch to content for the answer.
                   # Tag each so the caller can route reasoning to a thinking UI.
@@ -170,9 +173,9 @@ module AiAdapters
       }
       tokens = normalize_usage(final_usage)
       stats = build_stats(tokens: tokens, timings: final_timings, elapsed: elapsed, ttft_ms: ttft_ms, stream_diag: stream_diag)
-      log_throughput(tokens: tokens, stats: stats)
+      log_throughput(tokens: tokens, stats: stats, finish_reason: finish_reason)
 
-      { tokens: tokens, stats: stats }
+      { finish_reason: finish_reason, tokens: tokens, stats: stats }
     end
 
     def extract_token_usage(response)
@@ -219,7 +222,7 @@ module AiAdapters
       }
     end
 
-    def log_throughput(tokens:, stats:)
+    def log_throughput(tokens:, stats:, finish_reason: nil)
       return unless @log_stats
 
       tps_str = stats[:tokens_per_second] ? "#{format('%.1f', stats[:tokens_per_second])} tok/s (source: #{stats[:tps_source]})" : "unknown"
@@ -231,7 +234,8 @@ module AiAdapters
       message = +"LlamaAdapter [model=#{@model}]\n" \
         "  Tokens     — prompt: #{tokens[:prompt_tokens]}, completion: #{tokens[:completion_tokens]}, total: #{tokens[:total_tokens]}\n" \
         "  Latency    — end-to-end: #{elapsed_str}, time-to-first-token: #{ttft_str}, server prefill: #{prefill_str}, app overhead: #{overhead_str}\n" \
-        "  Throughput — #{tps_str}"
+        "  Throughput — #{tps_str}\n" \
+        "  Finish     — #{finish_reason || 'unknown'}"
 
       if (diag = stats[:stream_diag])
         avg_chunk = (diag[:raw_chunks].to_i.positive? && diag[:stream_span_ms]) ? format("%.1f", diag[:stream_span_ms].to_f / diag[:raw_chunks]) : nil

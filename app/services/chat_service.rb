@@ -123,6 +123,7 @@ class ChatService
         end
       end
       {
+        finish_reason: adapter_result.is_a?(Hash) ? adapter_result[:finish_reason] : nil,
         tokens: adapter_result.is_a?(Hash) ? adapter_result[:tokens] : nil,
         stats: adapter_result.is_a?(Hash) ? adapter_result[:stats] : nil,
         persona_version: persona&.dig(:version),
@@ -134,6 +135,7 @@ class ChatService
       {
         reply: response[:content],
         thinking: response[:reasoning],
+        finish_reason: response[:finish_reason],
         tokens: response[:tokens],
         stats: response[:stats],
         persona_version: persona&.dig(:version),
@@ -217,6 +219,7 @@ class ChatService
       {
         reply: reply,
         thinking: thinking,
+        finish_reason: execution_result.is_a?(Hash) ? execution_result[:finish_reason] : nil,
         tokens: total_tokens,
         stats: combined_stats,
         persona_version: persona&.dig(:version),
@@ -235,6 +238,7 @@ class ChatService
       {
         reply: reply,
         thinking: thinking,
+        finish_reason: response[:finish_reason],
         tokens: total_tokens,
         stats: combined_stats,
         persona_version: persona&.dig(:version),
