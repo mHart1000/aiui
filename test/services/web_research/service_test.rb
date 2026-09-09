@@ -183,7 +183,8 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
       fetched << [ suffix, query ]
       raise WebResearch::PageFetcher::Error, "blocked" if %w[one two].include?(suffix)
 
-      WebResearch::PageFetcher::FetchResult.new(text: "Text from #{suffix}", truncated: suffix == "three")
+      text = "Substantive text from #{suffix}. " * 12
+      WebResearch::PageFetcher::FetchResult.new(text: text, truncated: suffix == "three")
     end
 
     result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
@@ -193,6 +194,7 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
     assert attempts.all? { |_suffix, query| query == "example" }
     assert_equal %w[three four five], result[:metadata][:sources].map { |source| URI(source[:url]).path.delete_prefix("/") }
     assert_equal [ true, false, false ], result[:metadata][:sources].map { |source| source[:content_truncated] }
+    assert_equal %w[bounded full full], result[:metadata][:sources].map { |source| source[:extraction_status] }
     assert_equal 3, result[:metadata][:sources].length
     assert_equal "partial", result[:metadata][:status]
     assert_includes result[:evidence], '"content_truncated":true'
@@ -219,7 +221,75 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
     assert_equal WebResearch::Service::MAX_FETCH_ATTEMPTS, fetched.length
     assert_equal WebResearch::Service::MAX_PAGES, result[:metadata][:sources].length
     assert result[:metadata][:sources].all? { |source| source[:content_truncated] }
+    assert result[:metadata][:sources].all? { |source| source[:extraction_status] == "snippet" }
     assert_not_includes result[:metadata][:sources].map { |source| source[:url] }, "https://example.com/5"
+  end
+
+  test "backfills a thin extraction without discarding it prematurely" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
+    adapter = Object.new
+    adapter.define_singleton_method(:search) do |_query, **_options|
+      %w[one two three four].map do |suffix|
+        { title: suffix, url: "https://example.com/#{suffix}", snippet: "", published_at: nil }
+      end
+    end
+    fetched = Queue.new
+    fetcher = Object.new
+    fetcher.define_singleton_method(:fetch) do |url, **_options|
+      suffix = URI(url).path.delete_prefix("/")
+      fetched << suffix
+      text = suffix == "one" ? "Title only" : ("Substantive #{suffix} content. " * 12)
+      WebResearch::PageFetcher::FetchResult.new(text: text, truncated: false)
+    end
+
+    result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
+
+    assert_equal %w[four one three two], 4.times.map { fetched.pop }.sort
+    assert_equal %w[two three four], result[:metadata][:sources].map { |source| URI(source[:url]).path.delete_prefix("/") }
+    assert result[:metadata][:sources].all? { |source| source[:extraction_status] == "full" }
+    refute_includes result[:evidence], "Title only"
+  end
+
+  test "retains thin text as last-resort evidence with objective metadata" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
+    adapter = Object.new
+    adapter.define_singleton_method(:search) do |_query, **_options|
+      [ { title: "One", url: "https://example.com/one", snippet: "", published_at: nil } ]
+    end
+    fetcher = Object.new
+    fetcher.define_singleton_method(:fetch) do |*_args, **_options|
+      WebResearch::PageFetcher::FetchResult.new(text: "Useful short notice", truncated: false)
+    end
+
+    result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
+    source = result[:metadata][:sources].first
+
+    assert_equal "partial", result[:metadata][:status]
+    assert_equal "thin", source[:extraction_status]
+    assert_equal "Useful short notice".length, source[:content_chars]
+    assert_includes result[:evidence], '"extraction_status":"thin"'
+    assert_includes result[:evidence], '"content":"Useful short notice"'
+  end
+
+  test "prefers a longer provider snippet to a thin page shell" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
+    snippet = "Provider snippet with more useful context than the page title."
+    adapter = Object.new
+    adapter.define_singleton_method(:search) do |_query, **_options|
+      [ { title: "One", url: "https://example.com/one", snippet: snippet, published_at: nil } ]
+    end
+    fetcher = Object.new
+    fetcher.define_singleton_method(:fetch) do |*_args, **_options|
+      WebResearch::PageFetcher::FetchResult.new(text: "Title", truncated: false)
+    end
+
+    result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
+    source = result[:metadata][:sources].first
+
+    assert_equal "snippet", source[:extraction_status]
+    assert_equal snippet.length, source[:content_chars]
+    assert_includes result[:evidence], '"content_type":"search_snippet"'
+    assert_includes result[:evidence], snippet
   end
 
   private

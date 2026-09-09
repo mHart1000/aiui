@@ -13,10 +13,21 @@ module WebResearch
     MAX_TEXT_LENGTH = 6_000
     MAX_PASSAGE_LENGTH = 1_200
     MAX_QUERY_TERMS = 24
+    MIN_SUBSTANTIVE_TEXT_LENGTH = 200
     ALLOWED_CONTENT_TYPES = %w[text/html application/xhtml+xml text/plain].freeze
-    QUERY_STOP_WORDS = %w[and are for from how into latest that the this what when where which who why with].freeze
+    QUERY_STOP_WORDS = %w[
+      an and are as at be by do for from go he how if in into is it latest me my no of on or so
+      that the this to up us we what when where which who why with
+    ].freeze
+    OMISSION_MARKER = "[Non-contiguous page text omitted]".freeze
 
-    FetchResult = Data.define(:text, :truncated)
+    FetchResult = Data.define(:text, :truncated) do
+      def extraction_status
+        return "thin" if text.length < PageFetcher::MIN_SUBSTANTIVE_TEXT_LENGTH
+
+        truncated ? "bounded" : "full"
+      end
+    end
 
     class Error < StandardError; end
     class UnsafeTarget < Error; end
@@ -135,12 +146,28 @@ module WebResearch
     def html_text_blocks(body)
       document = Nokogiri::HTML5.parse(body)
       document.css("script, style, form, iframe, object, embed, nav, header, footer, aside, noscript").remove
-      root = document.at_css("article") || document.at_css("main") || document.at_css('[role="main"]') || document.at_css("body") || document
+      body_root = document.at_css("body") || document
+      body_blocks = blocks_from_root(body_root)
+      semantic_root = document.css('article, main, [role="main"]').max_by { |node| normalize_text(node.text).length }
+      return body_blocks unless semantic_root
+
+      semantic_blocks = blocks_from_root(semantic_root)
+      return body_blocks if blocks_length(semantic_blocks) < MIN_SUBSTANTIVE_TEXT_LENGTH && blocks_length(body_blocks) > blocks_length(semantic_blocks)
+
+      semantic_blocks
+    end
+
+    def blocks_from_root(root)
       blocks = root.css("h1, h2, h3, h4, h5, h6, p, li, blockquote, pre").filter_map do |node|
         normalize_text(node.text).presence
       end
-      blocks = [ normalize_text(root.text) ] if blocks.empty?
+      root_text = normalize_text(root.text)
+      blocks = [ root_text ] if blocks_length(blocks) < MIN_SUBSTANTIVE_TEXT_LENGTH && root_text.length > blocks_length(blocks)
       blocks.filter(&:present?).uniq
+    end
+
+    def blocks_length(blocks)
+      blocks.sum(&:length) + ([ blocks.length - 1, 0 ].max * 2)
     end
 
     def normalize_text(text)
@@ -167,32 +194,61 @@ module WebResearch
       terms = query_terms(query)
       return blocks if terms.empty?
 
+      normalized_blocks = blocks.map(&:downcase)
+      frequencies = terms.to_h do |term|
+        [ term, normalized_blocks.count { |text| term_present?(text, term) } ]
+      end
       ranked = blocks.each_index.filter_map do |index|
-        normalized = blocks[index].downcase
-        score = terms.sum { |term| normalized.scan(/(?<![[:alnum:]])#{Regexp.escape(term)}(?![[:alnum:]])/).length * [ term.length, 8 ].min }
+        matches = terms.select { |term| term_present?(normalized_blocks[index], term) }
+        next if matches.empty?
+
+        discrimination = matches.sum do |term|
+          inverse_frequency = Math.log((blocks.length + 1).to_f / (frequencies[term] + 1)) + 1
+          inverse_frequency * [ term.length, 8 ].min
+        end
+        coverage = matches.length.to_f / terms.length
+        score = discrimination + (coverage * 10)
         [ score, index ] if score.positive?
       end.sort_by { |score, index| [ -score, index ] }
       return blocks if ranked.empty?
 
       selected = {}
-      selected_length = 0
       ranked.each do |_score, index|
         [ index, index - 1, index + 1 ].each do |candidate|
           next unless candidate.between?(0, blocks.length - 1)
           next if selected.key?(candidate)
 
-          added_length = blocks[candidate].length + (selected.empty? ? 0 : 2)
-          next if selected_length + added_length > MAX_TEXT_LENGTH
+          projected_indices = (selected.keys + [ candidate ]).sort
+          next if blocks_length(mark_omissions(projected_indices, blocks)) > MAX_TEXT_LENGTH
 
           selected[candidate] = true
-          selected_length += added_length
         end
       end
-      selected.keys.sort.map { |index| blocks[index] }
+      mark_omissions(selected.keys.sort, blocks)
     end
 
     def query_terms(query)
-      query.to_s.downcase.scan(/[[:alnum:]]{3,}/).uniq.reject { |term| QUERY_STOP_WORDS.include?(term) }.first(MAX_QUERY_TERMS)
+      terms = query.to_s.downcase.scan(/[[:alnum:]]{2,}/).uniq.reject { |term| QUERY_STOP_WORDS.include?(term) }
+      return terms if terms.length <= MAX_QUERY_TERMS
+
+      (terms.first(MAX_QUERY_TERMS / 2) + terms.last(MAX_QUERY_TERMS / 2)).uniq
+    end
+
+    def term_present?(text, term)
+      text.match?(/(?<![[:alnum:]])#{Regexp.escape(term)}(?![[:alnum:]])/)
+    end
+
+    def mark_omissions(indices, blocks)
+      marked = []
+      previous = nil
+      marked << OMISSION_MARKER if indices.first&.positive?
+      indices.each do |index|
+        marked << OMISSION_MARKER if previous && index > previous + 1
+        marked << blocks[index]
+        previous = index
+      end
+      marked << OMISSION_MARKER if indices.last && indices.last < blocks.length - 1
+      marked
     end
 
     def render_bounded(blocks)

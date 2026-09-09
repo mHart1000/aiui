@@ -298,24 +298,28 @@ class WebResearch::PageFetcherTest < ActiveSupport::TestCase
 
     assert_equal "Useful article text", extracted.text
     refute extracted.truncated
+    assert_equal "thin", extracted.extraction_status
     capped = fetcher.send(:extract_text, "x" * (WebResearch::PageFetcher::MAX_TEXT_LENGTH + 1), "text/plain")
     assert_operator capped.text.length, :<=, WebResearch::PageFetcher::MAX_TEXT_LENGTH
     assert capped.truncated
+    assert_equal "bounded", capped.extraction_status
   end
 
-  test "prefers semantic main content over the surrounding page shell" do
+  test "prefers substantial semantic main content over the surrounding page shell" do
     fetcher = WebResearch::PageFetcher.new
+    article_text = "Useful article content with enough detail to identify the semantic container as substantive. " * 4
     html = <<~HTML
       <html><body>
         <div>Account and promotional shell</div>
-        <main><h1>Article title</h1><p>Useful article content.</p></main>
+        <main><h1>Article title</h1><p>#{article_text}</p></main>
         <div>Unrelated recommendations</div>
       </body></html>
     HTML
 
     extracted = fetcher.send(:extract_text, html, "text/html")
 
-    assert_equal "Article title\n\nUseful article content.", extracted.text
+    assert_includes extracted.text, "Article title"
+    assert_includes extracted.text, "Useful article content"
     refute_includes extracted.text, "promotional shell"
     refute_includes extracted.text, "recommendations"
   end
@@ -332,7 +336,56 @@ class WebResearch::PageFetcherTest < ActiveSupport::TestCase
     assert extracted.truncated
     assert_includes extracted.text, "Needleterm appears"
     refute_includes extracted.text, "Section 0"
+    assert_includes extracted.text, WebResearch::PageFetcher::OMISSION_MARKER
     assert_operator extracted.text.length, :<=, WebResearch::PageFetcher::MAX_TEXT_LENGTH
+  end
+
+  test "falls back to cleaned body text when a semantic root is suspiciously thin" do
+    fetcher = WebResearch::PageFetcher.new
+    useful_body = "Useful server-rendered details outside the article container. " * 8
+    html = "<body><article><h1>Short title</h1></article><p>#{useful_body}</p></body>"
+
+    extracted = fetcher.send(:extract_text, html, "text/html")
+
+    assert_includes extracted.text, "Short title"
+    assert_includes extracted.text, "Useful server-rendered details"
+    assert_equal "full", extracted.extraction_status
+  end
+
+  test "preserves useful text from unconventional containers when structured blocks are thin" do
+    fetcher = WebResearch::PageFetcher.new
+    useful_body = "Useful details rendered in a generic container. " * 8
+    html = "<body><main><h1>Short title</h1></main><div>#{useful_body}</div></body>"
+
+    extracted = fetcher.send(:extract_text, html, "text/html")
+
+    assert_includes extracted.text, "Short title"
+    assert_includes extracted.text, "Useful details rendered in a generic container"
+    assert_equal "full", extracted.extraction_status
+  end
+
+  test "uses discriminative query coverage instead of repeated generic terms" do
+    fetcher = WebResearch::PageFetcher.new
+    generic = 7.times.map do |index|
+      "<p>Generic section #{index}: #{'course ' * 170}</p>"
+    end.join
+    relevant = "<p>The AI and ML specialization contains the requested curriculum details.</p>"
+    html = "<article>#{generic}#{relevant}</article>"
+
+    extracted = fetcher.send(:extract_text, html, "text/html", query: "AI ML course specialization curriculum")
+
+    assert_includes extracted.text, "AI and ML specialization"
+    assert_includes extracted.text, WebResearch::PageFetcher::OMISSION_MARKER
+  end
+
+  test "does not discard promotional-looking text based on its wording" do
+    fetcher = WebResearch::PageFetcher.new
+    text = "Tuition, enrollment, start dates, flexibility, and transfer credits may be directly relevant to a user's question. " * 3
+
+    extracted = fetcher.send(:extract_text, "<main><p>#{text}</p></main>", "text/html")
+
+    assert_includes extracted.text, "Tuition, enrollment, start dates"
+    assert_equal "full", extracted.extraction_status
   end
 
   test "uses a readable boundary when a selected passage must be clipped" do

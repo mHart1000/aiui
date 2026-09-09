@@ -50,35 +50,35 @@ module WebResearch
       outcomes = fetch_with_backfill(candidates, deadline)
       records = []
       failures = outcomes.count { |outcome| outcome[:error] }
-      successful = outcomes.select { |outcome| outcome[:text] }.first(MAX_PAGES)
-      fallbacks = outcomes.select do |outcome|
-        outcome[:error] && !outcome[:error].is_a?(PageFetcher::UnsafeTarget) && outcome[:result][:snippet].present?
-      end
+      thin_extracts = outcomes.count { |outcome| outcome[:extraction_status] == "thin" }
+      successful = outcomes.select { |outcome| substantive_outcome?(outcome) }.first(MAX_PAGES)
+      fallbacks = outcomes.reject { |outcome| substantive_outcome?(outcome) }.filter_map { |outcome| fallback_outcome(outcome) }
       selected = (successful + fallbacks.first(MAX_PAGES - successful.length)).sort_by { |outcome| outcome[:result][:candidate_order] }
       selected.each do |outcome|
         result = outcome[:result]
         source_id = records.length + 1
-        if outcome[:text]
-          text = outcome[:text]
-          records << [ source_metadata(result, source_id, content_truncated: outcome[:content_truncated]), text, false ]
-          AuditLog.info("page_extract_ready", source_id: source_id, url: AuditLog.safe_url(result[:url]),
-            extracted_chars: text.length, content_truncated: outcome[:content_truncated], excerpt: AuditLog.excerpt(text),
-            elapsed_ms: outcome[:elapsed_ms])
-        else
-          records << [ source_metadata(result, source_id, content_truncated: true), result[:snippet], true ]
+        text = outcome[:text]
+        snippet = outcome[:content_type] == "search_snippet"
+        records << [ source_metadata(result, source_id, outcome), text, snippet ]
+        if snippet
           AuditLog.info("search_snippet_used", source_id: source_id, url: AuditLog.safe_url(result[:url]),
-            snippet_chars: result[:snippet].length, excerpt: AuditLog.excerpt(result[:snippet]))
+            snippet_chars: text.length, excerpt: AuditLog.excerpt(text))
+        else
+          AuditLog.info("page_extract_ready", source_id: source_id, url: AuditLog.safe_url(result[:url]),
+            extracted_chars: text.length, extraction_status: outcome[:extraction_status],
+            content_truncated: outcome[:content_truncated], excerpt: AuditLog.excerpt(text),
+            elapsed_ms: outcome[:elapsed_ms])
         end
       end
 
       evidence, sources = format_evidence(records)
       evidence_formatted_monotonic = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      status = evidence.nil? ? "failed" : failures.positive? ? "partial" : "complete"
-      warning = status == "failed" ? "Web research did not return usable evidence." : (status == "partial" ? "Some web sources could not be fetched." : nil)
+      status = evidence.nil? ? "failed" : (failures + thin_extracts).positive? ? "partial" : "complete"
+      warning = status == "failed" ? "Web research did not return usable evidence." : (status == "partial" ? "Some web sources could not be fetched or yielded limited text." : nil)
       metadata = { status: status, provider: PROVIDER, queries: executed_queries, searched_at: started_at.iso8601,
                    warning: warning, sources: sources }
       AuditLog.info("research_completed", status: status, source_count: sources.length, failure_count: failures,
-        evidence_chars: evidence&.length || 0, elapsed_ms: elapsed_ms(started_monotonic))
+        thin_extract_count: thin_extracts, evidence_chars: evidence&.length || 0, elapsed_ms: elapsed_ms(started_monotonic))
       AuditLog.info("research_latency", first_query_sent_at: first_query_sent_at,
         search_results_ms: elapsed_ms(started_monotonic, search_completed_monotonic),
         fetch_and_extract_ms: elapsed_ms(search_completed_monotonic, evidence_formatted_monotonic),
@@ -106,9 +106,11 @@ module WebResearch
           AuditLog.info("fetch_started", url: AuditLog.safe_url(result[:url]), title: result[:title])
           fetched = @fetcher.fetch(result[:url], deadline: deadline, query: result[:research_query] || @request.queries.join(" "))
           if fetched.is_a?(PageFetcher::FetchResult)
-            { result: result, text: fetched.text, content_truncated: fetched.truncated, elapsed_ms: elapsed_ms(fetch_started) }
+            { result: result, text: fetched.text, content_type: "page_extract", extraction_status: fetched.extraction_status,
+              content_chars: fetched.text.length, content_truncated: fetched.truncated, elapsed_ms: elapsed_ms(fetch_started) }
           else
-            { result: result, text: fetched, content_truncated: false, elapsed_ms: elapsed_ms(fetch_started) }
+            { result: result, text: fetched, content_type: "page_extract", extraction_status: "full",
+              content_chars: fetched.to_s.length, content_truncated: false, elapsed_ms: elapsed_ms(fetch_started) }
           end
         rescue PageFetcher::UnsafeTarget, PageFetcher::Error => e
           event = e.is_a?(PageFetcher::UnsafeTarget) ? "fetch_rejected" : "fetch_failed"
@@ -134,25 +136,44 @@ module WebResearch
       outcomes = []
       next_index = 0
       batch_size = [ MAX_PAGES, candidates.length ].min
-      while batch_size.positive? && outcomes.count { |outcome| outcome[:text] } < MAX_PAGES
+      while batch_size.positive? && outcomes.count { |outcome| substantive_outcome?(outcome) } < MAX_PAGES
         batch = candidates.slice(next_index, batch_size)
         break if batch.blank?
 
         outcomes.concat(fetch_candidates(batch, deadline))
         next_index += batch.length
-        missing = MAX_PAGES - outcomes.count { |outcome| outcome[:text] }
+        missing = MAX_PAGES - outcomes.count { |outcome| substantive_outcome?(outcome) }
         batch_size = [ missing, candidates.length - next_index ].min
       end
       outcomes
+    end
+
+    def substantive_outcome?(outcome)
+      outcome[:text].present? && outcome[:extraction_status] != "thin"
+    end
+
+    def fallback_outcome(outcome)
+      return if outcome[:error].is_a?(PageFetcher::UnsafeTarget)
+
+      snippet = outcome[:result][:snippet].presence
+      if outcome[:extraction_status] == "thin" && outcome[:text].present?
+        return outcome unless snippet && snippet.length > outcome[:text].length
+      elsif snippet.nil?
+        return
+      end
+
+      outcome.merge(text: snippet, content_type: "search_snippet", extraction_status: "snippet",
+        content_chars: snippet.length, content_truncated: true)
     end
 
     def direct_results
       @request.urls.map { |url| { title: URI(url).host, url: url, snippet: "", published_at: nil } }
     end
 
-    def source_metadata(result, id, content_truncated:)
+    def source_metadata(result, id, outcome)
       { id: id, title: result[:title], url: result[:url], domain: safe_domain(result[:url]), published_at: result[:published_at],
-        content_truncated: content_truncated }
+        content_truncated: outcome[:content_truncated], extraction_status: outcome[:extraction_status],
+        content_chars: outcome[:content_chars] }
     end
 
     def format_evidence(records)
