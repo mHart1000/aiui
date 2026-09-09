@@ -1100,7 +1100,7 @@ export default {
     },
     sanitizeMarkdown(html) {
       return DOMPurify.sanitize(html, {
-        FORBID_TAGS: ['style', 'form', 'svg', 'math', 'iframe', 'object', 'embed', 'img'],
+        FORBID_TAGS: ['style', 'form', 'svg', 'math', 'iframe', 'object', 'embed', 'img', 'picture', 'video', 'audio', 'source', 'track'],
         FORBID_ATTR: ['style'],
         ALLOW_DATA_ATTR: true
       })
