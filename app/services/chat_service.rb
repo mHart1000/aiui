@@ -402,6 +402,7 @@ class ChatService
     end
     @web_selection_tokens = selection[:tokens]
     @web_selection_stats = selection[:stats]
+    log_web_selector_statistics(selection)
     calls = selection[:tool_calls]
     return {} if calls.blank? && @web_search_mode == "auto"
 
@@ -473,6 +474,27 @@ class ChatService
 
     message = error.is_a?(JSON::ParserError) ? "invalid JSON response" : error.message
     "WebResearch tool selection failed stage=selection #{details} error=#{error.class}: #{message}"
+  end
+
+  def log_web_selector_statistics(selection)
+    tokens = selection[:tokens] || {}
+    stats = selection[:stats] || {}
+    WebResearch::AuditLog.info("selector_statistics",
+      mode: @web_search_mode,
+      finish_reason: selection[:finish_reason],
+      prompt_tokens: tokens[:prompt_tokens],
+      completion_tokens: tokens[:completion_tokens],
+      reasoning_tokens: stats[:reasoning_tokens],
+      tool_call_tokens: stats[:tool_call_tokens],
+      cached_prompt_tokens: stats[:cached_prompt_tokens],
+      prompt_ms: stats[:prompt_ms],
+      generation_ms: stats[:generation_ms],
+      queue_ms: stats[:queue_ms],
+      unaccounted_ms: stats[:unaccounted_ms],
+      elapsed_ms: stats[:elapsed_ms],
+      tokens_per_second: stats[:tokens_per_second],
+      tool_call_count: Array(selection[:tool_calls]).length,
+      selector_slot_id: @web_slots[:selector])
   end
 
   def latest_user_text
