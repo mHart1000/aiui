@@ -7,6 +7,8 @@ module WebResearch
     MAX_PAGES = 3
     MAX_FETCH_ATTEMPTS = 5
     MAX_EVIDENCE_CHARS = 24_000
+    RESEARCH_DEADLINE_SECONDS = 12
+    FETCH_GRACE_SECONDS = 4
 
     def initialize(request:, on_progress: nil, adapter: SearxngAdapter.new, fetcher: PageFetcher.new, max_evidence_chars: MAX_EVIDENCE_CHARS)
       @request = request
@@ -19,7 +21,7 @@ module WebResearch
     def call
       started_at = Time.current
       started_monotonic = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 20
+      deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + RESEARCH_DEADLINE_SECONDS
       first_query_sent_at = nil
       executed_queries = []
       results = []
@@ -42,12 +44,18 @@ module WebResearch
       results = distinct_search_results(results)
       search_completed_monotonic = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       candidates = direct_results + results.reject { |result| @request.urls.include?(result[:url]) }
-      candidates = candidates.first(MAX_FETCH_ATTEMPTS).each_with_index.map { |result, index| result.merge(candidate_order: index) }
+      Rails.logger.debug "####### candidates ###########################"
+      Rails.logger.debug "####### candidates ###########################"
+      Rails.logger.debug "####### candidates ###########################{candidates}"
+      Rails.logger.debug "####### candidates ###########################"
+      Rails.logger.debug "####### candidates ###########################"
+      candidates = candidates.first(MAX_FETCH_ATTEMPTS).each_with_index.map { |result, index|
+      result.merge(candidate_order: index) }
       AuditLog.info("fetch_candidates_selected", count: candidates.length,
         urls: candidates.map { |result| AuditLog.safe_url(result[:url]) })
       emit(:fetching)
 
-      outcomes = fetch_with_backfill(candidates, deadline)
+      outcomes = fetch_candidates(candidates, deadline)
       records = []
       failures = outcomes.count { |outcome| outcome[:error] }
       thin_extracts = outcomes.count { |outcome| outcome[:extraction_status] == "thin" }
@@ -100,52 +108,70 @@ module WebResearch
     end
 
     def fetch_candidates(candidates, deadline)
+      outcomes = []
+      errors = []
+      mutex = Mutex.new
+      condition = ConditionVariable.new
       threads = candidates.map do |result|
         thread = Thread.new do
-          fetch_started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-          AuditLog.info("fetch_started", url: AuditLog.safe_url(result[:url]), title: result[:title])
-          fetched = @fetcher.fetch(result[:url], deadline: deadline, query: result[:research_query] || @request.queries.join(" "))
-          if fetched.is_a?(PageFetcher::FetchResult)
-            { result: result, text: fetched.text, content_type: "page_extract", extraction_status: fetched.extraction_status,
-              content_chars: fetched.text.length, content_truncated: fetched.truncated, elapsed_ms: elapsed_ms(fetch_started) }
-          else
-            { result: result, text: fetched, content_type: "page_extract", extraction_status: "full",
-              content_chars: fetched.to_s.length, content_truncated: false, elapsed_ms: elapsed_ms(fetch_started) }
+          outcome = fetch_candidate(result, deadline)
+          mutex.synchronize do
+            outcomes << outcome
+            condition.broadcast
           end
-        rescue PageFetcher::UnsafeTarget, PageFetcher::Error => e
-          event = e.is_a?(PageFetcher::UnsafeTarget) ? "fetch_rejected" : "fetch_failed"
-          AuditLog.warn(event, url: AuditLog.safe_url(result[:url]),
-            domain: safe_domain(result[:url]), error_class: e.class.name, error: e.message, elapsed_ms: elapsed_ms(fetch_started))
-          { result: result, error: e, elapsed_ms: elapsed_ms(fetch_started) }
+        rescue StandardError => e
+          mutex.synchronize do
+            errors << e
+            condition.broadcast
+          end
         end
         thread.report_on_exception = false
         thread
       end
-      errors = threads.filter_map do |thread|
-        thread.join
-        nil
-      rescue StandardError => e
-        e
+
+      grace_deadline = [ monotonic_now + FETCH_GRACE_SECONDS, deadline ].min
+      fetch_started = monotonic_now
+      begin
+        mutex.synchronize do
+          loop do
+            now = monotonic_now
+            break if errors.any? || outcomes.length == candidates.length || now >= deadline
+            break if now >= grace_deadline && outcomes.count { |outcome| substantive_outcome?(outcome) } >= MAX_PAGES
+
+            wake_at = now < grace_deadline ? grace_deadline : deadline
+            condition.wait(mutex, wake_at - now)
+          end
+        end
+      ensure
+        threads.each do |thread|
+          thread.kill if thread.alive?
+          thread.join
+        end
       end
       raise errors.first if errors.any?
 
-      threads.map(&:value)
+      AuditLog.info("fetch_batch_completed", candidate_count: candidates.length, completed_count: outcomes.length,
+        substantive_count: outcomes.count { |outcome| substantive_outcome?(outcome) },
+        cancelled_count: candidates.length - outcomes.length, elapsed_ms: elapsed_ms(fetch_started))
+      outcomes.sort_by { |outcome| outcome[:result][:candidate_order] }
     end
 
-    def fetch_with_backfill(candidates, deadline)
-      outcomes = []
-      next_index = 0
-      batch_size = [ MAX_PAGES, candidates.length ].min
-      while batch_size.positive? && outcomes.count { |outcome| substantive_outcome?(outcome) } < MAX_PAGES
-        batch = candidates.slice(next_index, batch_size)
-        break if batch.blank?
-
-        outcomes.concat(fetch_candidates(batch, deadline))
-        next_index += batch.length
-        missing = MAX_PAGES - outcomes.count { |outcome| substantive_outcome?(outcome) }
-        batch_size = [ missing, candidates.length - next_index ].min
+    def fetch_candidate(result, deadline)
+      fetch_started = monotonic_now
+      AuditLog.info("fetch_started", url: AuditLog.safe_url(result[:url]), title: result[:title])
+      fetched = @fetcher.fetch(result[:url], deadline: deadline, query: result[:research_query] || @request.queries.join(" "))
+      if fetched.is_a?(PageFetcher::FetchResult)
+        { result: result, text: fetched.text, content_type: "page_extract", extraction_status: fetched.extraction_status,
+          content_chars: fetched.text.length, content_truncated: fetched.truncated, elapsed_ms: elapsed_ms(fetch_started) }
+      else
+        { result: result, text: fetched, content_type: "page_extract", extraction_status: "full",
+          content_chars: fetched.to_s.length, content_truncated: false, elapsed_ms: elapsed_ms(fetch_started) }
       end
-      outcomes
+    rescue PageFetcher::UnsafeTarget, PageFetcher::Error => e
+      event = e.is_a?(PageFetcher::UnsafeTarget) ? "fetch_rejected" : "fetch_failed"
+      AuditLog.warn(event, url: AuditLog.safe_url(result[:url]),
+        domain: safe_domain(result[:url]), error_class: e.class.name, error: e.message, elapsed_ms: elapsed_ms(fetch_started))
+      { result: result, error: e, elapsed_ms: elapsed_ms(fetch_started) }
     end
 
     def substantive_outcome?(outcome)
@@ -206,6 +232,10 @@ module WebResearch
 
     def elapsed_ms(started_at, finished_at = Process.clock_gettime(Process::CLOCK_MONOTONIC))
       ((finished_at - started_at) * 1000).round
+    end
+
+    def monotonic_now
+      Process.clock_gettime(Process::CLOCK_MONOTONIC)
     end
   end
 end

@@ -143,7 +143,7 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
     request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
     adapter = Object.new
     adapter.define_singleton_method(:search) do |_query, **_options|
-      %w[one two three].map do |suffix|
+      %w[one two three four five].map do |suffix|
         { title: suffix, url: "https://example.com/#{suffix}", snippet: "", published_at: nil }
       end
     end
@@ -157,18 +157,18 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
     end
 
     service_thread = Thread.new { WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call }
-    started_urls = Timeout.timeout(1) { 3.times.map { started.pop } }
-    3.times { release << true }
+    started_urls = Timeout.timeout(1) { 5.times.map { started.pop } }
+    5.times { release << true }
     result = service_thread.value
 
-    assert_equal 3, started_urls.length
+    assert_equal 5, started_urls.length
     assert_equal %w[one two three], result[:metadata][:sources].map { |source| URI(source[:url]).path.delete_prefix("/") }
   ensure
-    3.times { release << true } if release
+    5.times { release << true } if release
     service_thread&.join(1)
   end
 
-  test "backfills failed initial candidates and retains three successful pages" do
+  test "fetches five candidates concurrently and retains three successful pages" do
     request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
     adapter = Object.new
     adapter.define_singleton_method(:search) do |_query, **_options|
@@ -225,7 +225,7 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
     assert_not_includes result[:metadata][:sources].map { |source| source[:url] }, "https://example.com/5"
   end
 
-  test "backfills a thin extraction without discarding it prematurely" do
+  test "replaces a thin extraction without discarding it prematurely" do
     request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
     adapter = Object.new
     adapter.define_singleton_method(:search) do |_query, **_options|
