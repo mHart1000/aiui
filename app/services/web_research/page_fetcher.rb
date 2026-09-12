@@ -106,13 +106,15 @@ module WebResearch
       request["Host"] = uri.host
       request["Accept-Encoding"] = "identity"
       body = +""
-      response = http.request(request) do |res|
-        encoding = res["content-encoding"]
-        raise Error, "unsupported content encoding" if encoding.present? && encoding != "identity"
-        res.read_body do |chunk|
-          body << chunk
-          raise Error, "response body was too large" if body.bytesize > MAX_BODY_BYTES
-          raise Error, "research deadline exceeded" if monotonic_now >= deadline
+      response = Timeout.timeout(remaining_seconds(deadline), Error, "research deadline exceeded") do
+        http.request(request) do |res|
+          encoding = res["content-encoding"]
+          raise Error, "unsupported content encoding" if encoding.present? && encoding != "identity"
+          res.read_body do |chunk|
+            body << chunk
+            raise Error, "response body was too large" if body.bytesize > MAX_BODY_BYTES
+            raise Error, "research deadline exceeded" if monotonic_now >= deadline
+          end
         end
       end
       AuditLog.info("http_response", url: AuditLog.safe_url(uri.to_s), status: response.code.to_i,
@@ -292,7 +294,10 @@ module WebResearch
     end
 
     def remaining_seconds(deadline)
-      [ deadline - monotonic_now, 0.1 ].max
+      remaining = deadline - monotonic_now
+      raise Error, "research deadline exceeded" unless remaining.positive?
+
+      remaining
     end
 
     def self.monotonic_now

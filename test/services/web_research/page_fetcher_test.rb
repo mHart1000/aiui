@@ -220,6 +220,24 @@ class WebResearch::PageFetcherTest < ActiveSupport::TestCase
     assert_equal "research deadline exceeded", error.message
   end
 
+  test "does not start HTTP work when DNS consumes the remaining deadline" do
+    fetcher = WebResearch::PageFetcher.new
+    now = 0.0
+    http = FakeHttp.new(response: ChunkedResponse.new(chunks: [ "late" ]))
+
+    fetcher.stub(:monotonic_now, -> { now }) do
+      Resolv.stub(:getaddresses, ->(_) { now = 1.0; [ "8.8.8.8" ] }) do
+        Net::HTTP.stub(:new, http) do
+          error = assert_raises(WebResearch::PageFetcher::Error) do
+            fetcher.fetch("https://public.example/article", deadline: 1.0)
+          end
+          assert_equal "research deadline exceeded", error.message
+          assert_nil http.last_request
+        end
+      end
+    end
+  end
+
   test "enforces the streamed response body limit" do
     fetcher = WebResearch::PageFetcher.new
     response = ChunkedResponse.new(

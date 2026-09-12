@@ -135,6 +135,7 @@ class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
         adapter.search("latest news", deadline: -Float::INFINITY)
       end
       assert_equal "SearXNG response timed out", error.message
+      assert_nil http.last_request
     end
   end
 end

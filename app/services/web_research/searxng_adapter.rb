@@ -1,4 +1,5 @@
 require "net/http"
+require "timeout"
 require "uri"
 
 module WebResearch
@@ -32,11 +33,13 @@ module WebResearch
       http.open_timeout = [ 3, remaining_seconds(deadline) ].min
       http.read_timeout = [ 5, remaining_seconds(deadline) ].min
       body = +""
-      response = http.request(request) do |res|
-        res.read_body do |chunk|
-          body << chunk
-          raise Error, "SearXNG response was too large" if body.bytesize > MAX_RESPONSE_BYTES
-          raise Error, "SearXNG response timed out" if monotonic_now >= deadline
+      response = Timeout.timeout(remaining_seconds(deadline), Error, "SearXNG response timed out") do
+        http.request(request) do |res|
+          res.read_body do |chunk|
+            body << chunk
+            raise Error, "SearXNG response was too large" if body.bytesize > MAX_RESPONSE_BYTES
+            raise Error, "SearXNG response timed out" if monotonic_now >= deadline
+          end
         end
       end
       raise Error, "SearXNG returned #{response.code}" unless response.is_a?(Net::HTTPSuccess)
@@ -72,7 +75,10 @@ module WebResearch
     end
 
     def remaining_seconds(deadline)
-      [ deadline - monotonic_now, 0.1 ].max
+      remaining = deadline - monotonic_now
+      raise Error, "SearXNG response timed out" unless remaining.positive?
+
+      remaining
     end
 
     def monotonic_now
