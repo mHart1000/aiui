@@ -4,11 +4,11 @@ require "json"
 module WebResearch
   class Service
     PROVIDER = "searxng".freeze
-    MAX_PAGES = 3
-    MAX_FETCH_ATTEMPTS = 5
+    MAX_PAGES = 5
+    MAX_FETCH_ATTEMPTS = 15
     MAX_EVIDENCE_CHARS = 24_000
-    RESEARCH_DEADLINE_SECONDS = 12
-    FETCH_GRACE_SECONDS = 4
+    RESEARCH_DEADLINE_SECONDS = 6
+    FETCH_GRACE_SECONDS = 3
 
     def initialize(request:, on_progress: nil, adapter: SearxngAdapter.new, fetcher: PageFetcher.new, max_evidence_chars: MAX_EVIDENCE_CHARS)
       @request = request
@@ -44,11 +44,6 @@ module WebResearch
       results = distinct_search_results(results)
       search_completed_monotonic = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       candidates = direct_results + results.reject { |result| @request.urls.include?(result[:url]) }
-      Rails.logger.debug "####### candidates ###########################"
-      Rails.logger.debug "####### candidates ###########################"
-      Rails.logger.debug "####### candidates ###########################{candidates}"
-      Rails.logger.debug "####### candidates ###########################"
-      Rails.logger.debug "####### candidates ###########################"
       candidates = candidates.first(MAX_FETCH_ATTEMPTS).each_with_index.map { |result, index|
       result.merge(candidate_order: index) }
       AuditLog.info("fetch_candidates_selected", count: candidates.length,
