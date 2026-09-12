@@ -5,7 +5,7 @@ class ChatService
   DEFAULT_MAX_TOKENS = 16000
   WEB_SELECTOR_MAX_MESSAGES = 4
   WEB_SELECTOR_MAX_MESSAGE_CHARS = 2_000
-  WEB_SELECTOR_MAX_TRANSCRIPT_CHARS = 6_000
+  WEB_SELECTOR_MAX_TRANSCRIPT_CHARS = 3_000
 
   PLANNING_PROMPT = <<~PROMPT
     You are in two-pass reasoning mode. This is the planning phase.
@@ -390,10 +390,10 @@ class ChatService
       @adapter.chat(
         messages: tool_selection_messages,
         stream: false,
-        max_tokens: 400,
+        max_tokens: 200,
         temperature: 0,
         chat_template_kwargs: { reasoning_effort: "low" },
-        thinking_budget_tokens: 128,
+        thinking_budget_tokens: 1,
         reasoning_budget_message: "Proceed directly to the required tool call.",
         tools: [ RESEARCH_TOOL ],
         tool_choice: @web_search_mode == "always" ? { type: "function", function: { name: "research_web" } } : "auto",
