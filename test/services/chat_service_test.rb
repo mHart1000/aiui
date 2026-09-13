@@ -471,6 +471,7 @@ class ChatServiceTest < ActiveSupport::TestCase
     assert_equal({ reasoning_effort: "low" }, selection_request[:chat_template_kwargs])
     assert_equal 1, selection_request[:thinking_budget_tokens]
     assert_equal "Proceed directly to the required tool call.", selection_request[:reasoning_budget_message]
+    assert_equal 10, selection_request[:request_timeout]
     refute final_request.key?(:chat_template_kwargs)
     refute final_request.key?(:thinking_budget_tokens)
     assert_equal %w[system user], selection_request[:messages].pluck(:role)

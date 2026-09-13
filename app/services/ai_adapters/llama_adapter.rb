@@ -1,5 +1,6 @@
 require "net/http"
 require "json"
+require "timeout"
 require "uri"
 
 module AiAdapters
@@ -12,7 +13,7 @@ module AiAdapters
     end
 
     def chat(messages:, stream: false, max_tokens: nil, tools: nil, tool_choice: nil, temperature: 0.7, chat_template_kwargs: nil,
-             thinking_budget_tokens: nil, reasoning_budget_message: nil, id_slot: nil, cache_prompt: nil, &block)
+             thinking_budget_tokens: nil, reasoning_budget_message: nil, id_slot: nil, cache_prompt: nil, request_timeout: nil, &block)
       base_url = ENV["LLAMA_API_URL"] || "http://host.docker.internal:8080/v1"
       uri = URI("#{base_url}/chat/completions")
 
@@ -37,15 +38,20 @@ module AiAdapters
       if stream
         perform_streaming_request(uri, payload, &block)
       else
-        perform_blocking_request(uri, payload)
+        perform_blocking_request(uri, payload, request_timeout: request_timeout)
       end
     end
 
     private
 
-    def perform_blocking_request(uri, payload)
+    def perform_blocking_request(uri, payload, request_timeout: nil)
       http = Net::HTTP.new(uri.host, uri.port)
-      http.read_timeout = 120 # Local models can be slow
+      if request_timeout
+        http.open_timeout = request_timeout
+        http.read_timeout = request_timeout
+      else
+        http.read_timeout = 120 # Local answer generation can be slow
+      end
 
       request = Net::HTTP::Post.new(uri)
       request["Content-Type"] = "application/json"
@@ -53,7 +59,11 @@ module AiAdapters
       request.body = payload.to_json
 
       started_at = monotonic_now
-      response = http.request(request)
+      response = if request_timeout
+        Timeout.timeout(request_timeout, Error, "Llama API request timed out") { http.request(request) }
+      else
+        http.request(request)
+      end
       elapsed = monotonic_now - started_at
 
       unless response.is_a?(Net::HTTPSuccess)

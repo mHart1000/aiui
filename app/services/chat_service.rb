@@ -6,6 +6,7 @@ class ChatService
   WEB_SELECTOR_MAX_MESSAGES = 4
   WEB_SELECTOR_MAX_MESSAGE_CHARS = 2_000
   WEB_SELECTOR_MAX_TRANSCRIPT_CHARS = 3_000
+  WEB_SELECTOR_TIMEOUT_SECONDS = 10
 
   PLANNING_PROMPT = <<~PROMPT
     You are in two-pass reasoning mode. This is the planning phase.
@@ -395,6 +396,7 @@ class ChatService
         chat_template_kwargs: { reasoning_effort: "low" },
         thinking_budget_tokens: 1,
         reasoning_budget_message: "Proceed directly to the required tool call.",
+        request_timeout: WEB_SELECTOR_TIMEOUT_SECONDS,
         tools: [ RESEARCH_TOOL ],
         tool_choice: @web_search_mode == "always" ? { type: "function", function: { name: "research_web" } } : "auto",
         **web_auxiliary_request_options

@@ -4,10 +4,10 @@ require "json"
 module WebResearch
   class Service
     PROVIDER = "searxng".freeze
-    MAX_PAGES = 5
-    MAX_FETCH_ATTEMPTS = 15
+    MAX_PAGES = 4
+    MAX_FETCH_ATTEMPTS = 10
     MAX_EVIDENCE_CHARS = 24_000
-    RESEARCH_DEADLINE_SECONDS = 6
+    RESEARCH_DEADLINE_SECONDS = 8
     FETCH_GRACE_SECONDS = 3
 
     def initialize(request:, on_progress: nil, adapter: SearxngAdapter.new, fetcher: PageFetcher.new, max_evidence_chars: MAX_EVIDENCE_CHARS)
