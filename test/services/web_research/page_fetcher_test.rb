@@ -382,6 +382,117 @@ class WebResearch::PageFetcherTest < ActiveSupport::TestCase
     assert_equal "full", extracted.extraction_status
   end
 
+  test "retains table captions and labeled values after substantial paragraph text" do
+    introduction = "Background information about available models. " * 8
+    html = <<~HTML
+      <main><p>#{introduction}</p>
+        <table><caption>Model specifications</caption>
+          <thead><tr><th>Model</th><th>Context</th></tr></thead>
+          <tbody>
+            <tr><td><p>Needle<strong>Model</strong></p></td><td>131072</td></tr>
+            <tr><td>OtherModel</td><td>32768</td></tr>
+          </tbody>
+        </table>
+        <p>After the specifications.</p>
+      </main>
+    HTML
+
+    extracted = WebResearch::PageFetcher.new.send(:extract_text, html, "text/html", query: "NeedleModel context")
+
+    assert_includes extracted.text, "Model: NeedleModel | Context: 131072"
+    assert_includes extracted.text, "Model: OtherModel | Context: 32768"
+    assert_operator extracted.text.index("Background"), :<, extracted.text.index("Model specifications")
+    assert_operator extracted.text.index("Model specifications"), :<, extracted.text.index("NeedleModel")
+    assert_operator extracted.text.index("OtherModel"), :<, extracted.text.index("After the specifications")
+    assert_equal 1, extracted.text.scan("131072").length
+    assert_equal "full", extracted.extraction_status
+  end
+
+  test "retains spanning and headerless table cells without inventing column associations" do
+    html = <<~HTML
+      <main>
+        <table>
+          <tr><th>Model</th><th>Context</th></tr>
+          <tr><td colspan="2">Applies to every model</td></tr>
+          <tr><td>NeedleModel</td><td>131072</td></tr>
+        </table>
+        <table><tr><td>Free tier</td><td></td><td>Available</td></tr></table>
+      </main>
+    HTML
+
+    extracted = WebResearch::PageFetcher.new.send(:extract_text, html, "text/html")
+
+    assert_includes extracted.text, "Applies to every model"
+    assert_includes extracted.text, "NeedleModel | 131072"
+    assert_includes extracted.text, "Free tier |  | Available"
+    refute_includes extracted.text, "Model:"
+  end
+
+  test "retains definition terms with descriptions and grouped definitions after substantial paragraphs" do
+    html = <<~HTML
+      <main><p>#{"Background details about the offering. " * 8}</p>
+        <dl>
+          <dt>Context window</dt><dd><p>131072 tokens</p><p>Shared by input and output.</p></dd>
+          <dt>Price</dt><dt>Cost</dt><dd>Free for local use.</dd><dd>Hardware is separate.</dd>
+          <div><dt>License</dt><dd>Apache 2.0</dd></div>
+          <dt>Standalone term</dt>
+        </dl>
+      </main>
+    HTML
+
+    extracted = WebResearch::PageFetcher.new.send(:extract_text, html, "text/html")
+
+    assert_includes extracted.text, "Context window: 131072 tokens"
+    assert_includes extracted.text, "Context window: Shared by input and output."
+    assert_includes extracted.text, "Price / Cost: Free for local use."
+    assert_includes extracted.text, "Price / Cost: Hardware is separate."
+    assert_includes extracted.text, "License: Apache 2.0"
+    assert extracted.text.end_with?("Standalone term")
+    assert_equal "full", extracted.extraction_status
+  end
+
+  test "retains generic and inline text in order without duplicating nested paragraphs or list items" do
+    introduction = "Background text with sufficient length to count as substantive. " * 5
+    html = <<~HTML
+      <main><p>#{introduction}</p>
+        Lead-in <span>text</span>.
+        <div>First fact: <strong>131072</strong> tokens.<section>Second fact.</section>Third fact.</div>
+        <blockquote><p>Quoted fact.</p></blockquote>
+        <ul><li><p>Outer item.</p><ul><li>Inner item.</li></ul></li></ul>
+        <div>Line one.<br>Line two.</div>Tail text.
+      </main>
+    HTML
+
+    extracted = WebResearch::PageFetcher.new.send(:extract_text, html, "text/html")
+
+    assert_equal [ introduction.strip, "Lead-in text.", "First fact: 131072 tokens.", "Second fact.",
+      "Third fact.", "Quoted fact.", "Outer item.", "Inner item.", "Line one.", "Line two.", "Tail text." ], extracted.text.split("\n\n")
+    assert_equal "full", extracted.extraction_status
+  end
+
+  test "selects relevant structured facts beyond long introductions within the page budget" do
+    introduction = 8.times.map { |index| "<p>Background #{index}. #{'Unrelated details. ' * 70}</p>" }.join
+    html = <<~HTML
+      <main>#{introduction}
+        <table><tr><th>Model</th><th>Context</th></tr>
+          #{20.times.map { |index| "<tr><td>Other#{index}</td><td>32768</td></tr>" }.join}
+          <tr><td>NeedleModel</td><td>131072 tokens</td></tr>
+        </table>
+        <dl><dt>NeedleModel license</dt><dd>Apache 2.0</dd></dl>
+        <div>NeedleModel requires 24 GB of memory.</div>
+      </main>
+    HTML
+
+    extracted = WebResearch::PageFetcher.new.send(:extract_text, html, "text/html", query: "NeedleModel context license memory")
+
+    assert_includes extracted.text, "Model: NeedleModel | Context: 131072 tokens"
+    assert_includes extracted.text, "NeedleModel license: Apache 2.0"
+    assert_includes extracted.text, "NeedleModel requires 24 GB of memory."
+    assert_includes extracted.text, WebResearch::PageFetcher::OMISSION_MARKER
+    assert_equal "bounded", extracted.extraction_status
+    assert_operator extracted.text.length, :<=, WebResearch::PageFetcher::MAX_TEXT_LENGTH
+  end
+
   test "uses discriminative query coverage instead of repeated generic terms" do
     fetcher = WebResearch::PageFetcher.new
     generic = 7.times.map do |index|

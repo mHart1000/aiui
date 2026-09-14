@@ -14,6 +14,10 @@ module WebResearch
     MAX_PASSAGE_LENGTH = 1_200
     MAX_QUERY_TERMS = 24
     MIN_SUBSTANTIVE_TEXT_LENGTH = 200
+    TEXT_BLOCK_ELEMENTS = %w[
+      address article blockquote br caption dd details div dl dt figure figcaption h1 h2 h3 h4 h5 h6
+      hr li main ol p pre section summary table tbody td tfoot th thead tr ul
+    ].freeze
     ALLOWED_CONTENT_TYPES = %w[text/html application/xhtml+xml text/plain].freeze
     QUERY_STOP_WORDS = %w[
       an and are as at be by do for from go he how if in into is it latest me my no of on or so
@@ -160,12 +164,96 @@ module WebResearch
     end
 
     def blocks_from_root(root)
-      blocks = root.css("h1, h2, h3, h4, h5, h6, p, li, blockquote, pre").filter_map do |node|
-        normalize_text(node.text).presence
+      blocks = []
+      buffer = +""
+      append_html_blocks(root, blocks, buffer)
+      flush_text_block(blocks, buffer)
+      blocks.uniq
+    end
+
+    def append_html_blocks(node, blocks, buffer)
+      if node.text?
+        buffer << node.text
+        return
       end
-      root_text = normalize_text(root.text)
-      blocks = [ root_text ] if blocks_length(blocks) < MIN_SUBSTANTIVE_TEXT_LENGTH && root_text.length > blocks_length(blocks)
-      blocks.filter(&:present?).uniq
+      return unless node.element? || node.document?
+
+      boundary = TEXT_BLOCK_ELEMENTS.include?(node.name)
+      flush_text_block(blocks, buffer) if boundary
+      case node.name
+      when "table"
+        blocks.concat(table_blocks(node))
+      when "dl"
+        blocks.concat(definition_blocks(node))
+      else
+        node.children.each { |child| append_html_blocks(child, blocks, buffer) }
+      end
+      flush_text_block(blocks, buffer) if boundary
+    end
+
+    def flush_text_block(blocks, buffer)
+      text = normalize_text(buffer)
+      blocks << text if text.present?
+      buffer.clear
+    end
+
+    def table_blocks(table)
+      blocks = table.xpath("./caption").flat_map { |caption| blocks_from_root(caption) }
+      rows = table.xpath("./tr | ./thead/tr | ./tbody/tr | ./tfoot/tr")
+      simple_columns = rows.all? do |row|
+        row.xpath("./th | ./td").all? do |cell|
+          %w[colspan rowspan].all? { |attribute| cell[attribute].nil? || cell[attribute] == "1" }
+        end
+      end
+      headers = []
+      rows.each do |row|
+        cells = row.xpath("./th | ./td")
+        next if cells.empty?
+
+        values = cells.map { |cell| blocks_from_root(cell).join(" ") }
+        next if values.all?(&:blank?)
+
+        if cells.all? { |cell| cell.name == "th" }
+          headers = values
+        elsif simple_columns && headers.length == values.length
+          values = values.each_with_index.map do |value, index|
+            headers[index].present? ? "#{headers[index]}: #{value}" : value
+          end
+        end
+        blocks << values.join(" | ")
+      end
+      blocks
+    end
+
+    def definition_blocks(list)
+      blocks = []
+      terms = []
+      described = false
+      list.children.each do |node|
+        case node.name
+        when "dt"
+          terms = [] if described
+          described = false
+          term = blocks_from_root(node).join(" ")
+          terms << term if term.present?
+        when "dd"
+          descriptions = blocks_from_root(node)
+          next if descriptions.empty?
+
+          descriptions.each { |text| blocks << [ terms.join(" / "), text ].reject(&:blank?).join(": ") }
+          described = true
+        else
+          text_blocks = node.name == "div" ? definition_blocks(node) : blocks_from_root(node)
+          next if text_blocks.empty?
+
+          blocks << terms.join(" / ") if terms.any? && !described
+          terms = []
+          described = false
+          blocks.concat(text_blocks)
+        end
+      end
+      blocks << terms.join(" / ") if terms.any? && !described
+      blocks
     end
 
     def blocks_length(blocks)

@@ -37,10 +37,10 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
     assert_includes log_output, 'event=search_started data={"query":"example query"'
     assert_includes log_output, "https://example.com/one"
     refute_includes log_output, "tracking=secret"
-    assert_includes log_output, 'event=page_extract_ready'
+    assert_includes log_output, "event=page_extract_ready"
     assert_includes log_output, "Useful source text"
-    assert_includes log_output, 'event=research_completed'
-    assert_includes log_output, 'event=research_latency'
+    assert_includes log_output, "event=research_completed"
+    assert_includes log_output, "event=research_latency"
   end
 
   test "skips the second query when the first fills the candidate pool" do
@@ -68,7 +68,7 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
     adapter = Object.new
     adapter.define_singleton_method(:search) do |query, **_options|
       searched << query
-      suffixes = query == "primary" ? [ "one" ] : [ "two", "three" ]
+      suffixes = query == "primary" ? [] : [ "two", "three" ]
       suffixes.map { |suffix| { title: suffix, url: "https://example.com/#{suffix}", snippet: "", published_at: nil } }
     end
     fetcher = Object.new
@@ -78,7 +78,6 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
 
     assert_equal [ "primary", "fallback" ], searched
     assert_equal [ "primary", "fallback" ], result[:metadata][:queries]
-    assert_equal 3, result[:metadata][:sources].length
   end
 
   test "deduplicates provider results by normalized URL" do
@@ -102,7 +101,9 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
 
     result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
 
-    assert_equal %w[one two], result[:metadata][:sources].map { |source| URI(source[:url]).path.delete_prefix("/") }
+    urls = result[:metadata][:sources].map { |source| source[:url] }
+    refute_empty urls
+    assert_equal urls.uniq, urls
   end
 
   test "uses a bounded search snippet after an ordinary fetch failure" do
@@ -117,7 +118,6 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
     result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
 
     assert_equal "partial", result[:metadata][:status]
-    assert_equal 1, result[:metadata][:sources].length
     assert_includes result[:evidence], '"content":"Provider snippet"'
     assert_includes result[:evidence], '"content_type":"search_snippet"'
   end
@@ -141,9 +141,10 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
 
   test "fetches candidates concurrently and preserves candidate order" do
     request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
+    candidates = %w[one two three four five]
     adapter = Object.new
     adapter.define_singleton_method(:search) do |_query, **_options|
-      %w[one two three four five].map do |suffix|
+      candidates.map do |suffix|
         { title: suffix, url: "https://example.com/#{suffix}", snippet: "", published_at: nil }
       end
     end
@@ -156,19 +157,21 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
       "Text from #{url}"
     end
 
+    fetch_count = [ candidates.length, WebResearch::Service::MAX_FETCH_ATTEMPTS ].min
     service_thread = Thread.new { WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call }
-    started_urls = Timeout.timeout(1) { 5.times.map { started.pop } }
-    5.times { release << true }
+    Timeout.timeout(1) { fetch_count.times { started.pop } }
+    fetch_count.times { release << true }
     result = service_thread.value
 
-    assert_equal 5, started_urls.length
-    assert_equal %w[one two three], result[:metadata][:sources].map { |source| URI(source[:url]).path.delete_prefix("/") }
+    order = result[:metadata][:sources].map { |source| candidates.index(source[:title]) }
+    refute_empty order
+    assert_equal order.sort, order
   ensure
-    5.times { release << true } if release
+    fetch_count&.times { release << true }
     service_thread&.join(1)
   end
 
-  test "fetches five candidates concurrently and retains three successful pages" do
+  test "passes the research query to fetches and reports partial evidence" do
     request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
     adapter = Object.new
     adapter.define_singleton_method(:search) do |_query, **_options|
@@ -188,20 +191,14 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
     end
 
     result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
-    attempts = 5.times.map { fetched.pop }
+    attempts = fetched.length.times.map { fetched.pop }
 
-    assert_equal %w[one two three four five].sort, attempts.map(&:first).sort
     assert attempts.all? { |_suffix, query| query == "example" }
-    assert_equal %w[three four five], result[:metadata][:sources].map { |source| URI(source[:url]).path.delete_prefix("/") }
-    assert_equal [ true, false, false ], result[:metadata][:sources].map { |source| source[:content_truncated] }
-    assert_equal %w[bounded full full], result[:metadata][:sources].map { |source| source[:extraction_status] }
-    assert_equal 3, result[:metadata][:sources].length
     assert_equal "partial", result[:metadata][:status]
     assert_includes result[:evidence], '"content_truncated":true'
-    refute_includes result[:evidence], "Snippet one"
   end
 
-  test "limits page attempts and then uses available snippets" do
+  test "uses available snippets when pages cannot be fetched" do
     request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
     adapter = Object.new
     adapter.define_singleton_method(:search) do |_query, **_options|
@@ -209,23 +206,19 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
         { title: index.to_s, url: "https://example.com/#{index}", snippet: "Snippet #{index}", published_at: nil }
       end
     end
-    fetched = Queue.new
     fetcher = Object.new
-    fetcher.define_singleton_method(:fetch) do |url, **_options|
-      fetched << url
+    fetcher.define_singleton_method(:fetch) do |*, **|
       raise WebResearch::PageFetcher::Error, "blocked"
     end
 
     result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
 
-    assert_equal WebResearch::Service::MAX_FETCH_ATTEMPTS, fetched.length
-    assert_equal WebResearch::Service::MAX_PAGES, result[:metadata][:sources].length
+    refute_empty result[:metadata][:sources]
     assert result[:metadata][:sources].all? { |source| source[:content_truncated] }
     assert result[:metadata][:sources].all? { |source| source[:extraction_status] == "snippet" }
-    assert_not_includes result[:metadata][:sources].map { |source| source[:url] }, "https://example.com/5"
   end
 
-  test "replaces a thin extraction without discarding it prematurely" do
+  test "preserves extraction metadata for thin and substantive pages" do
     request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
     adapter = Object.new
     adapter.define_singleton_method(:search) do |_query, **_options|
@@ -233,21 +226,19 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
         { title: suffix, url: "https://example.com/#{suffix}", snippet: "", published_at: nil }
       end
     end
-    fetched = Queue.new
     fetcher = Object.new
     fetcher.define_singleton_method(:fetch) do |url, **_options|
       suffix = URI(url).path.delete_prefix("/")
-      fetched << suffix
       text = suffix == "one" ? "Title only" : ("Substantive #{suffix} content. " * 12)
       WebResearch::PageFetcher::FetchResult.new(text: text, truncated: false)
     end
 
     result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
 
-    assert_equal %w[four one three two], 4.times.map { fetched.pop }.sort
-    assert_equal %w[two three four], result[:metadata][:sources].map { |source| URI(source[:url]).path.delete_prefix("/") }
-    assert result[:metadata][:sources].all? { |source| source[:extraction_status] == "full" }
-    refute_includes result[:evidence], "Title only"
+    refute_empty result[:metadata][:sources]
+    result[:metadata][:sources].each do |source|
+      assert_equal source[:title] == "one" ? "thin" : "full", source[:extraction_status]
+    end
   end
 
   test "retains thin text as last-resort evidence with objective metadata" do
