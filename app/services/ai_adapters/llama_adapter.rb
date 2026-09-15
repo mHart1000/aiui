@@ -60,7 +60,13 @@ module AiAdapters
 
       started_at = monotonic_now
       response = if request_timeout
-        Timeout.timeout(request_timeout, Error, "Llama API request timed out") { http.request(request) }
+        Rails.logger.info("######      LlamaAdapter request timeout timer started timestamp=#{Time.current.iso8601(3)}")
+        begin
+          Timeout.timeout(request_timeout, Error, "Llama API request timed out") { http.request(request) }
+        rescue Error
+          Rails.logger.warn("########### LlamaAdapter request timeout timer elapsed timestamp=#{Time.current.iso8601(3)}")
+          raise
+        end
       else
         http.request(request)
       end
