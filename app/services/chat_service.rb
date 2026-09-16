@@ -56,7 +56,6 @@ class ChatService
     @log_stats = log_stats
     @adapter = select_adapter(@model_id)
     @web_latency = {}
-    @web_slots = web_slot_configuration
   end
 
   def call(&block)
@@ -109,7 +108,7 @@ class ChatService
       saw_reasoning = false
       switched_to_response = false
       mark_web_answer_started
-      adapter_result = @adapter.chat(messages: messages_to_send, stream: true, max_tokens: @max_tokens, **web_answer_request_options) do |chunk, kind|
+      adapter_result = @adapter.chat(messages: messages_to_send, stream: true, max_tokens: @max_tokens) do |chunk, kind|
         record_web_first_visible_output(chunk, kind == :reasoning ? :reasoning : :content)
         if kind == :reasoning
           saw_reasoning = true
@@ -132,7 +131,7 @@ class ChatService
         web_search_data: @web_search_data
       }
     else
-      response = @adapter.chat(messages: messages_to_send, stream: false, max_tokens: @max_tokens, **web_answer_request_options)
+      response = @adapter.chat(messages: messages_to_send, stream: false, max_tokens: @max_tokens)
       {
         reply: response[:content],
         thinking: response[:reasoning],
@@ -165,7 +164,7 @@ class ChatService
 
     if @stream && block_given?
       mark_web_answer_started
-      planning_result = @adapter.chat(messages: planning_messages, stream: true, max_tokens: @max_tokens, **web_auxiliary_request_options) do |content|
+      planning_result = @adapter.chat(messages: planning_messages, stream: true, max_tokens: @max_tokens) do |content|
         record_web_first_visible_output(content, :thinking)
         thinking += content
         yield content, :thinking
@@ -176,7 +175,7 @@ class ChatService
       end
       yield nil, :phase_change
     else
-      response = @adapter.chat(messages: planning_messages, stream: false, max_tokens: @max_tokens, **web_auxiliary_request_options)
+      response = @adapter.chat(messages: planning_messages, stream: false, max_tokens: @max_tokens)
       thinking = response[:content]
       planning_tokens = response[:tokens]
       planning_stats = response[:stats]
@@ -200,7 +199,7 @@ class ChatService
 
     if @stream && block_given?
       reply = ""
-      execution_result = @adapter.chat(messages: execution_messages, stream: true, max_tokens: @max_tokens, **web_answer_request_options) do |chunk, kind|
+      execution_result = @adapter.chat(messages: execution_messages, stream: true, max_tokens: @max_tokens) do |chunk, kind|
         record_web_first_visible_output(chunk, kind == :reasoning ? :reasoning : :content)
         # Native reasoning during the execution pass goes to the thinking stream,
         # never into the saved reply.
@@ -228,7 +227,7 @@ class ChatService
         web_search_data: @web_search_data
       }
     else
-      response = @adapter.chat(messages: execution_messages, stream: false, max_tokens: @max_tokens, **web_answer_request_options)
+      response = @adapter.chat(messages: execution_messages, stream: false, max_tokens: @max_tokens)
       reply = response[:content]
       execution_tokens = response[:tokens]
       execution_stats = response[:stats]
@@ -398,8 +397,7 @@ class ChatService
         reasoning_budget_message: "Proceed directly to the required tool call.",
         request_timeout: WEB_SELECTOR_TIMEOUT_SECONDS,
         tools: [ RESEARCH_TOOL ],
-        tool_choice: @web_search_mode == "always" ? { type: "function", function: { name: "research_web" } } : "auto",
-        **web_auxiliary_request_options
+        tool_choice: @web_search_mode == "always" ? { type: "function", function: { name: "research_web" } } : "auto"
       )
     end
     @web_selection_tokens = selection[:tokens]
@@ -495,8 +493,7 @@ class ChatService
       unaccounted_ms: stats[:unaccounted_ms],
       elapsed_ms: stats[:elapsed_ms],
       tokens_per_second: stats[:tokens_per_second],
-      tool_call_count: Array(selection[:tool_calls]).length,
-      selector_slot_id: @web_slots[:selector])
+      tool_call_count: Array(selection[:tool_calls]).length)
   end
 
   def latest_user_text
@@ -522,8 +519,7 @@ class ChatService
   ensure
     elapsed = ((monotonic_now - started_at) * 1000).round
     @web_latency["#{stage}_ms".to_sym] = elapsed
-    WebResearch::AuditLog.info("#{stage}_stage_latency", elapsed_ms: elapsed,
-      slot_id: stage == :selector ? @web_slots[:selector] : nil)
+    WebResearch::AuditLog.info("#{stage}_stage_latency", elapsed_ms: elapsed)
   end
 
   def mark_web_answer_started
@@ -542,9 +538,7 @@ class ChatService
       selector_ms: @web_latency[:selector_ms],
       research_ms: @web_latency[:research_ms],
       answer_to_first_visible_ms: elapsed_ms_between(@web_latency[:answer_started_at], now),
-      turn_to_first_visible_ms: elapsed_ms_between(@web_latency[:turn_started_at], now),
-      selector_slot_id: @web_slots[:selector],
-      answer_slot_id: @web_slots[:answer])
+      turn_to_first_visible_ms: elapsed_ms_between(@web_latency[:turn_started_at], now))
   end
 
   def include_web_selection_usage(result)
@@ -570,31 +564,6 @@ class ChatService
     )
 
     result.merge(tokens: combined_tokens, stats: combined_stats)
-  end
-
-  def web_slot_configuration
-    return {} unless web_search_enabled? && @adapter.is_a?(AiAdapters::LlamaAdapter)
-
-    selector_raw = ENV["WEB_RESEARCH_SELECTOR_SLOT_ID"].presence
-    answer_raw = ENV["WEB_RESEARCH_ANSWER_SLOT_ID"].presence
-    return {} unless selector_raw || answer_raw
-
-    selector = Integer(selector_raw, exception: false)
-    answer = Integer(answer_raw, exception: false)
-    unless selector && selector >= 0 && answer && answer >= 0 && selector != answer
-      Rails.logger.warn("WebResearch slot experiment disabled: configure distinct non-negative selector and answer slot IDs")
-      return {}
-    end
-
-    { selector: selector, answer: answer }
-  end
-
-  def web_auxiliary_request_options
-    @web_slots[:selector] ? { id_slot: @web_slots[:selector], cache_prompt: true } : {}
-  end
-
-  def web_answer_request_options
-    @web_slots[:answer] ? { id_slot: @web_slots[:answer], cache_prompt: true } : {}
   end
 
   def elapsed_ms_between(started_at, finished_at)

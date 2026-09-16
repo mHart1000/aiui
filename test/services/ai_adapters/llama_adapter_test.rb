@@ -28,16 +28,12 @@ class AiAdapters::LlamaAdapterTest < ActiveSupport::TestCase
         messages: [ { role: "user", content: "route this" } ],
         chat_template_kwargs: { reasoning_effort: "low" },
         thinking_budget_tokens: 128,
-        reasoning_budget_message: "Call the tool now.",
-        id_slot: 2,
-        cache_prompt: true
+        reasoning_budget_message: "Call the tool now."
       )
 
       assert_equal({ "reasoning_effort" => "low" }, captured_payload["chat_template_kwargs"])
       assert_equal 128, captured_payload["thinking_budget_tokens"]
       assert_equal "Call the tool now.", captured_payload["reasoning_budget_message"]
-      assert_equal 2, captured_payload["id_slot"]
-      assert_equal true, captured_payload["cache_prompt"]
       assert_equal "tool_calls", result[:finish_reason]
       assert_equal 1, result[:tool_calls].length
     end

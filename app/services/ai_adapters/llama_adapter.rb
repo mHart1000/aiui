@@ -13,7 +13,7 @@ module AiAdapters
     end
 
     def chat(messages:, stream: false, max_tokens: nil, tools: nil, tool_choice: nil, temperature: 0.7, chat_template_kwargs: nil,
-             thinking_budget_tokens: nil, reasoning_budget_message: nil, id_slot: nil, cache_prompt: nil, request_timeout: nil, &block)
+             thinking_budget_tokens: nil, reasoning_budget_message: nil, request_timeout: nil, &block)
       base_url = ENV["LLAMA_API_URL"] || "http://host.docker.internal:8080/v1"
       uri = URI("#{base_url}/chat/completions")
 
@@ -30,8 +30,6 @@ module AiAdapters
       payload[:chat_template_kwargs] = chat_template_kwargs if chat_template_kwargs.present?
       payload[:thinking_budget_tokens] = thinking_budget_tokens unless thinking_budget_tokens.nil?
       payload[:reasoning_budget_message] = reasoning_budget_message if reasoning_budget_message.present?
-      payload[:id_slot] = id_slot unless id_slot.nil?
-      payload[:cache_prompt] = cache_prompt unless cache_prompt.nil?
       # Ask llama.cpp to include a final usage chunk so we can log tokens/sec.
       payload[:stream_options] = { include_usage: true } if stream
 

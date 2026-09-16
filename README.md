@@ -140,15 +140,6 @@ SEARXNG_URL=http://127.0.0.1:8888
 
 Start the chat llama.cpp server with `--jinja` and a GGUF whose chat template supports the `research_web` function call. SearXNG still forwards queries to its configured upstream engines. Restart the Rails backend and Vue frontend after configuration changes.
 
-To measure whether web-tool selection is displacing the conversation's llama.cpp prompt cache, an optional diagnostic can pin auxiliary and answer requests to separate slots:
-
-```bash
-WEB_RESEARCH_SELECTOR_SLOT_ID=0
-WEB_RESEARCH_ANSWER_SLOT_ID=1
-```
-
-Both values must be present, distinct, non-negative slot IDs. Start llama.cpp with at least that many slots before enabling them. Depending on the llama.cpp build and startup flags, multiple slots can divide context capacity or increase KV-cache memory use; confirm the reported context per slot still meets the application's needs. Remove both variables to return to automatic slot selection. Restart the Rails backend after changing them.
-
 ## Image attachments
 
 Server-side image downscaling requires libvips:

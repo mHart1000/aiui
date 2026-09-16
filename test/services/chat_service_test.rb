@@ -538,63 +538,6 @@ class ChatServiceTest < ActiveSupport::TestCase
     end
   end
 
-  test "slot experiment isolates selector and answer requests when fully configured" do
-    with_env("WEB_RESEARCH_SELECTOR_SLOT_ID" => "0", "WEB_RESEARCH_ANSWER_SLOT_ID" => "1") do
-      service = ChatService.new(
-        messages: [ { role: "user", content: "What changed today?" } ],
-        model: "local-llama",
-        use_persona: false,
-        use_scaffolding: false,
-        stream: false,
-        max_tokens: nil,
-        web_search_mode: "always"
-      )
-      adapter = service.instance_variable_get(:@adapter)
-      selection = { tool_calls: [ { "function" => { "name" => "research_web", "arguments" => '{"queries":["today"]}' } } ] }
-      research_service = Object.new
-      research_service.define_singleton_method(:call) { { evidence: "evidence", metadata: { status: "complete", sources: [] } } }
-      requests = []
-
-      WebResearch::Service.stub(:new, ->(**_) { research_service }) do
-        adapter.stub(:chat, ->(**kwargs) { requests << kwargs; requests.length == 1 ? selection : FAKE_RESPONSE }) do
-          service.call
-        end
-      end
-
-      assert_equal 0, requests.first[:id_slot]
-      assert_equal 1, requests.last[:id_slot]
-      assert requests.first[:cache_prompt]
-      assert requests.last[:cache_prompt]
-    end
-  end
-
-  test "slot experiment is inert when only one slot ID is configured" do
-    with_env("WEB_RESEARCH_SELECTOR_SLOT_ID" => "0", "WEB_RESEARCH_ANSWER_SLOT_ID" => nil) do
-      service = ChatService.new(
-        messages: [ { role: "user", content: "What changed today?" } ],
-        model: "local-llama",
-        use_persona: false,
-        use_scaffolding: false,
-        stream: false,
-        max_tokens: nil,
-        web_search_mode: "always"
-      )
-      adapter = service.instance_variable_get(:@adapter)
-      selection = { tool_calls: [ { "function" => { "name" => "research_web", "arguments" => '{"queries":["today"]}' } } ] }
-      research_service = Object.new
-      research_service.define_singleton_method(:call) { { evidence: "evidence", metadata: { status: "complete", sources: [] } } }
-      requests = []
-
-      WebResearch::Service.stub(:new, ->(**_) { research_service }) do
-        adapter.stub(:chat, ->(**kwargs) { requests << kwargs; requests.length == 1 ? selection : FAKE_RESPONSE }) do
-          service.call
-        end
-      end
-
-      refute requests.any? { |request| request.key?(:id_slot) || request.key?(:cache_prompt) }
-    end
-  end
-
   test "web latency log records the first non-empty reasoning output" do
     service = ChatService.new(
       messages: [ { role: "user", content: "What changed today?" } ],
