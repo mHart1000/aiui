@@ -3,10 +3,6 @@
     <div
       class="row q-ma-none q-gutter-md items-center toolbar-wrap"
       :class="{ 'toolbar-collapsed': !toolbarExpanded }"
-      @mouseenter="toolbarHovered = true"
-      @mouseleave="toolbarHovered = false"
-      @focusin="toolbarFocused = true"
-      @focusout="toolbarFocused = false"
     >
       <q-select
         v-model="modelCode"
@@ -41,17 +37,15 @@
       />
       <div class="web-search-control">
         <div class="text-caption text-grey-7">Web research</div>
-        <q-slider
-          v-model="webSearchPosition"
-          :min="0"
-          :max="2"
-          :step="1"
-          :marker-labels="webSearchMarkerLabels"
-          markers
-          snap
-          color="primary"
-          aria-label="Web research mode"
-          @change="updateWebSearchPosition"
+        <q-btn-toggle
+          v-model="webSearchMode"
+          :options="webSearchOptions"
+          no-caps
+          unelevated
+          dense
+          rounded
+          toggle-color="primary"
+          @update:model-value="updateWebSearchMode"
         />
       </div>
       <q-btn
@@ -493,8 +487,6 @@ export default {
     messages: [],
     atBottom: true,
     atTop: true,
-    toolbarHovered: false,
-    toolbarFocused: false,
     conversationId: null,
     models: [],
     localImageInput: null,
@@ -647,7 +639,7 @@ export default {
     },
     toolbarExpanded() {
       if (!this.hasMessages) return true
-      return this.atTop || this.toolbarHovered || this.toolbarFocused
+      return this.atTop
     },
     modelOptions() {
       return this.models.map(m => ({
@@ -661,20 +653,12 @@ export default {
         ...this.personas.map(p => ({ label: p.name, value: p.id }))
       ]
     },
-    webSearchMarkerLabels() {
-      return {
-        0: 'Off',
-        1: 'Auto',
-        2: 'On'
-      }
-    },
-    webSearchPosition: {
-      get() {
-        return ['off', 'auto', 'always'].indexOf(this.webSearchMode)
-      },
-      set(value) {
-        this.webSearchMode = ['off', 'auto', 'always'][value]
-      }
+    webSearchOptions() {
+      return [
+        { label: 'Off', value: 'off' },
+        { label: 'Auto', value: 'auto' },
+        { label: 'On', value: 'always' }
+      ]
     },
     skillsLabel() {
       const count = this.activeSkillIds.length
@@ -990,9 +974,6 @@ export default {
         return false
       })
       return this.webSearchSync
-    },
-    updateWebSearchPosition(value) {
-      return this.updateWebSearchMode(['off', 'auto', 'always'][value])
     },
     async sendMessage() {
       const text = this.input.trim()
@@ -1476,13 +1457,11 @@ export default {
 .toolbar-wrap.toolbar-collapsed {
   max-height: 12px;
 }
-.web-search-control {
-  min-width: 140px;
-  padding-bottom: 6px;
+.toolbar-wrap.toolbar-collapsed:hover {
+  max-height: 300px;
 }
-.web-search-control .q-slider {
-  margin: 0 8px;
-  width: 124px;
+.web-search-control {
+  min-width: 150px;
 }
 .chat-window {
   flex: 1;
