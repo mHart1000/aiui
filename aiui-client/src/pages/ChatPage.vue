@@ -36,7 +36,7 @@
         color="primary"
       />
       <div class="web-search-control">
-        <div class="text-caption text-grey-7">Web research</div>
+        <span class="text-caption text-grey-7">Web research</span>
         <q-btn-toggle
           v-model="webSearchMode"
           :options="webSearchOptions"
@@ -1461,7 +1461,22 @@ export default {
   max-height: 300px;
 }
 .web-search-control {
-  min-width: 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  white-space: nowrap;
+}
+.web-search-control > span {
+  line-height: 12px;
+  text-align: center;
+}
+.web-search-control :deep(.q-btn) {
+  font-size: 10px;
+  min-height: 22px;
+  padding: 0 12px;
+}
+.web-search-control :deep(.q-btn__content) {
+  line-height: 1;
 }
 .chat-window {
   flex: 1;
