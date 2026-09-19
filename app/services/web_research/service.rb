@@ -7,6 +7,7 @@ module WebResearch
     MAX_PAGES = 4
     MAX_FETCH_ATTEMPTS = 10
     MAX_EVIDENCE_CHARS = 24_000
+    SEARCH_DEADLINE_SECONDS = 5
     RESEARCH_DEADLINE_SECONDS = 8
     FETCH_GRACE_SECONDS = 3
 
@@ -21,7 +22,8 @@ module WebResearch
     def call
       started_at = Time.current
       started_monotonic = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + RESEARCH_DEADLINE_SECONDS
+      deadline = started_monotonic + RESEARCH_DEADLINE_SECONDS
+      search_deadline = started_monotonic + SEARCH_DEADLINE_SECONDS
       first_query_sent_at = nil
       executed_queries = []
       results = []
@@ -29,14 +31,20 @@ module WebResearch
       search_capacity = [ MAX_FETCH_ATTEMPTS - @request.urls.length, 0 ].max
       @request.queries.each do |query|
         break if distinct_search_results(results).length >= search_capacity
+        break if monotonic_now >= search_deadline
 
         executed_queries << query
         emit(:searching, queries: executed_queries.dup)
-        search_started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        search_started = monotonic_now
         query_sent_at = Time.current.iso8601(3)
         first_query_sent_at ||= query_sent_at
         AuditLog.info("search_started", query: query, sent_at: query_sent_at)
-        search_results = @adapter.search(query, deadline: deadline).map { |result| result.merge(research_query: query) }
+        begin
+          search_results = @adapter.search(query, deadline: search_deadline).map { |result| result.merge(research_query: query) }
+        rescue SearxngAdapter::Error => e
+          AuditLog.warn("search_query_failed", query: query, error_class: e.class.name, error: e.message, elapsed_ms: elapsed_ms(search_started))
+          search_results = []
+        end
         AuditLog.info("search_completed", query: query, result_count: search_results.length,
           urls: search_results.map { |result| AuditLog.safe_url(result[:url]) }, elapsed_ms: elapsed_ms(search_started))
         results.concat(search_results)
@@ -88,12 +96,6 @@ module WebResearch
         total_ms: elapsed_ms(started_monotonic))
       emit(status.to_sym, metadata)
       { evidence: evidence, metadata: metadata }
-    rescue SearxngAdapter::Error => e
-      AuditLog.warn("search_failed", error_class: e.class.name, error: e.message, elapsed_ms: elapsed_ms(started_monotonic))
-      metadata = { status: "failed", provider: PROVIDER, queries: executed_queries || [], searched_at: started_at.iso8601,
-                   warning: "Web search was unavailable.", sources: [] }
-      emit(:failed, metadata)
-      { evidence: nil, metadata: metadata }
     end
 
     private

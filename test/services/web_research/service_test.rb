@@ -139,6 +139,43 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
     assert_empty result[:metadata][:sources]
   end
 
+  test "degrades to partial evidence when an early search query fails" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "primary", "fallback" ] }, latest_user_content: "")
+    searched = []
+    adapter = Object.new
+    adapter.define_singleton_method(:search) do |query, **_options|
+      searched << query
+      raise WebResearch::SearxngAdapter::Error, "response timed out" if query == "primary"
+
+      [ { title: "Fallback", url: "https://example.com/fallback", snippet: "Fallback snippet", published_at: nil } ]
+    end
+    fetcher = Object.new
+    fetcher.define_singleton_method(:fetch) do |url, **_options|
+      WebResearch::PageFetcher::FetchResult.new(text: "Substantive fallback content. " * 12, truncated: false)
+    end
+
+    result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
+
+    assert_equal [ "primary", "fallback" ], searched
+    assert_not_nil result[:evidence]
+    refute_equal "failed", result[:metadata][:status]
+    assert_includes result[:metadata][:sources].map { |source| source[:url] }, "https://example.com/fallback"
+  end
+
+  test "reports no evidence without raising when every search query fails" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "primary", "fallback" ] }, latest_user_content: "")
+    adapter = Object.new
+    adapter.define_singleton_method(:search) { |*, **| raise WebResearch::SearxngAdapter::Error, "unavailable" }
+    fetcher = Object.new
+    fetcher.define_singleton_method(:fetch) { |*| "unused" }
+
+    result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
+
+    assert_nil result[:evidence]
+    assert_equal "failed", result[:metadata][:status]
+    assert_empty result[:metadata][:sources]
+  end
+
   test "fetches candidates concurrently and preserves candidate order" do
     request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
     candidates = %w[one two three four five]
