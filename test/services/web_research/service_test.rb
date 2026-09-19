@@ -158,7 +158,8 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
 
     assert_equal [ "primary", "fallback" ], searched
     assert_not_nil result[:evidence]
-    refute_equal "failed", result[:metadata][:status]
+    assert_equal "partial", result[:metadata][:status]
+    assert_includes result[:metadata][:warning], "Web search was incomplete"
     assert_includes result[:metadata][:sources].map { |source| source[:url] }, "https://example.com/fallback"
   end
 

@@ -27,11 +27,16 @@ module WebResearch
       first_query_sent_at = nil
       executed_queries = []
       results = []
+      search_failures = 0
+      search_deadline_exhausted = false
       AuditLog.info("research_started", candidate_queries: @request.queries, direct_urls: @request.urls.map { |url| AuditLog.safe_url(url) })
       search_capacity = [ MAX_FETCH_ATTEMPTS - @request.urls.length, 0 ].max
       @request.queries.each do |query|
         break if distinct_search_results(results).length >= search_capacity
-        break if monotonic_now >= search_deadline
+        if monotonic_now >= search_deadline
+          search_deadline_exhausted = true
+          break
+        end
 
         executed_queries << query
         emit(:searching, queries: executed_queries.dup)
@@ -43,6 +48,7 @@ module WebResearch
           search_results = @adapter.search(query, deadline: search_deadline).map { |result| result.merge(research_query: query) }
         rescue SearxngAdapter::Error => e
           AuditLog.warn("search_query_failed", query: query, error_class: e.class.name, error: e.message, elapsed_ms: elapsed_ms(search_started))
+          search_failures += 1
           search_results = []
         end
         AuditLog.info("search_completed", query: query, result_count: search_results.length,
@@ -84,12 +90,18 @@ module WebResearch
 
       evidence, sources = format_evidence(records)
       evidence_formatted_monotonic = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      status = evidence.nil? ? "failed" : (failures + thin_extracts).positive? ? "partial" : "complete"
-      warning = status == "failed" ? "Web research did not return usable evidence." : (status == "partial" ? "Some web sources could not be fetched or yielded limited text." : nil)
+      search_limited = search_failures.positive? || search_deadline_exhausted
+      fetch_limited = (failures + thin_extracts).positive?
+      status = evidence.nil? ? "failed" : (search_limited || fetch_limited) ? "partial" : "complete"
+      warnings = []
+      warnings << "Web search was incomplete, so results may be limited" if search_limited
+      warnings << "Some web sources could not be fetched or yielded limited text" if fetch_limited
+      warning = status == "failed" ? "Web research did not return usable evidence." : (status == "partial" ? warnings.join(". ") : nil)
       metadata = { status: status, provider: PROVIDER, queries: executed_queries, searched_at: started_at.iso8601,
                    warning: warning, sources: sources }
       AuditLog.info("research_completed", status: status, source_count: sources.length, failure_count: failures,
-        thin_extract_count: thin_extracts, evidence_chars: evidence&.length || 0, elapsed_ms: elapsed_ms(started_monotonic))
+        thin_extract_count: thin_extracts, search_failure_count: search_failures,
+        search_deadline_exhausted: search_deadline_exhausted, evidence_chars: evidence&.length || 0, elapsed_ms: elapsed_ms(started_monotonic))
       AuditLog.info("research_latency", first_query_sent_at: first_query_sent_at,
         search_results_ms: elapsed_ms(started_monotonic, search_completed_monotonic),
         fetch_and_extract_ms: elapsed_ms(search_completed_monotonic, evidence_formatted_monotonic),
