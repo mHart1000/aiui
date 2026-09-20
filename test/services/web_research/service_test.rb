@@ -303,6 +303,29 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
     refute_includes result[:metadata][:sources].map { |source| source[:url] }, urls.last
   end
 
+  test "reports partial when deadline cancels candidates with no usable snippet" do
+    urls = %w[a b c].map { |suffix| "https://example.com/#{suffix}" }
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
+    adapter = Object.new
+    adapter.define_singleton_method(:search) do |_query, **_options|
+      urls.map { |url| { title: url.split("/").last, url: url, snippet: "", published_at: nil } }
+    end
+    blocked = Queue.new
+    fetcher = Object.new
+    fetcher.define_singleton_method(:fetch) do |url, **|
+      url == urls.first ? "Full page text for #{url}" : blocked.pop
+    end
+
+    result = nil
+    stub_const(WebResearch::Service, :RESEARCH_DEADLINE_SECONDS, 1) do
+      result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
+    end
+
+    assert_equal "partial", result[:metadata][:status]
+    assert_equal 1, result[:metadata][:sources].length
+    assert_equal "https://example.com/a", result[:metadata][:sources].first[:url]
+  end
+
   test "preserves extraction metadata for thin and substantive pages" do
     request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
     adapter = Object.new

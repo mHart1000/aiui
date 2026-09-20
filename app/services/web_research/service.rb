@@ -64,7 +64,9 @@ module WebResearch
         urls: candidates.map { |result| AuditLog.safe_url(result[:url]) })
       emit(:fetching)
 
-      outcomes = fetch_candidates(candidates, deadline)
+      fetched = fetch_candidates(candidates, deadline)
+      outcomes = fetched[:outcomes]
+      fetch_deadline_exhausted = fetched[:deadline_exhausted]
       records = []
       failures = outcomes.count { |outcome| outcome[:error] }
       thin_extracts = outcomes.count { |outcome| outcome[:extraction_status] == "thin" }
@@ -92,7 +94,9 @@ module WebResearch
       evidence, sources = format_evidence(records)
       evidence_formatted_monotonic = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       search_limited = search_failures.positive? || search_deadline_exhausted
-      fetch_limited = (failures + thin_extracts).positive? || selected.any? { |outcome| outcome[:content_type] == "search_snippet" }
+      fetch_limited = (failures + thin_extracts).positive? ||
+        selected.any? { |outcome| outcome[:content_type] == "search_snippet" } ||
+        (fetch_deadline_exhausted && successful.length < MAX_PAGES)
       status = evidence.nil? ? "failed" : (search_limited || fetch_limited) ? "partial" : "complete"
       warnings = []
       warnings << "Web search was incomplete, so results may be limited" if search_limited
@@ -101,8 +105,9 @@ module WebResearch
       metadata = { status: status, provider: PROVIDER, queries: executed_queries, searched_at: started_at.iso8601,
                    warning: warning, sources: sources }
       AuditLog.info("research_completed", status: status, source_count: sources.length, failure_count: failures,
-        thin_extract_count: thin_extracts, cancelled_count: cancelled, search_failure_count: search_failures,
-        search_deadline_exhausted: search_deadline_exhausted, evidence_chars: evidence&.length || 0, elapsed_ms: elapsed_ms(started_monotonic))
+        thin_extract_count: thin_extracts, cancelled_count: cancelled, fetch_deadline_exhausted: fetch_deadline_exhausted,
+        search_failure_count: search_failures, search_deadline_exhausted: search_deadline_exhausted,
+        evidence_chars: evidence&.length || 0, elapsed_ms: elapsed_ms(started_monotonic))
       AuditLog.info("research_latency", first_query_sent_at: first_query_sent_at,
         search_results_ms: elapsed_ms(started_monotonic, search_completed_monotonic),
         fetch_and_extract_ms: elapsed_ms(search_completed_monotonic, evidence_formatted_monotonic),
@@ -141,11 +146,16 @@ module WebResearch
 
       grace_deadline = [ monotonic_now + FETCH_GRACE_SECONDS, deadline ].min
       fetch_started = monotonic_now
+      deadline_exhausted = false
       begin
         mutex.synchronize do
           loop do
             now = monotonic_now
-            break if errors.any? || outcomes.length == candidates.length || now >= deadline
+            break if errors.any? || outcomes.length == candidates.length
+            if now >= deadline
+              deadline_exhausted = true
+              break
+            end
             break if now >= grace_deadline && outcomes.count { |outcome| substantive_outcome?(outcome) } >= MAX_PAGES
 
             wake_at = now < grace_deadline ? grace_deadline : deadline
@@ -162,8 +172,10 @@ module WebResearch
 
       AuditLog.info("fetch_batch_completed", candidate_count: candidates.length, completed_count: outcomes.length,
         substantive_count: outcomes.count { |outcome| substantive_outcome?(outcome) },
-        cancelled_count: candidates.length - outcomes.length, elapsed_ms: elapsed_ms(fetch_started))
-      (outcomes + cancelled_outcomes(candidates, outcomes)).sort_by { |outcome| outcome[:result][:candidate_order] }
+        cancelled_count: candidates.length - outcomes.length, deadline_exhausted: deadline_exhausted,
+        elapsed_ms: elapsed_ms(fetch_started))
+      { outcomes: (outcomes + cancelled_outcomes(candidates, outcomes)).sort_by { |outcome| outcome[:result][:candidate_order] },
+        deadline_exhausted: deadline_exhausted }
     end
 
     def cancelled_outcomes(candidates, outcomes)
