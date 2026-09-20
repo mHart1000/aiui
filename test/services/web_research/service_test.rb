@@ -256,6 +256,53 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
     assert result[:metadata][:sources].all? { |source| source[:extraction_status] == "snippet" }
   end
 
+  test "uses available snippets when fetches are cancelled at the deadline" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
+    adapter = Object.new
+    adapter.define_singleton_method(:search) do |_query, **_options|
+      %w[one two three].map do |suffix|
+        { title: suffix, url: "https://example.com/#{suffix}", snippet: "Snippet for #{suffix}", published_at: nil }
+      end
+    end
+    blocked = Queue.new
+    fetcher = Object.new
+    fetcher.define_singleton_method(:fetch) { |url, **| blocked.pop }
+
+    result = nil
+    stub_const(WebResearch::Service, :RESEARCH_DEADLINE_SECONDS, 1) do
+      result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
+    end
+
+    assert_not_nil result[:evidence]
+    assert_equal "partial", result[:metadata][:status]
+    assert result[:metadata][:sources].all? { |source| source[:extraction_status] == "snippet" }
+    assert_includes result[:metadata][:sources].map { |source| source[:url] }, "https://example.com/one"
+  end
+
+  test "keeps complete status when grace period cancels surplus candidates" do
+    urls = %w[a b c d e].map { |suffix| "https://example.com/#{suffix}" }
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
+    adapter = Object.new
+    adapter.define_singleton_method(:search) do |_query, **_options|
+      urls.map { |url| { title: url.split("/").last, url: url, snippet: "", published_at: nil } }
+    end
+    blocked = Queue.new
+    fetcher = Object.new
+    fetcher.define_singleton_method(:fetch) do |url, **|
+      url == urls.last ? blocked.pop : "Full page text for #{url}"
+    end
+
+    result = nil
+    stub_const(WebResearch::Service, :FETCH_GRACE_SECONDS, 0.2) do
+      result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
+    end
+
+    assert_equal "complete", result[:metadata][:status]
+    assert_equal 4, result[:metadata][:sources].length
+    assert result[:metadata][:sources].all? { |source| source[:extraction_status] == "full" }
+    refute_includes result[:metadata][:sources].map { |source| source[:url] }, urls.last
+  end
+
   test "preserves extraction metadata for thin and substantive pages" do
     request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
     adapter = Object.new

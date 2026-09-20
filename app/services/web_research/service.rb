@@ -68,6 +68,7 @@ module WebResearch
       records = []
       failures = outcomes.count { |outcome| outcome[:error] }
       thin_extracts = outcomes.count { |outcome| outcome[:extraction_status] == "thin" }
+      cancelled = outcomes.count { |outcome| outcome[:cancelled] }
       successful = outcomes.select { |outcome| substantive_outcome?(outcome) }.first(MAX_PAGES)
       fallbacks = outcomes.reject { |outcome| substantive_outcome?(outcome) }.filter_map { |outcome| fallback_outcome(outcome) }
       selected = (successful + fallbacks.first(MAX_PAGES - successful.length)).sort_by { |outcome| outcome[:result][:candidate_order] }
@@ -91,7 +92,7 @@ module WebResearch
       evidence, sources = format_evidence(records)
       evidence_formatted_monotonic = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       search_limited = search_failures.positive? || search_deadline_exhausted
-      fetch_limited = (failures + thin_extracts).positive?
+      fetch_limited = (failures + thin_extracts).positive? || selected.any? { |outcome| outcome[:content_type] == "search_snippet" }
       status = evidence.nil? ? "failed" : (search_limited || fetch_limited) ? "partial" : "complete"
       warnings = []
       warnings << "Web search was incomplete, so results may be limited" if search_limited
@@ -100,7 +101,7 @@ module WebResearch
       metadata = { status: status, provider: PROVIDER, queries: executed_queries, searched_at: started_at.iso8601,
                    warning: warning, sources: sources }
       AuditLog.info("research_completed", status: status, source_count: sources.length, failure_count: failures,
-        thin_extract_count: thin_extracts, search_failure_count: search_failures,
+        thin_extract_count: thin_extracts, cancelled_count: cancelled, search_failure_count: search_failures,
         search_deadline_exhausted: search_deadline_exhausted, evidence_chars: evidence&.length || 0, elapsed_ms: elapsed_ms(started_monotonic))
       AuditLog.info("research_latency", first_query_sent_at: first_query_sent_at,
         search_results_ms: elapsed_ms(started_monotonic, search_completed_monotonic),
@@ -162,7 +163,16 @@ module WebResearch
       AuditLog.info("fetch_batch_completed", candidate_count: candidates.length, completed_count: outcomes.length,
         substantive_count: outcomes.count { |outcome| substantive_outcome?(outcome) },
         cancelled_count: candidates.length - outcomes.length, elapsed_ms: elapsed_ms(fetch_started))
-      outcomes.sort_by { |outcome| outcome[:result][:candidate_order] }
+      (outcomes + cancelled_outcomes(candidates, outcomes)).sort_by { |outcome| outcome[:result][:candidate_order] }
+    end
+
+    def cancelled_outcomes(candidates, outcomes)
+      completed = outcomes.map { |outcome| outcome[:result][:candidate_order] }.to_set
+      candidates.reject { |result| completed.include?(result[:candidate_order]) }.map { |result| cancelled_outcome(result) }
+    end
+
+    def cancelled_outcome(result)
+      { result: result, extraction_status: "cancelled", cancelled: true }
     end
 
     def fetch_candidate(result, deadline)
