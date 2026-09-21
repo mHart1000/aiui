@@ -406,7 +406,7 @@ class ChatService
     calls = selection[:tool_calls]
     return {} if calls.blank? && @web_search_mode == "auto"
 
-    request = WebResearch::ToolRequest.parse!(tool_calls: calls, authorized_user_content: selector_user_texts)
+    request = WebResearch::ToolRequest.parse!(tool_calls: calls, last_four_user_messages: selector_user_texts)
     outcome = measure_web_stage(:research) do
       WebResearch::Service.new(
         request: request,

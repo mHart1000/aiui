@@ -95,7 +95,7 @@ class WebResearch::PageFetcherTest < ActiveSupport::TestCase
   end
 
   test "does not retain snippets for a rejected target" do
-    request = WebResearch::ToolRequest.new({ "queries" => [ "metadata endpoint" ] }, authorized_user_content: "")
+    request = WebResearch::ToolRequest.new({ "queries" => [ "metadata endpoint" ] }, last_four_user_messages: "")
     adapter = Object.new
     adapter.define_singleton_method(:search) do |_query, **_options|
       [ { title: "Private", url: "http://169.254.169.254/latest", snippet: "do not expose", published_at: nil } ]

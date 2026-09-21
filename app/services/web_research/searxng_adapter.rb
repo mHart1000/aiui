@@ -60,7 +60,7 @@ module WebResearch
     def normalize(item)
       return nil unless item.is_a?(Hash)
 
-      url = ToolRequest.new({ "urls" => [ item["url"] ] }, authorized_user_content: item["url"]).urls.first
+      url = ToolRequest.new({ "urls" => [ item["url"] ] }, last_four_user_messages: item["url"]).urls.first
       return nil unless url
 
       { title: truncate(item["title"].to_s.strip.presence || URI(url).host, MAX_TITLE_LENGTH), url: url,
