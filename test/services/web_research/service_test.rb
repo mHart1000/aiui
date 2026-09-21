@@ -2,7 +2,7 @@ require "test_helper"
 
 class WebResearch::ServiceTest < ActiveSupport::TestCase
   test "caps web-only evidence and keeps metadata aligned with included sources" do
-    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, authorized_user_content: "")
     adapter = Object.new
     adapter.define_singleton_method(:search) do |_query, **_options|
       [
@@ -22,7 +22,7 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
   end
 
   test "logs queries, sources, bounded extracts, and the completed evidence summary" do
-    request = WebResearch::ToolRequest.new({ "queries" => [ "example query" ] }, latest_user_content: "")
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example query" ] }, authorized_user_content: "")
     adapter = Object.new
     adapter.define_singleton_method(:search) do |_query, **_options|
       [ { title: "One", url: "https://example.com/one?tracking=secret", snippet: "", published_at: nil } ]
@@ -44,7 +44,7 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
   end
 
   test "skips the second query when the first fills the candidate pool" do
-    request = WebResearch::ToolRequest.new({ "queries" => [ "primary", "fallback" ] }, latest_user_content: "")
+    request = WebResearch::ToolRequest.new({ "queries" => [ "primary", "fallback" ] }, authorized_user_content: "")
     searched = []
     adapter = Object.new
     adapter.define_singleton_method(:search) do |query, **_options|
@@ -63,7 +63,7 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
   end
 
   test "uses the second query when the first leaves page capacity" do
-    request = WebResearch::ToolRequest.new({ "queries" => [ "primary", "fallback" ] }, latest_user_content: "")
+    request = WebResearch::ToolRequest.new({ "queries" => [ "primary", "fallback" ] }, authorized_user_content: "")
     searched = []
     adapter = Object.new
     adapter.define_singleton_method(:search) do |query, **_options|
@@ -81,7 +81,7 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
   end
 
   test "deduplicates provider results by normalized URL" do
-    request = WebResearch::ToolRequest.new({ "queries" => [ "primary", "fallback" ] }, latest_user_content: "")
+    request = WebResearch::ToolRequest.new({ "queries" => [ "primary", "fallback" ] }, authorized_user_content: "")
     adapter = Object.new
     adapter.define_singleton_method(:search) do |query, **_options|
       if query == "primary"
@@ -107,7 +107,7 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
   end
 
   test "uses a bounded search snippet after an ordinary fetch failure" do
-    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, authorized_user_content: "")
     adapter = Object.new
     adapter.define_singleton_method(:search) do |_query, **_options|
       [ { title: "One", url: "https://example.com/one", snippet: "Provider snippet", published_at: nil } ]
@@ -123,7 +123,7 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
   end
 
   test "returns a warning without evidence when every source fails" do
-    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, authorized_user_content: "")
     adapter = Object.new
     adapter.define_singleton_method(:search) do |_query, **_options|
       [ { title: "One", url: "https://example.com/one", snippet: "", published_at: nil } ]
@@ -140,7 +140,7 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
   end
 
   test "degrades to partial evidence when an early search query fails" do
-    request = WebResearch::ToolRequest.new({ "queries" => [ "primary", "fallback" ] }, latest_user_content: "")
+    request = WebResearch::ToolRequest.new({ "queries" => [ "primary", "fallback" ] }, authorized_user_content: "")
     searched = []
     adapter = Object.new
     adapter.define_singleton_method(:search) do |query, **_options|
@@ -164,7 +164,7 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
   end
 
   test "reports no evidence without raising when every search query fails" do
-    request = WebResearch::ToolRequest.new({ "queries" => [ "primary", "fallback" ] }, latest_user_content: "")
+    request = WebResearch::ToolRequest.new({ "queries" => [ "primary", "fallback" ] }, authorized_user_content: "")
     adapter = Object.new
     adapter.define_singleton_method(:search) { |*, **| raise WebResearch::SearxngAdapter::Error, "unavailable" }
     fetcher = Object.new
@@ -178,7 +178,7 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
   end
 
   test "fetches candidates concurrently and preserves candidate order" do
-    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, authorized_user_content: "")
     candidates = %w[one two three four five]
     adapter = Object.new
     adapter.define_singleton_method(:search) do |_query, **_options|
@@ -210,7 +210,7 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
   end
 
   test "passes the research query to fetches and reports partial evidence" do
-    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, authorized_user_content: "")
     adapter = Object.new
     adapter.define_singleton_method(:search) do |_query, **_options|
       %w[one two three four five].map do |suffix|
@@ -237,7 +237,7 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
   end
 
   test "uses available snippets when pages cannot be fetched" do
-    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, authorized_user_content: "")
     adapter = Object.new
     adapter.define_singleton_method(:search) do |_query, **_options|
       6.times.map do |index|
@@ -257,7 +257,7 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
   end
 
   test "uses available snippets when fetches are cancelled at the deadline" do
-    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, authorized_user_content: "")
     adapter = Object.new
     adapter.define_singleton_method(:search) do |_query, **_options|
       %w[one two three].map do |suffix|
@@ -281,7 +281,7 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
 
   test "keeps complete status when grace period cancels surplus candidates" do
     urls = %w[a b c d e].map { |suffix| "https://example.com/#{suffix}" }
-    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, authorized_user_content: "")
     adapter = Object.new
     adapter.define_singleton_method(:search) do |_query, **_options|
       urls.map { |url| { title: url.split("/").last, url: url, snippet: "", published_at: nil } }
@@ -305,7 +305,7 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
 
   test "reports partial when deadline cancels candidates with no usable snippet" do
     urls = %w[a b c].map { |suffix| "https://example.com/#{suffix}" }
-    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, authorized_user_content: "")
     adapter = Object.new
     adapter.define_singleton_method(:search) do |_query, **_options|
       urls.map { |url| { title: url.split("/").last, url: url, snippet: "", published_at: nil } }
@@ -327,7 +327,7 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
   end
 
   test "preserves extraction metadata for thin and substantive pages" do
-    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, authorized_user_content: "")
     adapter = Object.new
     adapter.define_singleton_method(:search) do |_query, **_options|
       %w[one two three four].map do |suffix|
@@ -350,7 +350,7 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
   end
 
   test "retains thin text as last-resort evidence with objective metadata" do
-    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, authorized_user_content: "")
     adapter = Object.new
     adapter.define_singleton_method(:search) do |_query, **_options|
       [ { title: "One", url: "https://example.com/one", snippet: "", published_at: nil } ]
@@ -371,7 +371,7 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
   end
 
   test "prefers a longer provider snippet to a thin page shell" do
-    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, latest_user_content: "")
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, authorized_user_content: "")
     snippet = "Provider snippet with more useful context than the page title."
     adapter = Object.new
     adapter.define_singleton_method(:search) do |_query, **_options|

@@ -504,6 +504,87 @@ class ChatServiceTest < ActiveSupport::TestCase
     assert_operator transcript_body.length, :<=, ChatService::WEB_SELECTOR_MAX_TRANSCRIPT_CHARS
   end
 
+  test "web selector authorizes a direct URL from an earlier user message in the window" do
+    messages = [
+      { role: "user", content: "Summarize https://example.com/old-article" },
+      { role: "assistant", content: "Done." },
+      { role: "user", content: "Now compare it with current reports" }
+    ]
+    service = ChatService.new(
+      messages: messages,
+      model: "local-llama",
+      use_persona: false,
+      use_scaffolding: false,
+      stream: false,
+      max_tokens: nil,
+      web_search_mode: "always"
+    )
+    adapter = service.instance_variable_get(:@adapter)
+    selection = { tool_calls: [ { "id" => "model-call", "function" => { "name" => "research_web", "arguments" => '{"urls":["https://example.com/old-article"]}' } } ] }
+    outcome = { evidence: "UNTRUSTED EVIDENCE", metadata: { status: "complete", sources: [] } }
+    research_service = Object.new
+    research_service.define_singleton_method(:call) { outcome }
+    calls = 0
+
+    WebResearch::Service.stub(:new, ->(**_) { research_service }) do
+      adapter.stub(:chat, ->(**_kwargs) {
+        calls += 1
+        calls == 1 ? selection : FAKE_RESPONSE
+      }) do
+        service.call
+      end
+    end
+
+    assert_equal "complete", service.instance_variable_get(:@web_search_data)[:status]
+    assert_equal "UNTRUSTED EVIDENCE", service.instance_variable_get(:@web_evidence)
+  end
+
+  test "web selector rejects a direct URL that appears only in an assistant message" do
+    messages = [
+      { role: "assistant", content: "Source: https://example.com/only-in-assistant" },
+      { role: "user", content: "Tell me more" }
+    ]
+    service = ChatService.new(
+      messages: messages,
+      model: "local-llama",
+      use_persona: false,
+      use_scaffolding: false,
+      stream: false,
+      max_tokens: nil,
+      web_search_mode: "always"
+    )
+    adapter = service.instance_variable_get(:@adapter)
+    selection = { tool_calls: [ { "id" => "model-call", "function" => { "name" => "research_web", "arguments" => '{"urls":["https://example.com/only-in-assistant"]}' } } ] }
+    calls = 0
+
+    adapter.stub(:chat, ->(**_kwargs) {
+      calls += 1
+      calls == 1 ? selection : FAKE_RESPONSE
+    }) do
+      service.call
+    end
+
+    assert_equal "failed", service.instance_variable_get(:@web_search_data)[:status]
+    assert_nil service.instance_variable_get(:@web_evidence)
+  end
+
+  test "selector user texts include only user messages within the selector window" do
+    messages = 6.times.map do |index|
+      { role: index.even? ? "user" : "assistant", content: "message-#{index}" }
+    end
+    service = ChatService.new(
+      messages: messages,
+      model: "local-llama",
+      use_persona: false,
+      use_scaffolding: false,
+      stream: false,
+      max_tokens: nil,
+      web_search_mode: "always"
+    )
+
+    assert_equal "message-2\nmessage-4", service.send(:selector_user_texts)
+  end
+
   test "web selection usage is included in final generation usage" do
     service = ChatService.new(
       messages: [ { role: "user", content: "What changed today?" } ],

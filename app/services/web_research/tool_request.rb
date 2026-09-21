@@ -13,7 +13,7 @@ module WebResearch
 
     attr_reader :queries, :urls
 
-    def self.parse!(tool_calls:, latest_user_content:)
+    def self.parse!(tool_calls:, authorized_user_content:)
       calls = Array(tool_calls)
       raise InvalidRequest, "expected exactly one web research request, received #{calls.length}" unless calls.length == 1
 
@@ -26,17 +26,17 @@ module WebResearch
       parsed = arguments.is_a?(String) ? JSON.parse(arguments) : arguments
       raise InvalidRequest, "tool arguments must be an object" unless parsed.is_a?(Hash)
 
-      new(parsed, latest_user_content: latest_user_content)
+      new(parsed, authorized_user_content: authorized_user_content)
     rescue JSON::ParserError
       raise InvalidRequest, "tool arguments were not valid JSON"
     end
 
-    def initialize(arguments, latest_user_content:)
+    def initialize(arguments, authorized_user_content:)
       unknown_keys = arguments.keys.map(&:to_s) - %w[queries urls]
       raise InvalidRequest, "tool arguments contained unknown fields" if unknown_keys.any?
 
       @queries = normalize_queries(arguments["queries"] || arguments[:queries])
-      @urls = normalize_urls(arguments["urls"] || arguments[:urls], latest_user_content)
+      @urls = normalize_urls(arguments["urls"] || arguments[:urls], authorized_user_content)
       raise InvalidRequest, "research request was empty" if @queries.empty? && @urls.empty?
     end
 
@@ -59,13 +59,13 @@ module WebResearch
       end.uniq
     end
 
-    def normalize_urls(values, latest_user_content)
+    def normalize_urls(values, authorized_user_content)
       raise InvalidRequest, "URLs must be an array" if values.present? && !values.is_a?(Array)
 
       values = Array(values)
       raise InvalidRequest, "too many direct URLs" if values.length > MAX_URLS
 
-      user_urls = latest_user_content.to_s.scan(%r{https?://[^\s<>"']+}i).filter_map { |url| normalize_url(url) }.to_set
+      user_urls = authorized_user_content.to_s.scan(%r{https?://[^\s<>"']+}i).filter_map { |url| normalize_url(url) }.to_set
       values.map do |value|
         normalized = normalize_url(value)
         raise InvalidRequest, "invalid direct URL" unless normalized

@@ -406,7 +406,7 @@ class ChatService
     calls = selection[:tool_calls]
     return {} if calls.blank? && @web_search_mode == "auto"
 
-    request = WebResearch::ToolRequest.parse!(tool_calls: calls, latest_user_content: latest_user_text)
+    request = WebResearch::ToolRequest.parse!(tool_calls: calls, authorized_user_content: selector_user_texts)
     outcome = measure_web_stage(:research) do
       WebResearch::Service.new(
         request: request,
@@ -496,9 +496,11 @@ class ChatService
       tool_call_count: Array(selection[:tool_calls]).length)
   end
 
-  def latest_user_text
-    message = @messages.reverse.find { |entry| entry[:role] == "user" }
-    text_of(message&.dig(:content)).to_s
+  def selector_user_texts
+    @messages.last(WEB_SELECTOR_MAX_MESSAGES)
+            .select { |message| message[:role] == "user" }
+            .map { |message| text_of(message[:content]) }
+            .join("\n")
   end
 
   def failed_research_metadata(warning)
