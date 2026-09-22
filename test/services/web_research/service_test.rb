@@ -156,13 +156,13 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
       WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
     end
 
-    assert_includes log_output, 'event=search_started data={"query":"example query"'
+    assert_includes log_output, 'WEBRESEARCH EVENT=search_started data={"query":"example query"'
     assert_includes log_output, "https://example.com/one"
     refute_includes log_output, "tracking=secret"
-    assert_includes log_output, "event=page_extract_ready"
+    assert_includes log_output, "WEBRESEARCH EVENT=page_extract_ready"
     assert_includes log_output, "Useful source text"
-    assert_includes log_output, "event=research_completed"
-    assert_includes log_output, "event=research_latency"
+    assert_includes log_output, "WEBRESEARCH EVENT=research_completed"
+    assert_includes log_output, "WEBRESEARCH EVENT=research_latency"
   end
 
   test "skips the second query when the first fills the candidate pool" do

@@ -647,9 +647,9 @@ class ChatServiceTest < ActiveSupport::TestCase
       adapter.stub(:chat, fake_chat) do
         log_output = capture_rails_logs { service.call { |_chunk, _phase| } }
 
-        assert_includes log_output, "event=selector_stage_latency"
-        assert_includes log_output, "event=research_stage_latency"
-        assert_includes log_output, "event=turn_latency"
+        assert_includes log_output, "WEBRESEARCH EVENT=selector_stage_latency"
+        assert_includes log_output, "WEBRESEARCH EVENT=research_stage_latency"
+        assert_includes log_output, "WEBRESEARCH EVENT=turn_latency"
         assert_includes log_output, '"first_visible_output":"reasoning"'
       end
     end
