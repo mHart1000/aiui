@@ -1,7 +1,7 @@
 require "test_helper"
 
 class WebResearch::ServiceTest < ActiveSupport::TestCase
-  test "caps web-only evidence and keeps metadata aligned with included sources" do
+  test "keeps every selected source when allocating a tight evidence budget" do
     request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, last_four_user_messages: "")
     adapter = Object.new
     adapter.define_singleton_method(:search) do |_query, **_options|
@@ -13,12 +13,56 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
     fetcher = Object.new
     fetcher.define_singleton_method(:fetch) { |url, **| url.end_with?("one") ? "a" * 200 : "b" * 200 }
 
-    result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher, max_evidence_chars: 500).call
+    result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher, max_evidence_chars: 800).call
 
-    assert_operator result[:evidence].length, :<=, 500
-    assert_equal [ 1 ], result[:metadata][:sources].map { |source| source[:id] }
+    assert_operator result[:evidence].length, :<=, 800
+    sources = result[:metadata][:sources]
+    assert_equal [ 1, 2 ], sources.map { |source| source[:id] }
     assert_includes result[:evidence], '"id":1'
-    assert_not_includes result[:evidence], '"id":2'
+    assert_includes result[:evidence], '"id":2'
+    assert sources.all? { |source| source[:content_truncated] }
+  end
+
+  test "redistributes unused budget from short sources to longer ones" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, last_four_user_messages: "")
+    adapter = Object.new
+    adapter.define_singleton_method(:search) do |_query, **_options|
+      [
+        { title: "Short", url: "https://example.com/short", snippet: "", published_at: nil },
+        { title: "Long", url: "https://example.com/long", snippet: "", published_at: nil }
+      ]
+    end
+    fetcher = Object.new
+    fetcher.define_singleton_method(:fetch) { |url, **| url.end_with?("short") ? "x" * 300 : "y" * 5000 }
+
+    result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher, max_evidence_chars: 3000).call
+    sources = result[:metadata][:sources]
+    short = sources.find { |source| source[:id] == 1 }
+    long = sources.find { |source| source[:id] == 2 }
+
+    assert_operator result[:evidence].length, :<=, 3000
+    assert_equal [ 1, 2 ], sources.map { |source| source[:id] }
+    assert_equal 300, short[:content_chars]
+    assert_equal false, short[:content_truncated]
+    assert_equal true, long[:content_truncated]
+    assert_operator long[:content_chars], :>, 1500
+  end
+
+  test "keeps all four sources within the allowance when the budget is shared" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, last_four_user_messages: "")
+    adapter = Object.new
+    adapter.define_singleton_method(:search) do |_query, **_options|
+      %w[one two three four].map { |suffix| { title: suffix, url: "https://example.com/#{suffix}", snippet: "", published_at: nil } }
+    end
+    fetcher = Object.new
+    fetcher.define_singleton_method(:fetch) { |_url, **| "z" * 500 }
+
+    result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher, max_evidence_chars: 1500).call
+    sources = result[:metadata][:sources]
+
+    assert_operator result[:evidence].length, :<=, 1500
+    assert_equal [ 1, 2, 3, 4 ], sources.map { |source| source[:id] }
+    assert sources.all? { |source| source[:content_truncated] }
   end
 
   test "logs queries, sources, bounded extracts, and the completed evidence summary" do

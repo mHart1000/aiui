@@ -25,7 +25,7 @@ module WebResearch
     ].freeze
     OMISSION_MARKER = "[Non-contiguous page text omitted]".freeze
 
-    FetchResult = Data.define(:text, :truncated) do
+    FetchResult = Struct.new(:text, :truncated, :blocks, :query, :full_length, keyword_init: true) do
       def extraction_status
         return "thin" if text.length < PageFetcher::MIN_SUBSTANTIVE_TEXT_LENGTH
 
@@ -35,6 +35,15 @@ module WebResearch
 
     class Error < StandardError; end
     class UnsafeTarget < Error; end
+
+    def self.render_extract(blocks, query, full_length, limit)
+      new.render_extract(blocks, query, full_length, limit)
+    end
+
+    def render_extract(blocks, query, full_length, limit)
+      selected = full_length > limit ? relevant_blocks(blocks, query, limit) : blocks
+      render_bounded(selected, limit)
+    end
 
     def fetch(url, deadline: monotonic_now + 20, query: nil)
       current = url
@@ -140,8 +149,9 @@ module WebResearch
       blocks = blocks.flat_map { |block| split_long_block(block) }
       full_length = blocks.sum(&:length) + ([ blocks.length - 1, 0 ].max * 2)
       truncated = full_length > MAX_TEXT_LENGTH
-      selected = truncated ? relevant_blocks(blocks, query) : blocks
-      FetchResult.new(text: render_bounded(selected), truncated: truncated)
+      selected = truncated ? relevant_blocks(blocks, query, MAX_TEXT_LENGTH) : blocks
+      FetchResult.new(text: render_bounded(selected, MAX_TEXT_LENGTH), truncated: truncated,
+        blocks: blocks, query: query, full_length: full_length)
     end
 
     def plain_text_blocks(body)
@@ -280,7 +290,7 @@ module WebResearch
       chunks
     end
 
-    def relevant_blocks(blocks, query)
+    def relevant_blocks(blocks, query, limit)
       terms = query_terms(query)
       return blocks if terms.empty?
 
@@ -309,7 +319,7 @@ module WebResearch
           next if selected.key?(candidate)
 
           projected_indices = (selected.keys + [ candidate ]).sort
-          next if blocks_length(mark_omissions(projected_indices, blocks)) > MAX_TEXT_LENGTH
+          next if blocks_length(mark_omissions(projected_indices, blocks)) > limit
 
           selected[candidate] = true
         end
@@ -341,11 +351,11 @@ module WebResearch
       marked
     end
 
-    def render_bounded(blocks)
+    def render_bounded(blocks, limit)
       output = +""
       blocks.each do |block|
         separator = output.empty? ? "" : "\n\n"
-        remaining = MAX_TEXT_LENGTH - output.length - separator.length
+        remaining = limit - output.length - separator.length
         break if remaining <= 0
 
         output << separator

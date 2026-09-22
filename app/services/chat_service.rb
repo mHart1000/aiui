@@ -7,6 +7,10 @@ class ChatService
   WEB_SELECTOR_MAX_MESSAGE_CHARS = 2_000
   WEB_SELECTOR_MAX_TRANSCRIPT_CHARS = 3_000
   WEB_SELECTOR_TIMEOUT_SECONDS = 10
+  RAG_CONTEXT_CHARS = 24_000
+  RAG_CONTEXT_CHARS_WITH_WEB = 12_000
+  WEB_EVIDENCE_CHARS = 23_500
+  WEB_EVIDENCE_CHARS_WITH_RAG = 11_500
 
   PLANNING_PROMPT = <<~PROMPT
     You are in two-pass reasoning mode. This is the planning phase.
@@ -362,7 +366,7 @@ class ChatService
   end
 
   def bounded_rag_context
-    budget = @web_evidence ? 12_000 : 24_000
+    budget = @web_evidence ? RAG_CONTEXT_CHARS_WITH_WEB : RAG_CONTEXT_CHARS
     return @rag_context if @rag_context.length <= budget
 
     closing = "\n\n[/Context]"
@@ -410,7 +414,7 @@ class ChatService
     outcome = measure_web_stage(:research) do
       WebResearch::Service.new(
         request: request,
-        max_evidence_chars: @rag_context ? 11_500 : 23_500,
+        max_evidence_chars: @rag_context ? WEB_EVIDENCE_CHARS_WITH_RAG : WEB_EVIDENCE_CHARS,
         on_progress: ->(stage, data) { emit_research_event(block, stage, data) }
       ).call
     end
