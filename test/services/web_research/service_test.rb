@@ -65,6 +65,84 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
     assert sources.all? { |source| source[:content_truncated] }
   end
 
+  test "retains a relevant passage from parsed blocks beyond the previous per-page cap" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "quantum entanglement" ] }, last_four_user_messages: "")
+    adapter = Object.new
+    adapter.define_singleton_method(:search) do |_query, **_options|
+      [ { title: "Paper", url: "https://example.com/paper", snippet: "", published_at: nil } ]
+    end
+    blocks = (0...120).map { |i| "Paragraph #{i}. Generic filler about unrelated topics and the daily weather forecast." }
+    (60...91).each { |i| blocks[i] = "Paragraph #{i}. Notes about quantum research and the measurement setup." }
+    blocks[80] = "Paragraph 80. This defines the quantum entanglement theorem in detail."
+    text = blocks.join("\n\n")
+    fetcher = Object.new
+    fetcher.define_singleton_method(:fetch) do |_url, **_options|
+      WebResearch::PageFetcher::FetchResult.new(text: text, truncated: true, blocks: blocks, query: "quantum entanglement", full_length: text.length)
+    end
+
+    result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher, max_evidence_chars: 1200).call
+
+    assert_operator result[:evidence].length, :<=, 1200
+    assert_includes result[:evidence], "quantum entanglement theorem"
+    assert result[:metadata][:sources].first[:content_truncated]
+  end
+
+  test "keeps evidence within the budget when content is heavy with newlines and quotes" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, last_four_user_messages: "")
+    adapter = Object.new
+    adapter.define_singleton_method(:search) do |_query, **_options|
+      [ { title: "Chatty", url: "https://example.com/chatty", snippet: "", published_at: nil } ]
+    end
+    line = 'He said "stop" and the log printed "done"'
+    block = (line + "\n") * 60
+    fetcher = Object.new
+    fetcher.define_singleton_method(:fetch) do |_url, **_options|
+      WebResearch::PageFetcher::FetchResult.new(text: block, truncated: true, blocks: [ block ], query: "example", full_length: block.length)
+    end
+
+    result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher, max_evidence_chars: 800).call
+
+    assert_operator result[:evidence].length, :<=, 800
+    assert_includes result[:evidence], '"id":1'
+    assert result[:metadata][:sources].first[:content_truncated]
+  end
+
+  test "returns no evidence when the mandatory metadata alone exceeds the budget" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, last_four_user_messages: "")
+    adapter = Object.new
+    adapter.define_singleton_method(:search) do |_query, **_options|
+      [ { title: "One", url: "https://example.com/one", snippet: "", published_at: nil } ]
+    end
+    fetcher = Object.new
+    fetcher.define_singleton_method(:fetch) { |_url, **| "Some page text" }
+
+    result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher, max_evidence_chars: 20).call
+
+    assert_nil result[:evidence]
+    assert_equal "failed", result[:metadata][:status]
+  end
+
+  test "drops the lowest-priority source when its metadata would exceed the budget" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, last_four_user_messages: "")
+    adapter = Object.new
+    adapter.define_singleton_method(:search) do |_query, **_options|
+      [
+        { title: "One", url: "https://example.com/one", snippet: "", published_at: nil },
+        { title: "Two", url: "https://example.com/two", snippet: "", published_at: nil }
+      ]
+    end
+    fetcher = Object.new
+    fetcher.define_singleton_method(:fetch) { |url, **| url.end_with?("one") ? "a" * 100 : "b" * 100 }
+
+    result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher, max_evidence_chars: 300).call
+    sources = result[:metadata][:sources]
+
+    assert_operator result[:evidence].length, :<=, 300
+    assert_equal [ 1 ], sources.map { |source| source[:id] }
+    assert_includes result[:evidence], '"id":1'
+    refute_includes result[:evidence], '"id":2'
+  end
+
   test "logs queries, sources, bounded extracts, and the completed evidence summary" do
     request = WebResearch::ToolRequest.new({ "queries" => [ "example query" ] }, last_four_user_messages: "")
     adapter = Object.new
