@@ -513,6 +513,30 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
     assert_includes result[:evidence], snippet
   end
 
+  test "truncates a long search snippet at a sentence boundary rather than a raw slice" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, last_four_user_messages: "")
+    snippet = "The quick brown fox jumps over the lazy dog. " * 5
+    first_sentence = "The quick brown fox jumps over the lazy dog."
+    adapter = Object.new
+    adapter.define_singleton_method(:search) do |_query, **_options|
+      [ { title: "One", url: "https://example.com/one", snippet: snippet, published_at: nil } ]
+    end
+    fetcher = Object.new
+    fetcher.define_singleton_method(:fetch) do |*_args, **_options|
+      WebResearch::PageFetcher::FetchResult.new(text: "Title", truncated: false)
+    end
+
+    result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher, max_evidence_chars: 400).call
+    source = result[:metadata][:sources].first
+    content = JSON.parse(result[:evidence].lines.find { |line| line.include?("\"content_type\":\"search_snippet\"") })["content"]
+
+    refute_nil result[:evidence]
+    assert_equal "snippet", source[:extraction_status]
+    assert_operator source[:content_chars], :<, snippet.length
+    assert content.start_with?(first_sentence)
+    assert content.end_with?("…")
+  end
+
   private
 
   def capture_rails_logs

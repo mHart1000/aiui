@@ -326,7 +326,7 @@ module WebResearch
     end
 
     def render_outcome(outcome, allocation)
-      return outcome[:text][0, allocation] if snippet?(outcome)
+      return PageFetcher.render_extract([ outcome[:text] ], nil, outcome[:text].length, allocation) if snippet?(outcome)
 
       fetch_result = outcome[:fetch_result]
       if fetch_result&.blocks
