@@ -299,11 +299,11 @@ module WebResearch
       result = final[:result]
       if snippet
         AuditLog.info("search_snippet_used", source_id: source_id, url: AuditLog.safe_url(result[:url]),
-          snippet_chars: text.length, excerpt: AuditLog.excerpt(text))
+          snippet_chars: text.length, excerpt: AuditLog.excerpt(text, limit: nil))
       else
         AuditLog.info("page_extract_ready", source_id: source_id, url: AuditLog.safe_url(result[:url]),
           extracted_chars: text.length, extraction_status: final[:extraction_status],
-          content_truncated: final[:content_truncated], excerpt: AuditLog.excerpt(text),
+          content_truncated: final[:content_truncated], excerpt: AuditLog.excerpt(text, limit: nil),
           elapsed_ms: final[:elapsed_ms])
       end
     end

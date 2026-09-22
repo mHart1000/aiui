@@ -25,11 +25,12 @@ module WebResearch
         "[invalid URL]"
       end
 
-      def excerpt(text)
+      def excerpt(text, limit: EXCERPT_CHARS)
         normalized = text.to_s.encode("UTF-8", invalid: :replace, undef: :replace, replace: "").gsub(/\s+/, " ").strip
-        return normalized if normalized.length <= EXCERPT_CHARS
+        return normalized unless limit
+        return normalized if normalized.length <= limit
 
-        "#{normalized[0, EXCERPT_CHARS]}…"
+        "#{normalized[0, limit]}…"
       end
 
       private
@@ -38,7 +39,7 @@ module WebResearch
         safe_attributes = attributes.transform_values do |value|
           value.is_a?(String) ? value.encode("UTF-8", invalid: :replace, undef: :replace, replace: "") : value
         end
-        Rails.logger.public_send(level, "WebResearch event=#{event} data=#{JSON.generate(safe_attributes)}")
+        Rails.logger.public_send(level, "WEBRESEARCH EVENT=#{event} data=#{JSON.generate(safe_attributes)}")
       end
     end
   end
