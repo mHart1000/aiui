@@ -112,6 +112,23 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
     assert_match(/"type":"done"/, controller.stream_writes.last)
   end
 
+  test "create_streaming serializes web research events with their stage data" do
+    controller = build_controller(@conversation)
+    research = { status: "complete", provider: "searxng", queries: [ "latest news" ], sources: [] }
+    service = lambda do |**_kwargs, &block|
+      block.call({ stage: :searching, queries: research[:queries] }, :web_search)
+      block.call("Answer", :response)
+      { persona_version: nil, web_search_data: research }
+    end
+
+    ChatService.stub(:call, service) { controller.create_streaming }
+
+    event = controller.stream_writes.map { |write| JSON.parse(write.delete_prefix("data: ")) }.find { |data| data["type"] == "web_search" }
+    assert_equal "searching", event["stage"]
+    assert_equal [ "latest news" ], event["queries"]
+    assert_equal research, @conversation.messages.where(role: "assistant").last.web_search_data.symbolize_keys
+  end
+
   test "persists the assistant before emitting done" do
     persisted_before_done = false
     controller = build_controller(@conversation) do |event|

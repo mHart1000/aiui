@@ -50,7 +50,8 @@ On the GPU machine (WSL2), start the llama.cpp server. Adjust the options as nec
   --flash-attn on \
   -c 32768 \
   --cache-type-k q8_0 \
-  --cache-type-v q8_0
+  --cache-type-v q8_0 \
+  --jinja
 ```
 
 Start a second llama.cpp instance for the embedding model that the RAG system requires.
@@ -96,6 +97,48 @@ Set the application to use the local end of the SSH tunnel. No API key is requir
 ```bash
 LLAMA_API_URL: http://localhost:8080/v1
 ```
+
+### Optional web research
+
+Web research is off by default. It requires a private SearXNG instance with JSON output enabled. The container port below is internal; it does not conflict with a local llama.cpp server on port 8080.
+
+```bash
+mkdir -p ~/services/aiui-searxng/{config,data}
+```
+
+Generate a secret with `openssl rand -hex 32`, then create `~/services/aiui-searxng/config/settings.yml` with that value:
+
+```yaml
+use_default_settings: true
+general:
+  debug: false
+search:
+  formats: [html, json]
+server:
+  bind_address: "0.0.0.0"
+  port: 8080
+  secret_key: "replace-with-your-generated-secret"
+  public_instance: false
+```
+
+Start it with Docker:
+
+```bash
+docker run -d --name aiui-searxng --restart unless-stopped \
+  -p 127.0.0.1:8888:8080 \
+  -v "$HOME/services/aiui-searxng/config:/etc/searxng" \
+  -v "$HOME/services/aiui-searxng/data:/var/cache/searxng" \
+  docker.io/searxng/searxng:latest
+```
+
+Then add:
+
+```bash
+WEB_SEARCH_ADAPTER=searxng
+SEARXNG_URL=http://127.0.0.1:8888
+```
+
+Start the chat llama.cpp server with `--jinja` and a GGUF whose chat template supports the `research_web` function call. SearXNG still forwards queries to its configured upstream engines. Restart the Rails backend and Vue frontend after configuration changes.
 
 ## Image attachments
 

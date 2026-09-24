@@ -1,15 +1,19 @@
 require "net/http"
 require "json"
+require "timeout"
 require "uri"
 
 module AiAdapters
   class LlamaAdapter < BaseAdapter
+    class Error < StandardError; end
+
     def initialize(model:, log_stats: true)
       super(model: model)
       @log_stats = log_stats
     end
 
-    def chat(messages:, stream: false, max_tokens: nil, &block)
+    def chat(messages:, stream: false, max_tokens: nil, tools: nil, tool_choice: nil, temperature: 0.7, chat_template_kwargs: nil,
+             thinking_budget_tokens: nil, reasoning_budget_message: nil, request_timeout: nil, &block)
       base_url = ENV["LLAMA_API_URL"] || "http://host.docker.internal:8080/v1"
       uri = URI("#{base_url}/chat/completions")
 
@@ -17,25 +21,35 @@ module AiAdapters
       payload = {
         model: @model, # e.g. "llama-3-8b"
         messages: messages,
-        temperature: 0.7,
+        temperature: temperature,
         stream: stream
       }
       payload[:max_tokens] = max_tokens if max_tokens
+      payload[:tools] = tools if tools.present?
+      payload[:tool_choice] = tool_choice if tool_choice.present?
+      payload[:chat_template_kwargs] = chat_template_kwargs if chat_template_kwargs.present?
+      payload[:thinking_budget_tokens] = thinking_budget_tokens unless thinking_budget_tokens.nil?
+      payload[:reasoning_budget_message] = reasoning_budget_message if reasoning_budget_message.present?
       # Ask llama.cpp to include a final usage chunk so we can log tokens/sec.
       payload[:stream_options] = { include_usage: true } if stream
 
       if stream
         perform_streaming_request(uri, payload, &block)
       else
-        perform_blocking_request(uri, payload)
+        perform_blocking_request(uri, payload, request_timeout: request_timeout)
       end
     end
 
     private
 
-    def perform_blocking_request(uri, payload)
+    def perform_blocking_request(uri, payload, request_timeout: nil)
       http = Net::HTTP.new(uri.host, uri.port)
-      http.read_timeout = 120 # Local models can be slow
+      if request_timeout
+        http.open_timeout = request_timeout
+        http.read_timeout = request_timeout
+      else
+        http.read_timeout = 120 # Local answer generation can be slow
+      end
 
       request = Net::HTTP::Post.new(uri)
       request["Content-Type"] = "application/json"
@@ -43,30 +57,46 @@ module AiAdapters
       request.body = payload.to_json
 
       started_at = monotonic_now
-      response = http.request(request)
+      response = if request_timeout
+        Rails.logger.info("######      LlamaAdapter request timeout timer started timestamp=#{Time.current.iso8601(3)}")
+        begin
+          Timeout.timeout(request_timeout, Error, "Llama API request timed out") { http.request(request) }
+        rescue Error
+          Rails.logger.warn("########### LlamaAdapter request timeout timer elapsed timestamp=#{Time.current.iso8601(3)}")
+          raise
+        end
+      else
+        http.request(request)
+      end
       elapsed = monotonic_now - started_at
 
       unless response.is_a?(Net::HTTPSuccess)
         Rails.logger.error("Llama API Error: #{response.body}")
-        raise "Llama API Error: #{response.code} - #{response.message}"
+        raise Error, "Llama API Error: #{response.code} - #{response.message}"
       end
 
       json = JSON.parse(response.body)
       tokens = extract_token_usage(json)
-      stats = build_stats(tokens: tokens, timings: json["timings"], elapsed: elapsed, ttft_ms: nil)
-      log_throughput(tokens: tokens, stats: stats)
+      stats = build_stats(tokens: tokens, usage: json["usage"], timings: json["timings"], elapsed: elapsed, ttft_ms: nil)
+      finish_reason = json.dig("choices", 0, "finish_reason")
+      log_throughput(tokens: tokens, stats: stats, finish_reason: finish_reason)
 
       {
         content: json.dig("choices", 0, "message", "content"),
         reasoning: json.dig("choices", 0, "message", "reasoning_content"),
+        tool_calls: json.dig("choices", 0, "message", "tool_calls") || [ json.dig("choices", 0, "message", "function_call") ].compact,
+        finish_reason: finish_reason,
         tokens: tokens,
         stats: stats
       }
+    rescue Net::OpenTimeout, Net::ReadTimeout, SocketError, EOFError, IOError, Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::EHOSTUNREACH, Errno::ENETUNREACH, Errno::ETIMEDOUT => e
+      raise Error, "Llama API request failed: #{e.message}"
     end
 
     def perform_streaming_request(uri, payload)
       final_usage = nil
       final_timings = nil
+      finish_reason = nil
       # Stage timestamps, all relative to started_at, to pinpoint where latency
       # accrues: connect -> first raw byte (TTFB) -> first SSE event -> first
       # content delta (TTFT). A large TTFB means bytes are held upstream; a large
@@ -115,6 +145,7 @@ module AiAdapters
                     final_usage = json["usage"]
                     final_timings = json["timings"]
                   end
+                  finish_reason = json.dig("choices", 0, "finish_reason") || finish_reason
                   # Reasoning models (e.g. Qwen3) stream chain-of-thought in
                   # reasoning_content, then switch to content for the answer.
                   # Tag each so the caller can route reasoning to a thinking UI.
@@ -155,10 +186,10 @@ module AiAdapters
         content_deltas: content_deltas
       }
       tokens = normalize_usage(final_usage)
-      stats = build_stats(tokens: tokens, timings: final_timings, elapsed: elapsed, ttft_ms: ttft_ms, stream_diag: stream_diag)
-      log_throughput(tokens: tokens, stats: stats)
+      stats = build_stats(tokens: tokens, usage: final_usage, timings: final_timings, elapsed: elapsed, ttft_ms: ttft_ms, stream_diag: stream_diag)
+      log_throughput(tokens: tokens, stats: stats, finish_reason: finish_reason)
 
-      { tokens: tokens, stats: stats }
+      { finish_reason: finish_reason, tokens: tokens, stats: stats }
     end
 
     def extract_token_usage(response)
@@ -178,10 +209,17 @@ module AiAdapters
       Process.clock_gettime(Process::CLOCK_MONOTONIC)
     end
 
-    def build_stats(tokens:, timings:, elapsed:, ttft_ms:, stream_diag: nil)
+    def build_stats(tokens:, usage:, timings:, elapsed:, ttft_ms:, stream_diag: nil)
       completion = tokens[:completion_tokens]
       server_tps = timings.is_a?(Hash) ? timings["predicted_per_second"] : nil
-      prompt_ms = timings.is_a?(Hash) ? timings["prompt_ms"]&.round : nil
+      prompt_ms = rounded_timing(timings, "prompt_ms")
+      generation_ms = rounded_timing(timings, "predicted_ms")
+      queue_ms = rounded_timing(timings, "queue_ms", "queued_ms")
+      elapsed_ms = (elapsed * 1000).round
+      accounted_ms = [ prompt_ms, generation_ms, queue_ms ].compact.sum
+      unaccounted_ms = [ elapsed_ms - accounted_ms, 0 ].max if prompt_ms || generation_ms || queue_ms
+      completion_details = usage.is_a?(Hash) && usage["completion_tokens_details"].is_a?(Hash) ? usage["completion_tokens_details"] : {}
+      prompt_details = usage.is_a?(Hash) && usage["prompt_tokens_details"].is_a?(Hash) ? usage["prompt_tokens_details"] : {}
 
       tps_value, tps_source =
         if server_tps&.positive?
@@ -195,17 +233,35 @@ module AiAdapters
       app_overhead_ms = (ttft_ms && prompt_ms) ? (ttft_ms - prompt_ms) : nil
 
       {
-        elapsed_ms: (elapsed * 1000).round,
+        elapsed_ms: elapsed_ms,
         tokens_per_second: tps_value,
         tps_source: tps_source,
         ttft_ms: ttft_ms,
         prompt_ms: prompt_ms,
+        generation_ms: generation_ms,
+        queue_ms: queue_ms,
+        unaccounted_ms: unaccounted_ms,
+        reasoning_tokens: integer_detail(completion_details, "reasoning_tokens"),
+        tool_call_tokens: integer_detail(completion_details, "tool_call_tokens"),
+        cached_prompt_tokens: integer_detail(prompt_details, "cached_tokens"),
         app_overhead_ms: app_overhead_ms,
         stream_diag: stream_diag
       }
     end
 
-    def log_throughput(tokens:, stats:)
+    def rounded_timing(timings, *keys)
+      return unless timings.is_a?(Hash)
+
+      value = keys.filter_map { |key| timings[key] }.first
+      value&.round
+    end
+
+    def integer_detail(details, key)
+      value = details[key]
+      value.to_i if value.is_a?(Numeric)
+    end
+
+    def log_throughput(tokens:, stats:, finish_reason: nil)
       return unless @log_stats
 
       tps_str = stats[:tokens_per_second] ? "#{format('%.1f', stats[:tokens_per_second])} tok/s (source: #{stats[:tps_source]})" : "unknown"
@@ -217,7 +273,8 @@ module AiAdapters
       message = +"LlamaAdapter [model=#{@model}]\n" \
         "  Tokens     — prompt: #{tokens[:prompt_tokens]}, completion: #{tokens[:completion_tokens]}, total: #{tokens[:total_tokens]}\n" \
         "  Latency    — end-to-end: #{elapsed_str}, time-to-first-token: #{ttft_str}, server prefill: #{prefill_str}, app overhead: #{overhead_str}\n" \
-        "  Throughput — #{tps_str}"
+        "  Throughput — #{tps_str}\n" \
+        "  Finish     — #{finish_reason || 'unknown'}"
 
       if (diag = stats[:stream_diag])
         avg_chunk = (diag[:raw_chunks].to_i.positive? && diag[:stream_span_ms]) ? format("%.1f", diag[:stream_span_ms].to_f / diag[:raw_chunks]) : nil

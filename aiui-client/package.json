@@ -17,6 +17,7 @@
   "dependencies": {
     "@quasar/extras": "^1.16.4",
     "axios": "^1.13.2",
+    "dompurify": "^3.4.14",
     "highlight.js": "^11.11.1",
     "marked": "^17.0.0",
     "marked-highlight": "^2.2.3",

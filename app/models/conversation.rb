@@ -6,11 +6,14 @@ class Conversation < ApplicationRecord
   COPIED_MESSAGE_COLUMNS = %w[
     role content thinking prompt_tokens completion_tokens total_tokens
     generation_ms tokens_per_second persona_version skill_versions
+    web_search_data
     created_at updated_at
   ].freeze
 
   has_many :messages, dependent: :destroy
   belongs_to :user
+
+  validates :web_search_mode, inclusion: { in: %w[off auto always] }
 
   def entitle_async(content)
     return if title.present? && !placeholder_title?
@@ -35,6 +38,7 @@ class Conversation < ApplicationRecord
         title: fork_title,
         model_code: model_code,
         rag_enabled: rag_enabled,
+        web_search_mode: web_search_mode,
         use_skills: use_skills,
         skill_ids: skill_ids
       )
@@ -84,7 +88,7 @@ class Conversation < ApplicationRecord
     validated || model_code
   end
 
-  def add_assistant_message(reply:, thinking:, tokens:, stats: nil, persona_version: nil, skill_versions: nil)
+  def add_assistant_message(reply:, thinking:, tokens:, stats: nil, persona_version: nil, skill_versions: nil, web_search_data: {})
     if tokens&.dig(:planning) && tokens&.dig(:execution)
       total_prompt = tokens[:planning][:prompt_tokens] + tokens[:execution][:prompt_tokens]
       total_completion = tokens[:planning][:completion_tokens] + tokens[:execution][:completion_tokens]
@@ -105,7 +109,8 @@ class Conversation < ApplicationRecord
       generation_ms: stats&.dig(:elapsed_ms),
       tokens_per_second: stats&.dig(:tokens_per_second),
       persona_version: persona_version,
-      skill_versions: skill_versions
+      skill_versions: skill_versions,
+      web_search_data: web_search_data || {}
     )
   end
 

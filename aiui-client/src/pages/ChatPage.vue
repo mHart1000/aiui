@@ -3,8 +3,6 @@
     <div
       class="row q-ma-none q-gutter-md items-center toolbar-wrap"
       :class="{ 'toolbar-collapsed': !toolbarExpanded }"
-      @mouseenter="toolbarHovered = true"
-      @mouseleave="toolbarHovered = false"
     >
       <q-select
         v-model="modelCode"
@@ -37,6 +35,19 @@
         @update:model-value="updateRagEnabled"
         color="primary"
       />
+      <div class="web-search-control">
+        <span class="text-caption text-grey-7">Web research</span>
+        <q-btn-toggle
+          v-model="webSearchMode"
+          :options="webSearchOptions"
+          no-caps
+          unelevated
+          dense
+          rounded
+          toggle-color="primary"
+          @update:model-value="updateWebSearchMode"
+        />
+      </div>
       <q-btn
         flat
         dense
@@ -208,7 +219,28 @@
             Failed to generate a response.
           </div>
           <div v-else v-html="msg.role === 'user' ? formatUserMessage(msg.content) : formatMessage(msg.content)" @click="handleMessageContentClick" />
+          <div v-if="msg.role === 'assistant' && isActivelyStreaming(i) && streamingChat.webSearch.value" class="web-research-progress text-caption q-mt-sm">
+            <q-spinner color="primary" size="16px" class="q-mr-xs" />
+            {{ webResearchProgressLabel(streamingChat.webSearch.value) }}
+          </div>
           <q-spinner v-if="isActivelyStreaming(i) && msg.content" color="primary" size="20px" class="q-mt-sm" />
+
+          <q-expansion-item v-if="msg.role === 'assistant' && msg.web_search_data?.status" icon="travel_explore" label="Web sources" dense class="web-sources q-mt-sm">
+            <q-card flat bordered>
+              <q-card-section class="q-py-sm">
+                <div class="text-caption text-grey-7">
+                  {{ msg.web_search_data.provider }} · {{ formatSearchTime(msg.web_search_data.searched_at) }}
+                </div>
+                <div v-if="msg.web_search_data.queries?.length" class="text-caption q-mt-xs">Queries: {{ msg.web_search_data.queries.join(' · ') }}</div>
+                <div v-if="msg.web_search_data.warning" class="text-caption text-warning q-mt-xs">{{ msg.web_search_data.warning }}</div>
+                <div v-for="source in msg.web_search_data.sources || []" :key="source.id" class="web-source-card q-mt-sm">
+                  <a v-if="safeWebUrl(source.url)" :href="safeWebUrl(source.url)" target="_blank" rel="noopener noreferrer">[{{ source.id }}] {{ source.title }}</a>
+                  <span v-else>[{{ source.id }}] {{ source.title }}</span>
+                  <div class="text-caption text-grey-7">{{ source.domain }}<span v-if="source.published_at"> · {{ source.published_at }}</span></div>
+                </div>
+              </q-card-section>
+            </q-card>
+          </q-expansion-item>
 
           <div
             class="message-footer"
@@ -378,6 +410,7 @@
 <script>
 import { api } from 'boot/axios'
 import { Marked } from 'marked'
+import DOMPurify from 'dompurify'
 import hljs from 'highlight.js'
 import 'highlight.js/styles/base16/ashes.css' // highlightjs.org/examples
 import SpeechToTextInput from 'components/SpeechToTextInput.vue'
@@ -454,7 +487,6 @@ export default {
     messages: [],
     atBottom: true,
     atTop: true,
-    toolbarHovered: false,
     conversationId: null,
     models: [],
     localImageInput: null,
@@ -467,6 +499,9 @@ export default {
     personaId: 'persona1',
     personas: [],
     ragEnabled: false,
+    webSearchMode: 'off',
+    persistedWebSearchMode: 'off',
+    webSearchSync: Promise.resolve(true),
     skillsOpen: false,
     skillsEnabled: false,
     activeSkillIds: [],
@@ -523,6 +558,7 @@ export default {
       immediate: true,
       async handler(newId, oldId) {
         if (oldId !== undefined && String(newId || '') !== String(oldId || '')) this.clearAttachments()
+        if (oldId !== undefined && String(newId || '') !== String(oldId || '')) this.webSearchSync = Promise.resolve(true)
         if (newId) {
           this.conversationId = newId
           await this.loadConversation()
@@ -531,6 +567,8 @@ export default {
           this.messages = []
           this.input = ''
           this.modelCode = DEFAULT_MODEL_ID
+          this.webSearchMode = 'off'
+          this.persistedWebSearchMode = 'off'
         }
       }
     },
@@ -601,7 +639,7 @@ export default {
     },
     toolbarExpanded() {
       if (!this.hasMessages) return true
-      return this.atTop || this.toolbarHovered
+      return this.atTop
     },
     modelOptions() {
       return this.models.map(m => ({
@@ -613,6 +651,13 @@ export default {
       return [
         { label: 'Off', value: 'off' },
         ...this.personas.map(p => ({ label: p.name, value: p.id }))
+      ]
+    },
+    webSearchOptions() {
+      return [
+        { label: 'Off', value: 'off' },
+        { label: 'Auto', value: 'auto' },
+        { label: 'On', value: 'always' }
       ]
     },
     skillsLabel() {
@@ -785,6 +830,9 @@ export default {
         this.input = ''
         this.modelCode = DEFAULT_MODEL_ID
         this.activeSkillIds = this.defaultSkillIds
+        this.webSearchMode = 'off'
+        this.persistedWebSearchMode = 'off'
+        this.webSearchSync = Promise.resolve(true)
       }
     },
     onFilesSelected(files) {
@@ -828,6 +876,8 @@ export default {
         this.messages = res.data.messages
         this.modelCode = res.data.model_code || DEFAULT_MODEL_ID
         this.ragEnabled = res.data.rag_enabled || false
+        this.webSearchMode = res.data.web_search_mode || 'off'
+        this.persistedWebSearchMode = this.webSearchMode
         this.skillsEnabled = res.data.use_skills || false
         this.activeSkillIds = res.data.skill_ids || []
         return true
@@ -901,12 +951,39 @@ export default {
         })
       }
     },
+    updateWebSearchMode(value) {
+      if (!this.conversationId) {
+        this.persistedWebSearchMode = value
+        return Promise.resolve(true)
+      }
+
+      const conversationId = this.conversationId
+
+      this.webSearchSync = this.webSearchSync.then(async () => {
+        await api.patch(`/api/conversations/${conversationId}`, {
+          conversation: { web_search_mode: value }
+        })
+        if (this.conversationId === conversationId) this.persistedWebSearchMode = value
+        return true
+      }).catch((err) => {
+        console.error('Error updating web research mode:', err)
+        if (this.conversationId === conversationId) {
+          this.webSearchMode = this.persistedWebSearchMode
+          this.$q.notify({ type: 'negative', message: 'Failed to update web research setting', position: 'top', timeout: 2000 })
+        }
+        return false
+      })
+      return this.webSearchSync
+    },
     async sendMessage() {
       const text = this.input.trim()
       const model = this.modelCode
       const attachments = this.pendingAttachments
+      const conversationIdAtSend = this.conversationId
 
       if (!text && !attachments.length) return
+      if (!await this.webSearchSync) return
+      if (this.conversationId !== conversationIdAtSend) return
       if (attachments.length && !this.imagesSupported) {
         this.$q.notify({ type: 'negative', message: `${this.modelLabel} does not accept images. Your selected images are still here.`, timeout: 3000 })
         return
@@ -925,6 +1002,7 @@ export default {
         // Toolbar settings chosen before the first send are applied here.
         const initial = { use_skills: this.skillsEnabled, skill_ids: this.activeSkillIds }
         if (this.ragEnabled) initial.rag_enabled = true
+        if (this.webSearchMode !== 'off') initial.web_search_mode = this.webSearchMode
         await api.patch(`/api/conversations/${this.conversationId}`, { conversation: initial })
       }
 
@@ -1015,10 +1093,39 @@ export default {
       return index === this.streamingMessageIndex && this.streamingChat.isStreaming.value
     },
     formatMessage(text) {
-      return marked.parse(text)
+      return this.sanitizeMarkdown(marked.parse(text))
     },
     formatUserMessage(text) {
-      return markedUser.parse(text)
+      return this.sanitizeMarkdown(markedUser.parse(text))
+    },
+    sanitizeMarkdown(html) {
+      return DOMPurify.sanitize(html, {
+        FORBID_TAGS: ['style', 'form', 'svg', 'math', 'iframe', 'object', 'embed', 'img', 'picture', 'video', 'audio', 'source', 'track'],
+        FORBID_ATTR: ['style'],
+        ALLOW_DATA_ATTR: true
+      })
+    },
+    webResearchProgressLabel(research) {
+      const labels = {
+        deciding: 'Deciding whether to research…',
+        searching: `Searching: ${(research.queries || []).join(' · ')}`,
+        fetching: 'Reading web sources…',
+        complete: 'Web research complete',
+        partial: 'Web research partially complete',
+        failed: research.warning || 'Web research unavailable'
+      }
+      return labels[research.stage] || 'Researching the web…'
+    },
+    formatSearchTime(value) {
+      return value ? new Date(value).toLocaleString() : 'Research attempted'
+    },
+    safeWebUrl(value) {
+      try {
+        const url = new URL(value)
+        return ['http:', 'https:'].includes(url.protocol) ? url.href : null
+      } catch {
+        return null
+      }
     },
 
     async copyTextWithFallback(text, successMessage) {
@@ -1350,6 +1457,27 @@ export default {
 .toolbar-wrap.toolbar-collapsed {
   max-height: 12px;
 }
+.toolbar-wrap.toolbar-collapsed:hover {
+  max-height: 300px;
+}
+.web-search-control {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  white-space: nowrap;
+}
+.web-search-control > span {
+  line-height: 12px;
+  text-align: center;
+}
+.web-search-control :deep(.q-btn) {
+  font-size: 10px;
+  min-height: 22px;
+  padding: 0 12px;
+}
+.web-search-control :deep(.q-btn__content) {
+  line-height: 1;
+}
 .chat-window {
   flex: 1;
   min-height: 0;
@@ -1404,6 +1532,15 @@ export default {
   font-size: 0.75rem;
   opacity: 0.55;
   white-space: nowrap;
+}
+.web-research-progress {
+  color: var(--text-subtle);
+}
+.web-sources {
+  max-width: 100%;
+}
+.web-source-card a {
+  overflow-wrap: anywhere;
 }
 .failed-message {
   display: flex;

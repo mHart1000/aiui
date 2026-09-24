@@ -8,6 +8,7 @@ export function useStreamingChat() {
   const error = ref(null)
   const loadingPhase = ref('idle')
   const wasStopped = ref(false)
+  const webSearch = ref(null)
 
   let currentAbortController = null
   let currentReader = null
@@ -30,6 +31,7 @@ export function useStreamingChat() {
     stats.value = null
     error.value = null
     wasStopped.value = false
+    webSearch.value = null
     isStreaming.value = true
     loadingPhase.value = 'connecting'
     currentAbortController = new AbortController()
@@ -93,6 +95,9 @@ export function useStreamingChat() {
           const data = JSON.parse(event.substring(6))
 
           switch (data.type) {
+            case 'web_search':
+              webSearch.value = data
+              break
             case 'thinking':
               if (loadingPhase.value === 'connecting') loadingPhase.value = 'thinking'
               thinkingText.value += data.content
@@ -170,6 +175,7 @@ export function useStreamingChat() {
     error,
     loadingPhase,
     wasStopped,
+    webSearch,
     sendMessage,
     dismissError,
     cleanup,

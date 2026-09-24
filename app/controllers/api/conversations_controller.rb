@@ -11,6 +11,7 @@ module Api
           title: c.title,
           model_code: c.model_code,
           rag_enabled: c.rag_enabled,
+          web_search_mode: c.web_search_mode,
           updated_at: c.updated_at
         }
       }
@@ -39,6 +40,7 @@ module Api
           title: c.title,
           model_code: c.model_code,
           rag_enabled: c.rag_enabled,
+          web_search_mode: c.web_search_mode,
           updated_at: c.updated_at,
           snippet: snippets[c.id]
         }
@@ -53,6 +55,7 @@ module Api
         title: conversation.title,
         model_code: conversation.model_code,
         rag_enabled: conversation.rag_enabled,
+        web_search_mode: conversation.web_search_mode,
         use_skills: conversation.resolved_use_skills,
         skill_ids: conversation.resolved_skills.map(&:id),
         messages: conversation.messages.order(:created_at).includes(images_attachments: :blob).map { |m|
@@ -64,6 +67,7 @@ module Api
             total_tokens: m.total_tokens,
             tokens_per_second: m.tokens_per_second,
             generation_ms: m.generation_ms,
+            web_search_data: m.web_search_data,
             images: m.images.attachments.map { |a|
               {
                 id: a.id,
@@ -96,6 +100,7 @@ module Api
         title: conversation.title,
         model_code: conversation.model_code,
         rag_enabled: conversation.rag_enabled,
+        web_search_mode: conversation.web_search_mode,
         use_skills: conversation.resolved_use_skills,
         skill_ids: conversation.resolved_skills.map(&:id)
       }
@@ -121,7 +126,7 @@ module Api
     end
 
     def conversation_params
-      params.require(:conversation).permit(:rag_enabled, :use_skills, skill_ids: [])
+      params.require(:conversation).permit(:rag_enabled, :web_search_mode, :use_skills, skill_ids: [])
     end
   end
 end
