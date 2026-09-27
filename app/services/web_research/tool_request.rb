@@ -4,7 +4,7 @@ require "set"
 module WebResearch
   class ToolRequest
     TOOL_NAME = "research_web".freeze
-    MAX_QUERIES = 2
+    MAX_QUERIES = 4
     MAX_URLS = 3
     MAX_QUERY_LENGTH = 240
     MAX_URL_LENGTH = 2_048

@@ -2,15 +2,15 @@ require "json"
 
 class ChatService
   FALLBACK_MODEL = ENV.fetch("DEFAULT_MODEL", "local-llama")
-  DEFAULT_MAX_TOKENS = 16000
-  WEB_SELECTOR_MAX_MESSAGES = 4
-  WEB_SELECTOR_MAX_MESSAGE_CHARS = 2_000
-  WEB_SELECTOR_MAX_TRANSCRIPT_CHARS = 3_000
+  DEFAULT_MAX_TOKENS = 32000
+  WEB_SELECTOR_MAX_MESSAGES = 5
+  WEB_SELECTOR_MAX_MESSAGE_CHARS = 3_000
+  WEB_SELECTOR_MAX_TRANSCRIPT_CHARS = 4_000
   WEB_SELECTOR_TIMEOUT_SECONDS = 10
-  RAG_CONTEXT_CHARS = 24_000
-  RAG_CONTEXT_CHARS_WITH_WEB = 12_000
-  WEB_EVIDENCE_CHARS = 23_500
-  WEB_EVIDENCE_CHARS_WITH_RAG = 11_500
+  RAG_CONTEXT_CHARS = 48_000
+  RAG_CONTEXT_CHARS_WITH_WEB = 24_000
+  WEB_EVIDENCE_CHARS = 47_000
+  WEB_EVIDENCE_CHARS_WITH_RAG = 23_000
 
   PLANNING_PROMPT = <<~PROMPT
     You are in two-pass reasoning mode. This is the planning phase.
@@ -33,7 +33,7 @@ class ChatService
       parameters: {
         type: "object",
         properties: {
-          queries: { type: "array", items: { type: "string" }, maxItems: 2 },
+          queries: { type: "array", items: { type: "string" }, maxItems: 4 },
           urls: { type: "array", items: { type: "string" }, maxItems: 3 }
         },
         additionalProperties: false
@@ -454,9 +454,9 @@ class ChatService
     end.reverse
     instruction =
       if @web_search_mode == "always"
-        "You are a web-research router. You must call research_web exactly once. Return only the tool call; do not answer or explain."
+        "You are a web-research router. You must call research_web exactly once. Use four distinct, complementary queries when searching. Return only the tool call; do not answer or explain."
       else
-        "You are a web-research router. Call research_web exactly once only when current or niche external evidence would materially help. Otherwise return no tool call. Do not answer or explain."
+        "You are a web-research router. Call research_web exactly once only when current or niche external evidence would materially help. Use four distinct, complementary queries when searching. Otherwise return no tool call. Do not answer or explain."
       end
     transcript = "Conversation transcript:\n\n#{recent.join("\n\n")}\n\nRoute the latest USER request now."
 
