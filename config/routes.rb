@@ -20,7 +20,10 @@ Rails.application.routes.draw do
 
     resources :conversations, only: [ :index, :create, :show, :update ] do
       collection { get :search }
-      member { post :fork, action: :create_fork }
+      member do
+        post :fork, action: :create_fork
+        patch :web_search_settings
+      end
       resources :messages, only: [ :update ]
       post "messages/stream", to: "messages#create_streaming"
     end
