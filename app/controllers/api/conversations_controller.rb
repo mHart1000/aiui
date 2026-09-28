@@ -107,6 +107,26 @@ module Api
     def update
       conversation = current_api_user.conversations.find(params[:id])
       conversation.update!(conversation_params)
+      render_conversation_settings(conversation)
+    end
+
+    def web_search_settings
+      conversation = current_api_user.conversations.find(params[:id])
+      attrs = web_search_settings_params
+
+      ActiveRecord::Base.transaction do
+        current_api_user.update!(attrs)
+        conversation.update!(attrs)
+      end
+
+      render_conversation_settings(conversation)
+    rescue ActiveRecord::RecordInvalid => e
+      render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
+    end
+
+    private
+
+    def render_conversation_settings(conversation)
       render json: {
         id: conversation.id,
         title: conversation.title,
@@ -145,6 +165,10 @@ module Api
 
     def conversation_params
       params.require(:conversation).permit(:rag_enabled, :web_search_mode, :web_search_level, :use_skills, skill_ids: [])
+    end
+
+    def web_search_settings_params
+      params.require(:web_search).permit(:web_search_mode, :web_search_level)
     end
   end
 end

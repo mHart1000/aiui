@@ -999,13 +999,16 @@ export default {
       const conversationId = this.conversationId
 
       this.webSearchSync = this.webSearchSync.then(async () => {
-        await api.patch('/api/user', { user: { web_search_mode: value } })
         if (conversationId) {
-          await api.patch(`/api/conversations/${conversationId}`, { conversation: { web_search_mode: value } })
-          if (this.conversationId !== conversationId) return true
+          await api.patch(`/api/conversations/${conversationId}/web_search_settings`, {
+            web_search: { web_search_mode: value }
+          })
+        } else {
+          await api.patch('/api/user', { user: { web_search_mode: value } })
         }
-        this.persistedWebSearchMode = value
         this.userWebSearchMode = value
+        if (this.conversationId !== conversationId) return true
+        this.persistedWebSearchMode = value
         return true
       }).catch((err) => {
         console.error('Error updating web research mode:', err)
@@ -1023,13 +1026,16 @@ export default {
       this.webSearchLevel = value  // optimistic; reverted on failure
 
       this.webSearchSync = this.webSearchSync.then(async () => {
-        await api.patch('/api/user', { user: { web_search_level: value } })
         if (conversationId) {
-          await api.patch(`/api/conversations/${conversationId}`, { conversation: { web_search_level: value } })
-          if (this.conversationId !== conversationId) return true
+          await api.patch(`/api/conversations/${conversationId}/web_search_settings`, {
+            web_search: { web_search_level: value }
+          })
+        } else {
+          await api.patch('/api/user', { user: { web_search_level: value } })
         }
-        this.persistedWebSearchLevel = value
         this.userWebSearchLevel = value
+        if (this.conversationId !== conversationId) return true
+        this.persistedWebSearchLevel = value
         return true
       }).catch((err) => {
         console.error('Error updating web research level:', err)

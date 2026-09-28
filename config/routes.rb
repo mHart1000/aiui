@@ -23,6 +23,7 @@ Rails.application.routes.draw do
       member do
         post :fork, action: :create_fork
         post :duplicate
+        patch :web_search_settings
       end
       resources :messages, only: [ :update ]
       post "messages/stream", to: "messages#create_streaming"
