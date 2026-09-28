@@ -14,6 +14,7 @@ class Conversation < ApplicationRecord
   belongs_to :user
 
   validates :web_search_mode, inclusion: { in: %w[off auto always], allow_nil: true }
+  validates :web_search_level, inclusion: { in: WebResearch::Profile::LEVELS, allow_nil: true }
 
   def entitle_async(content)
     return if title.present? && !placeholder_title?
@@ -39,6 +40,7 @@ class Conversation < ApplicationRecord
         model_code: model_code,
         rag_enabled: rag_enabled,
         web_search_mode: web_search_mode,
+        web_search_level: web_search_level,
         use_skills: use_skills,
         skill_ids: skill_ids
       )
@@ -64,6 +66,14 @@ class Conversation < ApplicationRecord
   # null on either override column means "inherit from the user".
   def resolved_use_skills
     use_skills.nil? ? user.use_skills : use_skills
+  end
+
+  def resolved_web_search_mode
+    web_search_mode.presence || user.web_search_mode.presence || "off"
+  end
+
+  def resolved_web_search_level
+    web_search_level.presence || user.web_search_level.presence || WebResearch::Profile::DEFAULT_LEVEL
   end
 
   # An explicit [] means no skills here; null falls back to the user's defaults.

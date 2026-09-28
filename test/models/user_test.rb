@@ -45,6 +45,23 @@ class UserTest < ActiveSupport::TestCase
     assert_equal 1.0, @user.reload.tts_speed
   end
 
+  test "web_search_mode defaults to off" do
+    @user.save!
+    assert_equal "off", @user.reload.web_search_mode
+  end
+
+  test "web_search_level defaults to low" do
+    @user.save!
+    assert_equal "low", @user.reload.web_search_level
+  end
+
+  test "web_search_level rejects an unknown value" do
+    @user.web_search_level = "ultra"
+
+    refute @user.valid?
+    assert_includes @user.errors[:web_search_level], "is not included in the list"
+  end
+
   # associations
   test "destroying a user destroys their conversations" do
     @user.save!
