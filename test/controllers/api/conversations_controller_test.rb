@@ -89,5 +89,47 @@ module Api
 
       assert_response :not_found
     end
+
+    test "show serializes the resolved web search mode and level when inheriting" do
+      @user.update!(web_search_mode: "always", web_search_level: "high")
+
+      get "/api/conversations/#{@conversation.id}", headers: @headers
+
+      assert_response :success
+      body = JSON.parse(response.body)
+      assert_equal "always", body["web_search_mode"]
+      assert_equal "high", body["web_search_level"]
+    end
+
+    test "show uses the conversation override when set" do
+      @user.update!(web_search_mode: "auto", web_search_level: "low")
+      @conversation.update!(web_search_mode: "always", web_search_level: "high")
+
+      get "/api/conversations/#{@conversation.id}", headers: @headers
+
+      body = JSON.parse(response.body)
+      assert_equal "always", body["web_search_mode"]
+      assert_equal "high", body["web_search_level"]
+    end
+
+    test "update persists the web search level override" do
+      patch "/api/conversations/#{@conversation.id}",
+            params: { conversation: { web_search_level: "high" } }, headers: @headers, as: :json
+
+      assert_response :success
+      assert_equal "high", @conversation.reload.web_search_level
+      assert_equal "high", JSON.parse(response.body)["web_search_level"]
+    end
+
+    test "index serializes the resolved web search mode and level" do
+      @user.update!(web_search_mode: "auto", web_search_level: "high")
+
+      get "/api/conversations", headers: @headers
+
+      assert_response :success
+      entry = JSON.parse(response.body).find { |c| c["id"] == @conversation.id }
+      assert_equal "auto", entry["web_search_mode"]
+      assert_equal "high", entry["web_search_level"]
+    end
   end
 end

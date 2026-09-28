@@ -52,7 +52,8 @@ module Api
           stream: true,
           rag_context: rag_context,
           skills: fetch_skills(conversation),
-          web_search_mode: conversation.web_search_mode
+          web_search_mode: conversation.resolved_web_search_mode,
+          web_search_level: conversation.resolved_web_search_level
         ) do |chunk, phase|
           if phase == :thinking
             thinking_accumulator += chunk
@@ -213,7 +214,7 @@ module Api
       end
       return nil if chunks.blank?
 
-      context = Rag::ContextFormatter.format(chunks)
+      context = Rag::ContextFormatter.format(chunks, budgets: WebResearch::Profile.for_level(conversation.resolved_web_search_level))
       Rails.logger.info("[RAG] injected context: #{context.to_s.length} chars")
       context
     rescue => e

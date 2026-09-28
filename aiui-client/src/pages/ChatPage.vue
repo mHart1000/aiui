@@ -47,6 +47,18 @@
           toggle-color="primary"
           @update:model-value="updateWebSearchMode"
         />
+        <span class="text-caption text-grey-7 q-ml-sm">Depth</span>
+        <q-slider
+          v-model="webSearchLevelIndex"
+          :min="0"
+          :max="webSearchLevels.length - 1"
+          :step="1"
+          dense
+          label
+          label-always
+          :labels="webSearchLevelLabels"
+          style="width: 110px"
+        />
       </div>
       <q-btn
         flat
@@ -501,6 +513,11 @@ export default {
     ragEnabled: false,
     webSearchMode: 'off',
     persistedWebSearchMode: 'off',
+    webSearchLevel: 'low',
+    persistedWebSearchLevel: 'low',
+    userWebSearchMode: 'off',
+    userWebSearchLevel: 'low',
+    webSearchLevels: ['low', 'high'],
     webSearchSync: Promise.resolve(true),
     skillsOpen: false,
     skillsEnabled: false,
@@ -535,6 +552,15 @@ export default {
     if (!this.conversationId) this.activeSkillIds = this.defaultSkillIds
     this.activeSkillIds = this.defaultSkillIds
     this.llamaContextWindow = userRes.data.llama_context_window || 8192
+    this.userWebSearchMode = userRes.data.web_search_mode || 'off'
+    this.userWebSearchLevel = userRes.data.web_search_level || 'low'
+    // A new chat starts from the user's defaults; an existing one is set by loadConversation.
+    if (!this.conversationId) {
+      this.webSearchMode = this.userWebSearchMode
+      this.persistedWebSearchMode = this.userWebSearchMode
+      this.webSearchLevel = this.userWebSearchLevel
+      this.persistedWebSearchLevel = this.userWebSearchLevel
+    }
 
     // Live context window from llama.cpp is authoritative; the stored value above is only the fallback.
     if (this.isLlamaModel) await this.fetchLlamaContext()
@@ -567,8 +593,10 @@ export default {
           this.messages = []
           this.input = ''
           this.modelCode = DEFAULT_MODEL_ID
-          this.webSearchMode = 'off'
-          this.persistedWebSearchMode = 'off'
+          this.webSearchMode = this.userWebSearchMode
+          this.persistedWebSearchMode = this.userWebSearchMode
+          this.webSearchLevel = this.userWebSearchLevel
+          this.persistedWebSearchLevel = this.userWebSearchLevel
         }
       }
     },
@@ -659,6 +687,19 @@ export default {
         { label: 'Auto', value: 'auto' },
         { label: 'On', value: 'always' }
       ]
+    },
+    webSearchLevelLabels() {
+      return this.webSearchLevels.map(level => level.charAt(0).toUpperCase() + level.slice(1))
+    },
+    webSearchLevelIndex: {
+      get() {
+        const index = this.webSearchLevels.indexOf(this.webSearchLevel)
+        return index === -1 ? 0 : index
+      },
+      set(value) {
+        const level = this.webSearchLevels[value]
+        if (level && level !== this.webSearchLevel) this.updateWebSearchLevel(level)
+      }
     },
     skillsLabel() {
       const count = this.activeSkillIds.length
@@ -878,6 +919,8 @@ export default {
         this.ragEnabled = res.data.rag_enabled || false
         this.webSearchMode = res.data.web_search_mode || 'off'
         this.persistedWebSearchMode = this.webSearchMode
+        this.webSearchLevel = res.data.web_search_level || 'low'
+        this.persistedWebSearchLevel = this.webSearchLevel
         this.skillsEnabled = res.data.use_skills || false
         this.activeSkillIds = res.data.skill_ids || []
         return true
@@ -951,19 +994,18 @@ export default {
         })
       }
     },
+    // Always updates the user default and, when a conversation exists, pins it there too.
     updateWebSearchMode(value) {
-      if (!this.conversationId) {
-        this.persistedWebSearchMode = value
-        return Promise.resolve(true)
-      }
-
       const conversationId = this.conversationId
 
       this.webSearchSync = this.webSearchSync.then(async () => {
-        await api.patch(`/api/conversations/${conversationId}`, {
-          conversation: { web_search_mode: value }
-        })
-        if (this.conversationId === conversationId) this.persistedWebSearchMode = value
+        await api.patch('/api/user', { user: { web_search_mode: value } })
+        if (conversationId) {
+          await api.patch(`/api/conversations/${conversationId}`, { conversation: { web_search_mode: value } })
+          if (this.conversationId !== conversationId) return true
+        }
+        this.persistedWebSearchMode = value
+        this.userWebSearchMode = value
         return true
       }).catch((err) => {
         console.error('Error updating web research mode:', err)
@@ -974,6 +1016,29 @@ export default {
         return false
       })
       return this.webSearchSync
+    },
+    updateWebSearchLevel(value) {
+      const conversationId = this.conversationId
+      const previous = this.webSearchLevel
+      this.webSearchLevel = value  // optimistic; reverted on failure
+
+      this.webSearchSync = this.webSearchSync.then(async () => {
+        await api.patch('/api/user', { user: { web_search_level: value } })
+        if (conversationId) {
+          await api.patch(`/api/conversations/${conversationId}`, { conversation: { web_search_level: value } })
+          if (this.conversationId !== conversationId) return true
+        }
+        this.persistedWebSearchLevel = value
+        this.userWebSearchLevel = value
+        return true
+      }).catch((err) => {
+        console.error('Error updating web research level:', err)
+        if (this.conversationId === conversationId) {
+          this.webSearchLevel = previous
+          this.$q.notify({ type: 'negative', message: 'Failed to update web research setting', position: 'top', timeout: 2000 })
+        }
+        return false
+      })
     },
     async sendMessage() {
       const text = this.input.trim()
@@ -1002,7 +1067,6 @@ export default {
         // Toolbar settings chosen before the first send are applied here.
         const initial = { use_skills: this.skillsEnabled, skill_ids: this.activeSkillIds }
         if (this.ragEnabled) initial.rag_enabled = true
-        if (this.webSearchMode !== 'off') initial.web_search_mode = this.webSearchMode
         await api.patch(`/api/conversations/${this.conversationId}`, { conversation: initial })
       }
 

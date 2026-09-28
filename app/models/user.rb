@@ -14,6 +14,9 @@ class User < ApplicationRecord
   has_many :rag_chunks, dependent: :destroy
   has_many :skills, dependent: :destroy
 
+  validates :web_search_mode, inclusion: { in: %w[off auto always] }
+  validates :web_search_level, inclusion: { in: WebResearch::Profile::LEVELS }
+
   after_create :seed_default_skills
 
   private

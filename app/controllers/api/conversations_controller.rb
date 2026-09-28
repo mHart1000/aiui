@@ -4,14 +4,15 @@ module Api
     respond_to :json
 
     def index
-      conversations = current_api_user.conversations.order(updated_at: :desc)
+      conversations = current_api_user.conversations.includes(:user).order(updated_at: :desc)
       render json: conversations.map { |c|
         {
           id: c.id,
           title: c.title,
           model_code: c.model_code,
           rag_enabled: c.rag_enabled,
-          web_search_mode: c.web_search_mode,
+          web_search_mode: c.resolved_web_search_mode,
+          web_search_level: c.resolved_web_search_level,
           updated_at: c.updated_at
         }
       }
@@ -33,14 +34,15 @@ module Api
              .order(:created_at)
              .each { |m| snippets[m.conversation_id] ||= snippet_for(m.content, q) }
 
-      conversations = scope.where(id: (title_ids + content_ids).uniq).order(updated_at: :desc)
+      conversations = scope.where(id: (title_ids + content_ids).uniq).includes(:user).order(updated_at: :desc)
       render json: conversations.map { |c|
         {
           id: c.id,
           title: c.title,
           model_code: c.model_code,
           rag_enabled: c.rag_enabled,
-          web_search_mode: c.web_search_mode,
+          web_search_mode: c.resolved_web_search_mode,
+          web_search_level: c.resolved_web_search_level,
           updated_at: c.updated_at,
           snippet: snippets[c.id]
         }
@@ -55,7 +57,8 @@ module Api
         title: conversation.title,
         model_code: conversation.model_code,
         rag_enabled: conversation.rag_enabled,
-        web_search_mode: conversation.web_search_mode,
+        web_search_mode: conversation.resolved_web_search_mode,
+        web_search_level: conversation.resolved_web_search_level,
         use_skills: conversation.resolved_use_skills,
         skill_ids: conversation.resolved_skills.map(&:id),
         messages: conversation.messages.order(:created_at).includes(images_attachments: :blob).map { |m|
@@ -100,7 +103,8 @@ module Api
         title: conversation.title,
         model_code: conversation.model_code,
         rag_enabled: conversation.rag_enabled,
-        web_search_mode: conversation.web_search_mode,
+        web_search_mode: conversation.resolved_web_search_mode,
+        web_search_level: conversation.resolved_web_search_level,
         use_skills: conversation.resolved_use_skills,
         skill_ids: conversation.resolved_skills.map(&:id)
       }
@@ -126,7 +130,7 @@ module Api
     end
 
     def conversation_params
-      params.require(:conversation).permit(:rag_enabled, :web_search_mode, :use_skills, skill_ids: [])
+      params.require(:conversation).permit(:rag_enabled, :web_search_mode, :web_search_level, :use_skills, skill_ids: [])
     end
   end
 end
