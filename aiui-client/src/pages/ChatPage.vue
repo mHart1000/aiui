@@ -36,29 +36,32 @@
         color="primary"
       />
       <div class="web-search-control">
-        <span class="text-caption text-grey-7">Web research</span>
-        <q-btn-toggle
-          v-model="webSearchMode"
-          :options="webSearchOptions"
-          no-caps
-          unelevated
-          dense
-          rounded
-          toggle-color="primary"
-          @update:model-value="updateWebSearchMode"
-        />
-        <span class="text-caption text-grey-7 q-ml-sm">Depth</span>
-        <q-slider
-          v-model="webSearchLevelIndex"
-          :min="0"
-          :max="webSearchLevels.length - 1"
-          :step="1"
-          dense
-          label
-          label-always
-          :labels="webSearchLevelLabels"
-          style="width: 110px"
-        />
+        <div class="web-search-field">
+          <span class="text-caption text-grey-7">Web research</span>
+          <q-btn-toggle
+            v-model="webSearchMode"
+            :options="webSearchOptions"
+            no-caps
+            unelevated
+            dense
+            rounded
+            toggle-color="primary"
+            @update:model-value="updateWebSearchMode"
+          />
+        </div>
+        <div class="web-search-field web-search-level">
+          <span class="text-caption text-grey-7">Search level</span>
+          <q-slider
+            v-model="webSearchLevelIndex"
+            :min="0"
+            :max="webSearchLevels.length - 1"
+            :step="1"
+            :label-value="webSearchLevelLabels[webSearchLevelIndex]"
+            dense
+            label
+            label-always
+          />
+        </div>
       </div>
       <q-btn
         flat
@@ -1532,13 +1535,21 @@ export default {
 }
 .web-search-control {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: flex-end;
+  gap: 12px;
   white-space: nowrap;
 }
-.web-search-control > span {
+.web-search-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.web-search-field > span {
   line-height: 12px;
   text-align: center;
+}
+.web-search-level {
+  width: 110px;
 }
 .web-search-control :deep(.q-btn) {
   font-size: 10px;
