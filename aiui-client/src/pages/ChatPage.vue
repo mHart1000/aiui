@@ -1,131 +1,138 @@
 <template>
   <q-page class="column chat-page">
     <div
-      class="row q-ma-none q-gutter-md items-center toolbar-wrap"
+      class="toolbar-wrap"
       :class="{ 'toolbar-collapsed': !toolbarExpanded }"
+      role="region"
+      aria-label="Chat settings"
+      tabindex="0"
     >
-      <q-select
-        v-model="modelCode"
-        :options="modelOptions"
-        label="Model"
-        emit-value
-        map-options
-        dense
-        style="max-width: 380px"
-      />
-      <q-select
-        v-model="personaSelection"
-        :options="personaOptions"
-        label="Persona"
-        emit-value
-        map-options
-        dense
-        style="min-width: 220px"
-        @update:model-value="updatePersonaSelection"
-      />
-      <q-toggle
-        v-model="useScaffolding"
-        label="Scaffolding"
-        @update:model-value="updateScaffoldingPreference"
-        color="primary"
-      />
-      <q-toggle
-        v-model="ragEnabled"
-        label="Context"
-        @update:model-value="updateRagEnabled"
-        color="primary"
-      />
-      <div class="web-search-control">
-        <div class="web-search-field">
-          <span class="text-caption text-grey-7">Web research</span>
-          <q-btn-toggle
-            v-model="webSearchMode"
-            :options="webSearchOptions"
+      <div class="toolbar-panel">
+        <div class="toolbar-controls">
+          <q-select
+            v-model="modelCode"
+            :options="modelOptions"
+            label="Model"
+            emit-value
+            map-options
+            dense
+            style="max-width: 380px"
+          />
+          <q-select
+            v-model="personaSelection"
+            :options="personaOptions"
+            label="Persona"
+            emit-value
+            map-options
+            dense
+            style="min-width: 220px"
+            @update:model-value="updatePersonaSelection"
+          />
+          <q-toggle
+            v-model="useScaffolding"
+            label="Scaffolding"
+            @update:model-value="updateScaffoldingPreference"
+            color="primary"
+          />
+          <q-toggle
+            v-model="ragEnabled"
+            label="Context"
+            @update:model-value="updateRagEnabled"
+            color="primary"
+          />
+          <div class="web-search-control">
+            <div class="web-search-field">
+              <span class="text-caption text-grey-7">Web research</span>
+              <q-btn-toggle
+                v-model="webSearchMode"
+                :options="webSearchOptions"
+                no-caps
+                unelevated
+                dense
+                rounded
+                toggle-color="primary"
+                @update:model-value="updateWebSearchMode"
+              />
+            </div>
+            <div class="web-search-field web-search-level">
+              <span class="text-caption text-grey-7">Search level</span>
+              <q-slider
+                v-model="webSearchLevelIndex"
+                :min="0"
+                :max="webSearchLevels.length - 1"
+                :step="1"
+                :label-value="webSearchLevelLabels[webSearchLevelIndex]"
+                dense
+                label
+                label-always
+              />
+            </div>
+          </div>
+          <q-btn
+            flat
+            dense
             no-caps
-            unelevated
-            dense
-            rounded
-            toggle-color="primary"
-            @update:model-value="updateWebSearchMode"
+            icon="extension"
+            :label="skillsLabel"
+            @click="skillsOpen = true"
           />
-        </div>
-        <div class="web-search-field web-search-level">
-          <span class="text-caption text-grey-7">Search level</span>
-          <q-slider
-            v-model="webSearchLevelIndex"
-            :min="0"
-            :max="webSearchLevels.length - 1"
-            :step="1"
-            :label-value="webSearchLevelLabels[webSearchLevelIndex]"
-            dense
-            label
-            label-always
+          <TtsControls
+            :show="voiceChatMode"
+            :is-playing="ttsPlayer.isPlaying.value"
+            :is-paused="ttsPlayer.isPaused.value"
+            :current-voice="ttsPlayer.currentVoice.value"
+            :speed="ttsPlayer.speed.value"
+            :available-voices="ttsPlayer.availableVoices.value"
+            @update:voice="handleTtsVoiceChange"
+            @update:speed="handleTtsSpeedChange"
+            @pause="ttsPlayer.pause()"
+            @resume="ttsPlayer.resume()"
+            @stop="ttsPlayer.stop()"
           />
-        </div>
-      </div>
-      <q-btn
-        flat
-        dense
-        no-caps
-        icon="extension"
-        :label="skillsLabel"
-        @click="skillsOpen = true"
-      />
-      <TtsControls
-        :show="voiceChatMode"
-        :is-playing="ttsPlayer.isPlaying.value"
-        :is-paused="ttsPlayer.isPaused.value"
-        :current-voice="ttsPlayer.currentVoice.value"
-        :speed="ttsPlayer.speed.value"
-        :available-voices="ttsPlayer.availableVoices.value"
-        @update:voice="handleTtsVoiceChange"
-        @update:speed="handleTtsSpeedChange"
-        @pause="ttsPlayer.pause()"
-        @resume="ttsPlayer.resume()"
-        @stop="ttsPlayer.stop()"
-      />
-      <div v-if="voiceChatMode" class="row items-center q-gutter-sm" style="min-width: 220px">
-        <span class="text-caption text-grey-7">Pause</span>
-        <q-slider
-          v-model="endOfUtteranceMs"
-          :min="1000"
-          :max="10000"
-          :step="500"
-          color="primary"
-          style="width: 160px"
-        />
-        <span class="text-caption text-grey-7" style="min-width: 34px">
-          {{ (endOfUtteranceMs / 1000).toFixed(1) + 's' }}
-        </span>
-      </div>
-      <div v-if="voiceChatMode" class="row items-center q-gutter-sm" style="min-width: 220px">
-        <span class="text-caption text-grey-7">Timeout</span>
-        <q-slider
-          v-model="inactivityTimeoutSec"
-          :min="5"
-          :max="65"
-          :step="5"
-          color="primary"
-          style="width: 160px"
-        />
-        <span class="text-caption text-grey-7" style="min-width: 34px">
-          {{ inactivityTimeoutSec > 60 ? 'Off' : inactivityTimeoutSec + 's' }}
-        </span>
-      </div>
-      <div v-if="isLlamaModel && hasMessages" class="context-usage">
-        <q-circular-progress
-          :value="contextUsageRatio * 100"
-          size="32px"
-          :thickness="0.2"
-          color="primary"
-          track-color="grey-3"
-          show-value
-          class="text-caption"
-        >
-          {{ Math.round(contextUsageRatio * 100) }}%
-        </q-circular-progress>
-        <div class="text-caption text-grey-7">
-          {{ lastContextTokens.toLocaleString() }} / {{ llamaContextWindow.toLocaleString() }} tokens
+          <div v-if="voiceChatMode" class="row items-center q-gutter-sm" style="min-width: 220px">
+            <span class="text-caption text-grey-7">Pause</span>
+            <q-slider
+              v-model="endOfUtteranceMs"
+              :min="1000"
+              :max="10000"
+              :step="500"
+              color="primary"
+              style="width: 160px"
+            />
+            <span class="text-caption text-grey-7" style="min-width: 34px">
+              {{ (endOfUtteranceMs / 1000).toFixed(1) + 's' }}
+            </span>
+          </div>
+          <div v-if="voiceChatMode" class="row items-center q-gutter-sm" style="min-width: 220px">
+            <span class="text-caption text-grey-7">Timeout</span>
+            <q-slider
+              v-model="inactivityTimeoutSec"
+              :min="5"
+              :max="65"
+              :step="5"
+              color="primary"
+              style="width: 160px"
+            />
+            <span class="text-caption text-grey-7" style="min-width: 34px">
+              {{ inactivityTimeoutSec > 60 ? 'Off' : inactivityTimeoutSec + 's' }}
+            </span>
+          </div>
+          <div v-if="isLlamaModel && hasMessages" class="context-usage">
+            <q-circular-progress
+              :value="contextUsageRatio * 100"
+              size="32px"
+              :thickness="0.2"
+              color="primary"
+              track-color="grey-3"
+              show-value
+              class="text-caption"
+            >
+              {{ Math.round(contextUsageRatio * 100) }}%
+            </q-circular-progress>
+            <div class="text-caption text-grey-7">
+              {{ lastContextTokens.toLocaleString() }} / {{ llamaContextWindow.toLocaleString() }} tokens
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1521,17 +1528,39 @@ export default {
   height: 100vh;
   overflow: hidden;
 }
-/* clip, not hidden: hidden makes this a scroll container that focus restoration can scroll. */
 .toolbar-wrap {
-  overflow: clip;
-  transition: max-height 0.25s ease;
-  max-height: 300px;
+  display: grid;
+  grid-template-rows: 1fr;
+  flex-shrink: 0;
+  padding-top: 12px;
+  transition: grid-template-rows 0.25s ease;
 }
 .toolbar-wrap.toolbar-collapsed {
-  max-height: 12px;
+  grid-template-rows: 0fr;
 }
-.toolbar-wrap.toolbar-collapsed:hover {
-  max-height: 300px;
+.toolbar-wrap.toolbar-collapsed:hover,
+.toolbar-wrap.toolbar-collapsed:focus-within {
+  grid-template-rows: 1fr;
+}
+.toolbar-panel {
+  min-height: 0;
+  /* Avoid a scroll container that focus restoration could scroll. */
+  overflow: clip;
+}
+.toolbar-collapsed:not(:hover):not(:focus-within) .toolbar-panel {
+  visibility: hidden;
+}
+.toolbar-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .toolbar-wrap {
+    transition: none;
+  }
 }
 .web-search-control {
   display: flex;
