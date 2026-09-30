@@ -66,11 +66,14 @@
                 dense
               />
               <div class="web-search-level-options">
-                <span
+                <button
                   v-for="(level, index) in webSearchLevels"
                   :key="level"
+                  type="button"
                   class="text-caption"
                   :class="{ 'text-primary text-weight-bold': level === webSearchLevel }"
+                  :aria-pressed="level === webSearchLevel"
+                  @click="webSearchLevelIndex = index"
                 >
                   {{ webSearchLevelLabels[index] }}
                   <q-tooltip v-if="webSearchProfiles[level]" anchor="bottom middle" self="top middle" max-width="min(440px, 95vw)">
@@ -84,7 +87,7 @@
                       </tbody>
                     </table>
                   </q-tooltip>
-                </span>
+                </button>
               </div>
             </div>
           </div>
@@ -1607,8 +1610,17 @@ export default {
   display: flex;
   justify-content: space-between;
 }
-.web-search-level-options > span {
-  cursor: help;
+.web-search-level-options > button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  cursor: pointer;
+}
+.web-search-level-options > button:focus-visible {
+  outline: 2px solid var(--q-primary);
+  outline-offset: 2px;
 }
 .web-search-budget-table {
   border-spacing: 0;
