@@ -410,6 +410,7 @@ class ChatService
     outcome.merge(tool_call: normalized_tool_call(request))
   rescue WebResearch::ToolRequest::InvalidRequest, AiAdapters::LlamaAdapter::Error, JSON::ParserError, Net::OpenTimeout, Net::ReadTimeout, SocketError, EOFError, IOError => e
     Rails.logger.warn(web_selection_error_log(e, selection))
+    Rails.logger.debug { "WebResearch selector model output #{web_selection_debug_dump(selection)}" }
     Rails.logger.debug { Array(e.backtrace).join("\n") }
     metadata = failed_research_metadata("Web research could not be completed.")
     emit_research_event(block, :failed, metadata)
@@ -486,6 +487,13 @@ class ChatService
 
     message = error.is_a?(JSON::ParserError) ? "invalid JSON response" : error.message
     "WebResearch tool selection failed stage=selection #{details} error=#{error.class}: #{message}"
+  end
+
+  # Raw selector model output, logged at debug level for failure diagnostics.
+  def web_selection_debug_dump(selection)
+    return "null" unless selection
+
+    selection.slice(:finish_reason, :reasoning, :content, :tool_calls).to_json
   end
 
   def log_web_selector_statistics(selection)

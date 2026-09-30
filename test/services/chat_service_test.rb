@@ -692,7 +692,9 @@ class ChatServiceTest < ActiveSupport::TestCase
       assert_includes log_output, "reasoning_present=true"
       assert_includes log_output, "WebResearch::ToolRequest::InvalidRequest"
       assert_includes log_output, "app/services/web_research/tool_request.rb"
-      refute_includes log_output, "SENSITIVE ROUTER OUTPUT"
+      # The raw selector model output is logged at debug level for diagnostics.
+      assert_includes log_output, "WebResearch selector model output"
+      assert_includes log_output, "SENSITIVE ROUTER OUTPUT"
       refute_includes log_output, "Research a private topic"
     end
 
