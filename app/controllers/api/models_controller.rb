@@ -5,7 +5,8 @@ module Api
     def index
       render json: {
         models: AI_MODELS,
-        local_image_input: AiModels.local_image_input
+        local_image_input: AiModels.local_image_input,
+        web_search_profiles: WebResearch::Profile::PROFILES
       }
     end
 

@@ -61,11 +61,31 @@
                 :min="0"
                 :max="webSearchLevels.length - 1"
                 :step="1"
-                :label-value="webSearchLevelLabels[webSearchLevelIndex]"
+                aria-label="Search level"
+                :aria-valuetext="webSearchLevelLabels[webSearchLevelIndex]"
                 dense
-                label
-                label-always
               />
+              <div class="web-search-level-options">
+                <span
+                  v-for="(level, index) in webSearchLevels"
+                  :key="level"
+                  class="text-caption"
+                  :class="{ 'text-primary text-weight-bold': level === webSearchLevel }"
+                >
+                  {{ webSearchLevelLabels[index] }}
+                  <q-tooltip v-if="webSearchProfiles[level]" anchor="bottom middle" self="top middle" max-width="min(440px, 95vw)">
+                    <div class="text-weight-bold q-mb-xs">{{ webSearchLevelLabels[index] }} search level</div>
+                    <table class="web-search-budget-table">
+                      <tbody>
+                        <tr v-for="(value, variable) in webSearchProfiles[level]" :key="variable">
+                          <td>{{ variable }}</td>
+                          <td>{{ value.toLocaleString() }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </q-tooltip>
+                </span>
+              </div>
             </div>
           </div>
           <q-btn
@@ -528,6 +548,7 @@ export default {
     userWebSearchMode: 'off',
     userWebSearchLevel: 'low',
     webSearchLevels: ['low', 'high'],
+    webSearchProfiles: {},
     webSearchSync: Promise.resolve(true),
     skillsOpen: false,
     skillsEnabled: false,
@@ -548,6 +569,8 @@ export default {
     const modelsRes = await api.get('/api/models')
     this.models = modelsRes.data.models
     this.localImageInput = modelsRes.data.local_image_input
+    this.webSearchProfiles = modelsRes.data.web_search_profiles
+    this.webSearchLevels = Object.keys(this.webSearchProfiles)
     if (!this.modelCode && this.models.length > 0) {
       this.modelCode = DEFAULT_MODEL_ID || String(this.models[0].id)
     }
@@ -1579,6 +1602,21 @@ export default {
 }
 .web-search-level {
   width: 110px;
+}
+.web-search-level-options {
+  display: flex;
+  justify-content: space-between;
+}
+.web-search-level-options > span {
+  cursor: help;
+}
+.web-search-budget-table {
+  border-spacing: 0;
+  font-family: monospace;
+}
+.web-search-budget-table td:last-child {
+  padding-left: 16px;
+  text-align: right;
 }
 .web-search-control :deep(.q-btn) {
   font-size: 10px;
