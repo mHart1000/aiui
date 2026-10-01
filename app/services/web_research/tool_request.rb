@@ -4,7 +4,8 @@ require "set"
 module WebResearch
   class ToolRequest
     TOOL_NAME = "research_web".freeze
-    MAX_QUERIES = 2
+    # Default-level value; per-request count is chosen by the web search level.
+    MAX_QUERIES = Profile.for_level(Profile::DEFAULT_LEVEL)[:max_queries]
     MAX_URLS = 3
     MAX_QUERY_LENGTH = 240
     MAX_URL_LENGTH = 2_048
@@ -13,7 +14,7 @@ module WebResearch
 
     attr_reader :queries, :urls
 
-    def self.parse!(tool_calls:, last_four_user_messages:)
+    def self.parse!(tool_calls:, last_four_user_messages:, max_queries: MAX_QUERIES)
       calls = Array(tool_calls)
       raise InvalidRequest, "expected exactly one web research request, received #{calls.length}" unless calls.length == 1
 
@@ -26,27 +27,27 @@ module WebResearch
       parsed = arguments.is_a?(String) ? JSON.parse(arguments) : arguments
       raise InvalidRequest, "tool arguments must be an object" unless parsed.is_a?(Hash)
 
-      new(parsed, last_four_user_messages: last_four_user_messages)
+      new(parsed, last_four_user_messages: last_four_user_messages, max_queries: max_queries)
     rescue JSON::ParserError
       raise InvalidRequest, "tool arguments were not valid JSON"
     end
 
-    def initialize(arguments, last_four_user_messages:)
+    def initialize(arguments, last_four_user_messages:, max_queries: MAX_QUERIES)
       unknown_keys = arguments.keys.map(&:to_s) - %w[queries urls]
       raise InvalidRequest, "tool arguments contained unknown fields" if unknown_keys.any?
 
-      @queries = normalize_queries(arguments["queries"] || arguments[:queries])
+      @queries = normalize_queries(arguments["queries"] || arguments[:queries], max_queries)
       @urls = normalize_urls(arguments["urls"] || arguments[:urls], last_four_user_messages)
       raise InvalidRequest, "research request was empty" if @queries.empty? && @urls.empty?
     end
 
     private
 
-    def normalize_queries(values)
+    def normalize_queries(values, max_queries)
       raise InvalidRequest, "queries must be an array" if values.present? && !values.is_a?(Array)
 
       values = Array(values)
-      raise InvalidRequest, "too many search queries" if values.length > MAX_QUERIES
+      raise InvalidRequest, "too many search queries" if values.length > max_queries
 
       values.map do |value|
         raise InvalidRequest, "search query must be a string" unless value.is_a?(String)

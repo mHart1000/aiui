@@ -4,14 +4,15 @@ module Api
     respond_to :json
 
     def index
-      conversations = current_api_user.conversations.order(updated_at: :desc)
+      conversations = current_api_user.conversations.includes(:user).order(updated_at: :desc)
       render json: conversations.map { |c|
         {
           id: c.id,
           title: c.title,
           model_code: c.model_code,
           rag_enabled: c.rag_enabled,
-          web_search_mode: c.web_search_mode,
+          web_search_mode: c.resolved_web_search_mode,
+          web_search_level: c.resolved_web_search_level,
           updated_at: c.updated_at
         }
       }
@@ -33,14 +34,15 @@ module Api
              .order(:created_at)
              .each { |m| snippets[m.conversation_id] ||= snippet_for(m.content, q) }
 
-      conversations = scope.where(id: (title_ids + content_ids).uniq).order(updated_at: :desc)
+      conversations = scope.where(id: (title_ids + content_ids).uniq).includes(:user).order(updated_at: :desc)
       render json: conversations.map { |c|
         {
           id: c.id,
           title: c.title,
           model_code: c.model_code,
           rag_enabled: c.rag_enabled,
-          web_search_mode: c.web_search_mode,
+          web_search_mode: c.resolved_web_search_mode,
+          web_search_level: c.resolved_web_search_level,
           updated_at: c.updated_at,
           snippet: snippets[c.id]
         }
@@ -55,7 +57,8 @@ module Api
         title: conversation.title,
         model_code: conversation.model_code,
         rag_enabled: conversation.rag_enabled,
-        web_search_mode: conversation.web_search_mode,
+        web_search_mode: conversation.resolved_web_search_mode,
+        web_search_level: conversation.resolved_web_search_level,
         use_skills: conversation.resolved_use_skills,
         skill_ids: conversation.resolved_skills.map(&:id),
         messages: conversation.messages.order(:created_at).includes(images_attachments: :blob).map { |m|
@@ -95,18 +98,37 @@ module Api
     def update
       conversation = current_api_user.conversations.find(params[:id])
       conversation.update!(conversation_params)
+      render_conversation_settings(conversation)
+    end
+
+    def web_search_settings
+      conversation = current_api_user.conversations.find(params[:id])
+      attrs = web_search_settings_params
+
+      ActiveRecord::Base.transaction do
+        current_api_user.update!(attrs)
+        conversation.update!(attrs)
+      end
+
+      render_conversation_settings(conversation)
+    rescue ActiveRecord::RecordInvalid => e
+      render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
+    end
+
+    private
+
+    def render_conversation_settings(conversation)
       render json: {
         id: conversation.id,
         title: conversation.title,
         model_code: conversation.model_code,
         rag_enabled: conversation.rag_enabled,
-        web_search_mode: conversation.web_search_mode,
+        web_search_mode: conversation.resolved_web_search_mode,
+        web_search_level: conversation.resolved_web_search_level,
         use_skills: conversation.resolved_use_skills,
         skill_ids: conversation.resolved_skills.map(&:id)
       }
     end
-
-    private
 
     # Splits `content` around the first match of `query` into windowed
     # before/match/after parts so the client can highlight and center the match.
@@ -126,7 +148,11 @@ module Api
     end
 
     def conversation_params
-      params.require(:conversation).permit(:rag_enabled, :web_search_mode, :use_skills, skill_ids: [])
+      params.require(:conversation).permit(:rag_enabled, :web_search_mode, :web_search_level, :use_skills, skill_ids: [])
+    end
+
+    def web_search_settings_params
+      params.require(:web_search).permit(:web_search_mode, :web_search_level)
     end
   end
 end
