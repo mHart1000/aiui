@@ -89,5 +89,56 @@ module Api
 
       assert_response :not_found
     end
+
+    test "duplicate forks through the final message" do
+      assert_difference -> { @user.conversations.count }, 1 do
+        post "/api/conversations/#{@conversation.id}/duplicate", headers: @headers, as: :json
+      end
+      assert_response :created
+
+      duplicated = Conversation.find(JSON.parse(response.body)["id"])
+      assert_equal "(fork) Debugging Rails", duplicated.title
+      assert_equal %w[one two three], duplicated.messages.order(:created_at, :id).map(&:content)
+    end
+
+    test "duplicate rejects an empty conversation" do
+      empty = @user.conversations.create!(title: "Empty")
+
+      assert_no_difference -> { @user.conversations.count } do
+        post "/api/conversations/#{empty.id}/duplicate", headers: @headers, as: :json
+      end
+      assert_response :unprocessable_entity
+    end
+
+    test "update renames a conversation" do
+      patch "/api/conversations/#{@conversation.id}",
+            params: { conversation: { title: "Renamed" } }, headers: @headers, as: :json
+
+      assert_response :success
+      assert_equal "Renamed", @conversation.reload.title
+    end
+
+    test "destroy deletes the conversation" do
+      assert_difference -> { @user.conversations.count }, -1 do
+        delete "/api/conversations/#{@conversation.id}", headers: @headers, as: :json
+      end
+      assert_response :no_content
+    end
+
+    test "sidebar actions reject another user's conversation" do
+      other = User.create!(email: "sidebar_#{SecureRandom.hex(4)}@example.com", password: "password123")
+      theirs = other.conversations.create!(title: "Theirs")
+      theirs.messages.create!(role: "user", content: "hi")
+
+      patch "/api/conversations/#{theirs.id}",
+            params: { conversation: { title: "Stolen" } }, headers: @headers, as: :json
+      assert_response :not_found
+
+      post "/api/conversations/#{theirs.id}/duplicate", headers: @headers, as: :json
+      assert_response :not_found
+
+      delete "/api/conversations/#{theirs.id}", headers: @headers, as: :json
+      assert_response :not_found
+    end
   end
 end
