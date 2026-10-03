@@ -46,7 +46,7 @@
                 <q-icon name="search" />
               </template>
             </q-input>
-            <q-list dense class="conversation-list" :style="conversationListStyle">
+            <q-list dense>
               <q-item
                 v-for="c in filteredConversations"
                 :key="c.id"
@@ -156,8 +156,6 @@ import { Dark } from 'quasar'
 import { api } from 'src/boot/axios'
 import RagKnowledgeDialog from 'components/RagKnowledgeDialog.vue'
 
-const CONVERSATION_ACTION_GAP = '12px'
-
 export default {
   name: 'ChatLayout',
   components: { RagKnowledgeDialog },
@@ -199,11 +197,6 @@ export default {
   computed: {
     titleMaxWidth () {
       return `${this.sidebarWidth - 40}px`
-    },
-    conversationListStyle () {
-      return {
-        width: `calc(100% - ${this.scrollThumbStyle.width} - ${CONVERSATION_ACTION_GAP})`
-      }
     },
     filteredConversations () {
       return this.searchQuery?.trim() ? this.searchResults : this.conversations
@@ -355,18 +348,17 @@ export default {
   text-overflow: ellipsis;
 }
 .conversation-row {
-  position: relative;
-  padding-right: 48px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px 37px;
+  align-items: center;
 }
 .conversation-actions {
-  position: absolute;
-  top: 50%;
-  right: 4px;
+  grid-column: 2;
+  justify-self: center;
   z-index: 1;
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transform: translateY(-50%);
   transition: opacity 120ms ease;
 }
 .conversation-row:hover .conversation-actions,
