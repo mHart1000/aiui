@@ -349,7 +349,7 @@ export default {
 }
 .conversation-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 32px 37px;
+  grid-template-columns: minmax(0, 1fr) 5px 3px;
   align-items: center;
 }
 .conversation-actions {
