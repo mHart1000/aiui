@@ -6,7 +6,7 @@
         :thumb-style="scrollThumbStyle"
         :bar-style="scrollBarStyle"
       >
-        <div class="q-pa-md column justify-between full-height">
+        <div class="drawer-content q-pa-md column justify-between full-height">
           <div>
             <q-btn
               flat
@@ -51,6 +51,7 @@
                 v-for="c in filteredConversations"
                 :key="c.id"
                 clickable
+                class="conversation-row"
                 @click="$router.push(`/chat/${c.id}`)"
               >
                 <q-item-section class="conversation-title" :style="{ maxWidth: titleMaxWidth }">
@@ -61,6 +62,33 @@
                     <span class="snippet-side snippet-before"><bdi>{{ c.snippet.before }}</bdi></span><mark class="snippet-match">{{ c.snippet.match }}</mark><span class="snippet-side snippet-after">{{ c.snippet.after }}</span>
                   </q-item-label>
                 </q-item-section>
+                <q-btn
+                  class="conversation-actions"
+                  flat
+                  round
+                  dense
+                  size="sm"
+                  icon="more_vert"
+                  :aria-label="`Actions for ${c.title}`"
+                  @click.stop
+                >
+                  <q-menu auto-close>
+                    <q-list dense style="min-width: 140px">
+                      <q-item clickable @click="openRename(c)">
+                        <q-item-section avatar><q-icon name="edit" /></q-item-section>
+                        <q-item-section>Rename</q-item-section>
+                      </q-item>
+                      <q-item clickable :disable="actionConversationId === c.id" @click="duplicateConversation(c)">
+                        <q-item-section avatar><q-icon name="content_copy" /></q-item-section>
+                        <q-item-section>Duplicate</q-item-section>
+                      </q-item>
+                      <q-item clickable @click="openDelete(c)">
+                        <q-item-section avatar><q-icon name="delete" /></q-item-section>
+                        <q-item-section>Delete</q-item-section>
+                      </q-item>
+                    </q-list>
+                  </q-menu>
+                </q-btn>
               </q-item>
             </q-list>
           </div>
@@ -85,6 +113,40 @@
     </q-page-container>
 
     <RagKnowledgeDialog v-model="knowledgeOpen" />
+
+    <q-dialog v-model="renameOpen" @hide="renameConversation = null">
+      <q-card style="min-width: 360px">
+        <q-card-section class="text-h6">Rename conversation</q-card-section>
+        <q-card-section>
+          <q-input
+            ref="renameInput"
+            v-model="renameTitle"
+            autofocus
+            dense
+            outlined
+            label="Title"
+            @keyup.enter="saveRename"
+          />
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" v-close-popup />
+          <q-btn color="primary" label="Rename" :loading="savingRename" :disable="!renameTitle.trim()" @click="saveRename" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <q-dialog v-model="deleteOpen" @hide="deleteConversation = null">
+      <q-card style="min-width: 360px">
+        <q-card-section class="text-h6">Delete conversation?</q-card-section>
+        <q-card-section>
+          “{{ deleteConversation?.title }}” and all of its messages will be permanently deleted.
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" v-close-popup />
+          <q-btn label="Delete" :loading="deletingConversation" @click="confirmDelete" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </q-layout>
 </template>
 
@@ -107,6 +169,14 @@ export default {
     searchActive: false,
     searchQuery: '',
     searchResults: [],
+    renameOpen: false,
+    renameConversation: null,
+    renameTitle: '',
+    savingRename: false,
+    deleteOpen: false,
+    deleteConversation: null,
+    deletingConversation: false,
+    actionConversationId: null,
     sidebarWidth: 280,
     resizeOffset: 0,
     scrollThumbStyle: {
@@ -180,13 +250,71 @@ export default {
     },
     getUserConversations() {
       console.log('Fetching user conversations...')
-      api.get('/api/conversations')
+      return api.get('/api/conversations')
         .then(response => {
           this.conversations = response.data.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
         })
-        .catch(error => {
-          console.error('Error fetching conversations:', error)
-        });
+    },
+    replaceConversation(updated) {
+      const replace = conversation => conversation.id === updated.id
+        ? { ...conversation, ...updated }
+        : conversation
+      this.conversations = this.conversations.map(replace)
+      this.searchResults = this.searchResults.map(replace)
+    },
+    removeConversation(id) {
+      this.conversations = this.conversations.filter(conversation => conversation.id !== id)
+      this.searchResults = this.searchResults.filter(conversation => conversation.id !== id)
+    },
+    openRename(conversation) {
+      this.renameConversation = conversation
+      this.renameTitle = conversation.title
+      this.renameOpen = true
+    },
+    async saveRename() {
+      const title = this.renameTitle.trim()
+      if (!title || !this.renameConversation || this.savingRename) return
+
+      this.savingRename = true
+      try {
+        const response = await api.patch(`/api/conversations/${this.renameConversation.id}`, {
+          conversation: { title }
+        })
+        this.replaceConversation(response.data)
+        this.renameOpen = false
+      } finally {
+        this.savingRename = false
+      }
+    },
+    async duplicateConversation(conversation) {
+      if (this.actionConversationId !== null) return
+
+      this.actionConversationId = conversation.id
+      try {
+        const response = await api.post(`/api/conversations/${conversation.id}/duplicate`)
+        await this.getUserConversations()
+        await this.$router.push(`/chat/${response.data.id}`)
+      } finally {
+        this.actionConversationId = null
+      }
+    },
+    openDelete(conversation) {
+      this.deleteConversation = conversation
+      this.deleteOpen = true
+    },
+    async confirmDelete() {
+      if (!this.deleteConversation || this.deletingConversation) return
+
+      const id = this.deleteConversation.id
+      this.deletingConversation = true
+      try {
+        await api.delete(`/api/conversations/${id}`)
+        this.removeConversation(id)
+        this.deleteOpen = false
+        if (String(this.$route.params.id) === String(id)) await this.$router.push('/chat')
+      } finally {
+        this.deletingConversation = false
+      }
     },
     clampWidth(w) {
       return Math.min(500, Math.max(200, w))
@@ -217,6 +345,30 @@ export default {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.conversation-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5px 3px;
+  align-items: center;
+}
+.conversation-actions {
+  grid-column: 2;
+  justify-self: center;
+  z-index: 1;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+.conversation-row:hover .conversation-actions,
+.conversation-row:focus-within .conversation-actions {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+.drawer-content {
+  min-width: 0;
+  overflow-x: hidden;
 }
 .search-input {
   width: calc(100% - 14px);

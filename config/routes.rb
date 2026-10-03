@@ -18,9 +18,12 @@ Rails.application.routes.draw do
       registrations: "api/registrations"
     }
 
-    resources :conversations, only: [ :index, :create, :show, :update ] do
+    resources :conversations, only: [ :index, :create, :show, :update, :destroy ] do
       collection { get :search }
-      member { post :fork, action: :create_fork }
+      member do
+        post :fork, action: :create_fork
+        post :duplicate
+      end
       resources :messages, only: [ :update ]
       post "messages/stream", to: "messages#create_streaming"
     end

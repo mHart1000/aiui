@@ -13,7 +13,7 @@ class Conversation < ApplicationRecord
   has_many :messages, dependent: :destroy
   belongs_to :user
 
-  validates :web_search_mode, inclusion: { in: %w[off auto always] }
+  validates :web_search_mode, inclusion: { in: %w[off auto always], allow_nil: true }
 
   def entitle_async(content)
     return if title.present? && !placeholder_title?
