@@ -82,8 +82,7 @@
                         <q-item-section avatar><q-icon name="content_copy" /></q-item-section>
                         <q-item-section>Duplicate</q-item-section>
                       </q-item>
-                      <q-separator />
-                      <q-item clickable class="text-negative" @click="openDelete(c)">
+                      <q-item clickable @click="openDelete(c)">
                         <q-item-section avatar><q-icon name="delete" /></q-item-section>
                         <q-item-section>Delete</q-item-section>
                       </q-item>
@@ -144,7 +143,7 @@
         </q-card-section>
         <q-card-actions align="right">
           <q-btn flat label="Cancel" v-close-popup />
-          <q-btn color="negative" label="Delete" :loading="deletingConversation" @click="confirmDelete" />
+          <q-btn label="Delete" :loading="deletingConversation" @click="confirmDelete" />
         </q-card-actions>
       </q-card>
     </q-dialog>
