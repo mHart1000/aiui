@@ -382,7 +382,7 @@ class ChatService
       @adapter.chat(
         messages: tool_selection_messages,
         stream: false,
-        max_tokens: 200,
+        max_tokens: @budgets[:selector_max_tokens],
         temperature: 0,
         chat_template_kwargs: { reasoning_effort: "low" },
         thinking_budget_tokens: 1,

@@ -5,6 +5,8 @@ module WebResearch
 
     PROFILES = {
       "low" => {
+        selector_max_tokens: 200,
+        page_max_text_chars: 6_000,
         max_tokens: 16_000,
         max_pages: 4,
         max_fetch_attempts: 10,
@@ -21,7 +23,9 @@ module WebResearch
         rag_hard_cap_chars: 24_000,
         rag_per_chunk_cap_chars: 2_000
       },
-      "high" => {
+      "medium" => {
+        selector_max_tokens: 200,
+        page_max_text_chars: 6_000,
         max_tokens: 32_000,
         max_pages: 6,
         max_fetch_attempts: 20,
@@ -37,6 +41,25 @@ module WebResearch
         web_evidence_chars_with_rag: 23_000,
         rag_hard_cap_chars: 48_000,
         rag_per_chunk_cap_chars: 2_400
+      },
+      "high" => {
+        selector_max_tokens: 800,
+        page_max_text_chars: 12_000,
+        max_tokens: 48_000,
+        max_pages: 12,
+        max_fetch_attempts: 40,
+        search_deadline_seconds: 20,
+        research_deadline_seconds: 40,
+        max_queries: 8,
+        selector_max_messages: 10,
+        selector_max_message_chars: 6_000,
+        selector_max_transcript_chars: 16_000,
+        rag_context_chars: 120_000,
+        rag_context_chars_with_web: 48_000,
+        web_evidence_chars: 120_000,
+        web_evidence_chars_with_rag: 72_000,
+        rag_hard_cap_chars: 120_000,
+        rag_per_chunk_cap_chars: 4_000
       }
     }.freeze
 

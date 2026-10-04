@@ -550,7 +550,7 @@ export default {
     persistedWebSearchLevel: 'low',
     userWebSearchMode: 'off',
     userWebSearchLevel: 'low',
-    webSearchLevels: ['low', 'high'],
+    webSearchLevels: ['low', 'medium', 'high'],
     webSearchProfiles: {},
     webSearchSync: Promise.resolve(true),
     skillsOpen: false,
@@ -1604,7 +1604,7 @@ export default {
   text-align: center;
 }
 .web-search-level {
-  width: 110px;
+  width: 160px;
 }
 .web-search-level-options {
   display: flex;
