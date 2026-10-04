@@ -182,14 +182,14 @@ export default {
     scrollThumbStyle: {
       borderRadius: '5px',
       backgroundColor: 'var(--border, #9e9e9e)',
-      width: '25px',
+      width: '15px',
       opacity: 0.9
     },
     scrollBarStyle: {
-      right: '5px',
+      right: '2px',
       borderRadius: '5px',
       backgroundColor: 'var(--border, #9e9e9e)',
-      width: '15px',
+      width: '12px',
       opacity: 0.45
     }
   }),
@@ -348,7 +348,7 @@ export default {
 }
 .conversation-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 5px 3px;
+  grid-template-columns: minmax(0, 1fr) 2px 1px;
   align-items: center;
 }
 .conversation-actions {
