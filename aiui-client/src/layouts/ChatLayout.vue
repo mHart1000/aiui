@@ -1,6 +1,6 @@
 <template>
   <q-layout view="hHh LpR fFf">
-    <q-drawer show-if-above bordered :width="sidebarWidth" class="bg-panel">
+    <q-drawer show-if-above :width="sidebarWidth" class="bg-panel">
       <q-scroll-area
         class="drawer-scroll"
         :thumb-style="scrollThumbStyle"
