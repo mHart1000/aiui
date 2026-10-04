@@ -18,7 +18,7 @@
 
 /* Dark mode */
 .body--dark {
-  --page-bg: #181b18;
+  --page-bg: #121412;
   background: var(--page-bg) !important;
   --q-dark: #171717;
 
