@@ -18,12 +18,12 @@
 
 /* Dark mode */
 .body--dark {
-  --page-bg: #181b18;
+  --page-bg: #121412;
   background: var(--page-bg) !important;
   --q-dark: #171717;
 
   --bg: #0D0E11;
-  --bg-panel: #1a1a1a;
+  --bg-panel: #1c1c1c;
 
   --text: #ECECEC;
   --text-subtle: #A0A0A0;

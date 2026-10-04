@@ -8,6 +8,12 @@ class ConversationTest < ActiveSupport::TestCase
     @conversation = Conversation.new(user: @user, title: "New Chat")
   end
 
+  test "web search mode may be nil to inherit a user default" do
+    @conversation.web_search_mode = nil
+
+    assert @conversation.valid?
+  end
+
   # placeholder_title?
   test "placeholder_title? returns true when title is 'New Chat'" do
     assert @conversation.placeholder_title?

@@ -92,6 +92,15 @@ module Api
       render json: { id: forked.id }, status: :created
     end
 
+    def duplicate
+      conversation = current_api_user.conversations.find(params[:id])
+      message = conversation.messages.order(:created_at, :id).last
+      return render json: { error: "Conversation has no messages" }, status: :unprocessable_entity unless message
+
+      duplicated = conversation.fork_at(message)
+      render json: { id: duplicated.id }, status: :created
+    end
+
     def update
       conversation = current_api_user.conversations.find(params[:id])
       conversation.update!(conversation_params)
@@ -104,6 +113,11 @@ module Api
         use_skills: conversation.resolved_use_skills,
         skill_ids: conversation.resolved_skills.map(&:id)
       }
+    end
+
+    def destroy
+      current_api_user.conversations.find(params[:id]).destroy!
+      head :no_content
     end
 
     private
@@ -126,7 +140,7 @@ module Api
     end
 
     def conversation_params
-      params.require(:conversation).permit(:rag_enabled, :web_search_mode, :use_skills, skill_ids: [])
+      params.require(:conversation).permit(:title, :rag_enabled, :web_search_mode, :use_skills, skill_ids: [])
     end
   end
 end
