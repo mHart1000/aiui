@@ -9,7 +9,7 @@ require "uri"
 module WebResearch
   class PageFetcher
     MAX_REDIRECTS = 3
-    MAX_BODY_BYTES = 1_048_576
+    MAX_BODY_BYTES = 5_242_880
     MAX_TEXT_LENGTH = Profile.for_level(Profile::DEFAULT_LEVEL)[:page_max_text_chars]
     MAX_PASSAGE_LENGTH = 1_200
     MAX_QUERY_TERMS = 24
