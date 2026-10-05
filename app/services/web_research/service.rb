@@ -53,9 +53,11 @@ module WebResearch
         first_query_sent_at ||= query_sent_at
         AuditLog.info("search_started", query: query, sent_at: query_sent_at)
         begin
-          search_results = @adapter.search(query, deadline: search_deadline).map { |result| result.merge(research_query: query) }
+          response = @adapter.search(query, deadline: search_deadline)
+          search_failures += 1 if response.respond_to?(:engine_failures) && response.engine_failures.any?
+          search_results = response.map { |result| result.merge(research_query: query) }
         rescue SearxngAdapter::Error => e
-          AuditLog.warn("search_query_failed", query: query, error_class: e.class.name, error: e.message, elapsed_ms: elapsed_ms(search_started))
+          AuditLog.warn("search_query_failed", query: query, error_class: e.class.name, error: e.message, exception: e.full_message, elapsed_ms: elapsed_ms(search_started))
           search_failures += 1
           search_results = []
         end
@@ -93,9 +95,12 @@ module WebResearch
       warnings << "Web search was incomplete, so results may be limited" if search_limited
       warnings << "Some web sources could not be fetched or yielded limited text" if fetch_limited
       warning = status == "failed" ? "Web research did not return usable evidence." : (status == "partial" ? warnings.join(". ") : nil)
+      if status == "failed" && candidates.empty? && !search_limited
+        warning = "Web search returned no usable results; no pages were fetched."
+      end
       metadata = { status: status, provider: PROVIDER, queries: executed_queries, searched_at: started_at.iso8601,
                    warning: warning, sources: sources }
-      AuditLog.info("research_completed", status: status, source_count: sources.length, failure_count: failures,
+      AuditLog.public_send(status == "complete" ? :info : :warn, "research_completed", warning: warning, status: status, source_count: sources.length, failure_count: failures,
         thin_extract_count: thin_extracts, cancelled_count: cancelled, fetch_deadline_exhausted: fetch_deadline_exhausted,
         search_failure_count: search_failures, search_deadline_exhausted: search_deadline_exhausted,
         evidence_chars: evidence&.length || 0, elapsed_ms: elapsed_ms(started_monotonic))
@@ -194,7 +199,7 @@ module WebResearch
     rescue PageFetcher::UnsafeTarget, PageFetcher::Error => e
       event = e.is_a?(PageFetcher::UnsafeTarget) ? "fetch_rejected" : "fetch_failed"
       AuditLog.warn(event, url: AuditLog.safe_url(result[:url]),
-        domain: safe_domain(result[:url]), error_class: e.class.name, error: e.message, elapsed_ms: elapsed_ms(fetch_started))
+        domain: safe_domain(result[:url]), error_class: e.class.name, error: e.message, exception: e.full_message, elapsed_ms: elapsed_ms(fetch_started))
       { result: result, error: e, elapsed_ms: elapsed_ms(fetch_started) }
     end
 

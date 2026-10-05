@@ -91,6 +91,7 @@ class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
     Net::HTTP.stub(:new, http) do
       error = assert_raises(WebResearch::SearxngAdapter::Error) { adapter.search("latest news") }
       assert_equal "SearXNG returned invalid JSON", error.message
+      assert_instance_of JSON::ParserError, error.cause
     end
   end
 
@@ -105,6 +106,34 @@ class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
     Net::HTTP.stub(:new, FakeHttp.new(response: ForbiddenResponse.new)) do
       error = assert_raises(WebResearch::SearxngAdapter::Error) { adapter.search("latest news") }
       assert_equal "SearXNG returned 403", error.message
+    end
+  end
+
+  test "rejects missing or wrongly typed results instead of treating them as empty" do
+    adapter = WebResearch::SearxngAdapter.new(base_url: "http://searx.example")
+    [ {}, { results: nil }, { results: {} }, { results: "broken" } ].each do |payload|
+      http = FakeHttp.new(response: ChunkedResponse.new(chunks: [ payload.to_json ]))
+      Net::HTTP.stub(:new, http) do
+        assert_raises(WebResearch::SearxngAdapter::Error) { adapter.search("example") }
+      end
+    end
+  end
+
+  test "preserves and logs engine failures even with HTTP success and usable results" do
+    adapter = WebResearch::SearxngAdapter.new(base_url: "http://searx.example")
+    failures = [ [ "google", "CAPTCHA" ] ]
+    [ [], [ { url: "https://example.com", title: "Example" } ] ].each do |results|
+      http = FakeHttp.new(response: ChunkedResponse.new(chunks: [ { results: results, unresponsive_engines: failures }.to_json ]))
+      logged = []
+      WebResearch::AuditLog.stub(:warn, ->(event, **data) { logged << [ event, data ] }) do
+        Net::HTTP.stub(:new, http) do
+          response = adapter.search("example")
+          assert_equal results.length, response.length
+          assert_equal failures, response.engine_failures
+        end
+      end
+      assert_equal "search_engine_failed", logged.first.first
+      assert_equal failures, logged.first.last[:engine_failures]
     end
   end
 

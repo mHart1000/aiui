@@ -1,6 +1,50 @@
 require "test_helper"
 
 class WebResearch::ServiceTest < ActiveSupport::TestCase
+  test "reports engine failures as partial research and logs empty searches distinctly" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, last_four_user_messages: "")
+    adapter = Object.new
+    fetcher = Object.new
+    fetcher.define_singleton_method(:fetch) { |*, **| "Useful evidence" }
+    adapter.define_singleton_method(:search) do |*, **|
+      WebResearch::SearxngAdapter::SearchResults.new(
+        [ { title: "Example", url: "https://example.com", snippet: "" } ],
+        engine_failures: [ [ "google", "CAPTCHA" ] ])
+    end
+    result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
+    assert_equal "partial", result[:metadata][:status]
+    assert_includes result[:metadata][:warning], "Web search was incomplete"
+
+    adapter.define_singleton_method(:search) do |*, **|
+      WebResearch::SearxngAdapter::SearchResults.new([], engine_failures: [ [ "google", "CAPTCHA" ] ])
+    end
+    logs = capture_rails_logs do
+      result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
+    end
+    assert_equal "failed", result[:metadata][:status]
+    assert_includes logs, '"search_failure_count":1'
+
+    adapter.define_singleton_method(:search) { |*, **| [] }
+    logs = capture_rails_logs do
+      result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
+    end
+    assert_equal "failed", result[:metadata][:status]
+    assert_includes result[:metadata][:warning], "no usable results"
+    assert_includes logs, "no usable results"
+  end
+
+  test "unexpected search errors propagate and recovered errors retain backtraces" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, last_four_user_messages: "")
+    adapter = Object.new
+    adapter.define_singleton_method(:search) { |*, **| raise NoMethodError, "unexpected bug" }
+    assert_raises(NoMethodError) { WebResearch::Service.new(request: request, adapter: adapter).call }
+
+    adapter.define_singleton_method(:search) { |*, **| raise WebResearch::SearxngAdapter::Error, "provider unavailable" }
+    logs = capture_rails_logs { WebResearch::Service.new(request: request, adapter: adapter).call }
+    assert_includes logs, "provider unavailable"
+    assert_includes logs, "service_test.rb"
+  end
+
   test "keeps every selected source when allocating a tight evidence budget" do
     request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, last_four_user_messages: "")
     adapter = Object.new

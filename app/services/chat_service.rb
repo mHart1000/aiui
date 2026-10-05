@@ -411,7 +411,7 @@ class ChatService
   rescue WebResearch::ToolRequest::InvalidRequest, AiAdapters::LlamaAdapter::Error, JSON::ParserError, Net::OpenTimeout, Net::ReadTimeout, SocketError, EOFError, IOError => e
     Rails.logger.warn(web_selection_error_log(e, selection))
     Rails.logger.debug { "WebResearch selector model output #{web_selection_debug_dump(selection)}" }
-    Rails.logger.debug { Array(e.backtrace).join("\n") }
+    Rails.logger.warn(e.full_message)
     metadata = failed_research_metadata("Web research could not be completed.")
     emit_research_event(block, :failed, metadata)
     { metadata: metadata }
