@@ -4,11 +4,11 @@ require Rails.root.join("db/migrate/20261004000000_rename_high_web_search_level_
 class ExpandedProfilesTest < ActiveSupport::TestCase
   test "high selector accepts eight queries and passes the profile to research" do
     profile = WebResearch::Profile.for_level("high")
-    service = ChatService.new(messages: [{ role: "user", content: "Research local inference" }],
+    service = ChatService.new(messages: [ { role: "user", content: "Research local inference" } ],
       model: "local-llama", use_persona: false, use_scaffolding: false,
       stream: false, max_tokens: nil, web_search_mode: "always", web_search_level: "high")
     queries = Array.new(profile[:max_queries]) { |i| "local inference topic #{i}" }
-    selection = { tool_calls: [{ "function" => { "name" => "research_web", "arguments" => { "queries" => queries }.to_json } }] }
+    selection = { tool_calls: [ { "function" => { "name" => "research_web", "arguments" => { "queries" => queries }.to_json } } ] }
     research = Object.new
     research.define_singleton_method(:call) { { evidence: "Evidence", metadata: { status: "complete" } } }
     adapter = service.instance_variable_get(:@adapter)
