@@ -140,5 +140,71 @@ module Api
       delete "/api/conversations/#{theirs.id}", headers: @headers, as: :json
       assert_response :not_found
     end
+
+    test "show serializes the resolved web search mode and level when inheriting" do
+      @user.update!(web_search_mode: "always", web_search_level: "high")
+
+      get "/api/conversations/#{@conversation.id}", headers: @headers
+
+      assert_response :success
+      body = JSON.parse(response.body)
+      assert_equal "always", body["web_search_mode"]
+      assert_equal "high", body["web_search_level"]
+    end
+
+    test "show uses the conversation override when set" do
+      @user.update!(web_search_mode: "auto", web_search_level: "low")
+      @conversation.update!(web_search_mode: "always", web_search_level: "high")
+
+      get "/api/conversations/#{@conversation.id}", headers: @headers
+
+      body = JSON.parse(response.body)
+      assert_equal "always", body["web_search_mode"]
+      assert_equal "high", body["web_search_level"]
+    end
+
+    test "update persists the web search level override" do
+      patch "/api/conversations/#{@conversation.id}",
+            params: { conversation: { web_search_level: "high" } }, headers: @headers, as: :json
+
+      assert_response :success
+      assert_equal "high", @conversation.reload.web_search_level
+      assert_equal "high", JSON.parse(response.body)["web_search_level"]
+    end
+
+    test "web search settings atomically update the conversation and user default" do
+      patch "/api/conversations/#{@conversation.id}/web_search_settings",
+            params: { web_search: { web_search_mode: "always", web_search_level: "high" } },
+            headers: @headers, as: :json
+
+      assert_response :success
+      assert_equal "always", @conversation.reload.web_search_mode
+      assert_equal "high", @conversation.web_search_level
+      assert_equal "always", @user.reload.web_search_mode
+      assert_equal "high", @user.web_search_level
+    end
+
+    test "web search settings reject invalid values without changing either record" do
+      patch "/api/conversations/#{@conversation.id}/web_search_settings",
+            params: { web_search: { web_search_mode: "always", web_search_level: "ultra" } },
+            headers: @headers, as: :json
+
+      assert_response :unprocessable_entity
+      assert_nil @conversation.reload.web_search_mode
+      assert_nil @conversation.web_search_level
+      assert_equal "off", @user.reload.web_search_mode
+      assert_equal "low", @user.web_search_level
+    end
+
+    test "index serializes the resolved web search mode and level" do
+      @user.update!(web_search_mode: "auto", web_search_level: "high")
+
+      get "/api/conversations", headers: @headers
+
+      assert_response :success
+      entry = JSON.parse(response.body).find { |c| c["id"] == @conversation.id }
+      assert_equal "auto", entry["web_search_mode"]
+      assert_equal "high", entry["web_search_level"]
+    end
   end
 end

@@ -1,116 +1,161 @@
 <template>
   <q-page class="column chat-page">
     <div
-      class="row q-ma-none q-gutter-md items-center toolbar-wrap"
+      class="toolbar-wrap"
       :class="{ 'toolbar-collapsed': !toolbarExpanded }"
+      role="region"
+      aria-label="Chat settings"
+      tabindex="0"
     >
-      <q-select
-        v-model="modelCode"
-        :options="modelOptions"
-        label="Model"
-        emit-value
-        map-options
-        dense
-        style="max-width: 380px"
-      />
-      <q-select
-        v-model="personaSelection"
-        :options="personaOptions"
-        label="Persona"
-        emit-value
-        map-options
-        dense
-        style="min-width: 220px"
-        @update:model-value="updatePersonaSelection"
-      />
-      <q-toggle
-        v-model="useScaffolding"
-        label="Scaffolding"
-        @update:model-value="updateScaffoldingPreference"
-        color="primary"
-      />
-      <q-toggle
-        v-model="ragEnabled"
-        label="Context"
-        @update:model-value="updateRagEnabled"
-        color="primary"
-      />
-      <div class="web-search-control">
-        <span class="text-caption text-grey-7">Web research</span>
-        <q-btn-toggle
-          v-model="webSearchMode"
-          :options="webSearchOptions"
-          no-caps
-          unelevated
-          dense
-          rounded
-          toggle-color="primary"
-          @update:model-value="updateWebSearchMode"
-        />
-      </div>
-      <q-btn
-        flat
-        dense
-        no-caps
-        icon="extension"
-        :label="skillsLabel"
-        @click="skillsOpen = true"
-      />
-      <TtsControls
-        :show="voiceChatMode"
-        :is-playing="ttsPlayer.isPlaying.value"
-        :is-paused="ttsPlayer.isPaused.value"
-        :current-voice="ttsPlayer.currentVoice.value"
-        :speed="ttsPlayer.speed.value"
-        :available-voices="ttsPlayer.availableVoices.value"
-        @update:voice="handleTtsVoiceChange"
-        @update:speed="handleTtsSpeedChange"
-        @pause="ttsPlayer.pause()"
-        @resume="ttsPlayer.resume()"
-        @stop="ttsPlayer.stop()"
-      />
-      <div v-if="voiceChatMode" class="row items-center q-gutter-sm" style="min-width: 220px">
-        <span class="text-caption text-grey-7">Pause</span>
-        <q-slider
-          v-model="endOfUtteranceMs"
-          :min="1000"
-          :max="10000"
-          :step="500"
-          color="primary"
-          style="width: 160px"
-        />
-        <span class="text-caption text-grey-7" style="min-width: 34px">
-          {{ (endOfUtteranceMs / 1000).toFixed(1) + 's' }}
-        </span>
-      </div>
-      <div v-if="voiceChatMode" class="row items-center q-gutter-sm" style="min-width: 220px">
-        <span class="text-caption text-grey-7">Timeout</span>
-        <q-slider
-          v-model="inactivityTimeoutSec"
-          :min="5"
-          :max="65"
-          :step="5"
-          color="primary"
-          style="width: 160px"
-        />
-        <span class="text-caption text-grey-7" style="min-width: 34px">
-          {{ inactivityTimeoutSec > 60 ? 'Off' : inactivityTimeoutSec + 's' }}
-        </span>
-      </div>
-      <div v-if="isLlamaModel && hasMessages" class="context-usage">
-        <q-circular-progress
-          :value="contextUsageRatio * 100"
-          size="32px"
-          :thickness="0.2"
-          color="primary"
-          track-color="grey-3"
-          show-value
-          class="text-caption"
-        >
-          {{ Math.round(contextUsageRatio * 100) }}%
-        </q-circular-progress>
-        <div class="text-caption text-grey-7">
-          {{ lastContextTokens.toLocaleString() }} / {{ llamaContextWindow.toLocaleString() }} tokens
+      <div class="toolbar-panel">
+        <div class="toolbar-controls">
+          <q-select
+            v-model="modelCode"
+            :options="modelOptions"
+            label="Model"
+            emit-value
+            map-options
+            dense
+            style="max-width: 380px"
+          />
+          <q-select
+            v-model="personaSelection"
+            :options="personaOptions"
+            label="Persona"
+            emit-value
+            map-options
+            dense
+            style="min-width: 220px"
+            @update:model-value="updatePersonaSelection"
+          />
+          <q-toggle
+            v-model="useScaffolding"
+            label="Scaffolding"
+            @update:model-value="updateScaffoldingPreference"
+            color="primary"
+          />
+          <q-toggle
+            v-model="ragEnabled"
+            label="Context"
+            @update:model-value="updateRagEnabled"
+            color="primary"
+          />
+          <div class="web-search-control">
+            <div class="web-search-field">
+              <span class="text-caption text-grey-7">Web research</span>
+              <q-btn-toggle
+                v-model="webSearchMode"
+                :options="webSearchOptions"
+                no-caps
+                unelevated
+                dense
+                rounded
+                toggle-color="primary"
+                @update:model-value="updateWebSearchMode"
+              />
+            </div>
+            <div class="web-search-field web-search-level">
+              <span class="text-caption text-grey-7">Search level</span>
+              <q-slider
+                v-model="webSearchLevelIndex"
+                :min="0"
+                :max="webSearchLevels.length - 1"
+                :step="1"
+                aria-label="Search level"
+                :aria-valuetext="webSearchLevelLabels[webSearchLevelIndex]"
+                dense
+              />
+              <div class="web-search-level-options">
+                <button
+                  v-for="(level, index) in webSearchLevels"
+                  :key="level"
+                  type="button"
+                  class="text-caption"
+                  :class="{ 'text-primary text-weight-bold': level === webSearchLevel }"
+                  :aria-pressed="level === webSearchLevel"
+                  @click="webSearchLevelIndex = index"
+                >
+                  {{ webSearchLevelLabels[index] }}
+                  <q-tooltip v-if="webSearchProfiles[level]" anchor="bottom middle" self="top middle" max-width="min(440px, 95vw)">
+                    <div class="text-weight-bold q-mb-xs">{{ webSearchLevelLabels[index] }} search level</div>
+                    <table class="web-search-budget-table">
+                      <tbody>
+                        <tr v-for="(value, variable) in webSearchProfiles[level]" :key="variable">
+                          <td>{{ variable }}</td>
+                          <td>{{ value.toLocaleString() }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </q-tooltip>
+                </button>
+              </div>
+            </div>
+          </div>
+          <q-btn
+            flat
+            dense
+            no-caps
+            icon="extension"
+            :label="skillsLabel"
+            @click="skillsOpen = true"
+          />
+          <TtsControls
+            :show="voiceChatMode"
+            :is-playing="ttsPlayer.isPlaying.value"
+            :is-paused="ttsPlayer.isPaused.value"
+            :current-voice="ttsPlayer.currentVoice.value"
+            :speed="ttsPlayer.speed.value"
+            :available-voices="ttsPlayer.availableVoices.value"
+            @update:voice="handleTtsVoiceChange"
+            @update:speed="handleTtsSpeedChange"
+            @pause="ttsPlayer.pause()"
+            @resume="ttsPlayer.resume()"
+            @stop="ttsPlayer.stop()"
+          />
+          <div v-if="voiceChatMode" class="row items-center q-gutter-sm" style="min-width: 220px">
+            <span class="text-caption text-grey-7">Pause</span>
+            <q-slider
+              v-model="endOfUtteranceMs"
+              :min="1000"
+              :max="10000"
+              :step="500"
+              color="primary"
+              style="width: 160px"
+            />
+            <span class="text-caption text-grey-7" style="min-width: 34px">
+              {{ (endOfUtteranceMs / 1000).toFixed(1) + 's' }}
+            </span>
+          </div>
+          <div v-if="voiceChatMode" class="row items-center q-gutter-sm" style="min-width: 220px">
+            <span class="text-caption text-grey-7">Timeout</span>
+            <q-slider
+              v-model="inactivityTimeoutSec"
+              :min="5"
+              :max="65"
+              :step="5"
+              color="primary"
+              style="width: 160px"
+            />
+            <span class="text-caption text-grey-7" style="min-width: 34px">
+              {{ inactivityTimeoutSec > 60 ? 'Off' : inactivityTimeoutSec + 's' }}
+            </span>
+          </div>
+          <div v-if="isLlamaModel && hasMessages" class="context-usage">
+            <q-circular-progress
+              :value="contextUsageRatio * 100"
+              size="32px"
+              :thickness="0.2"
+              color="primary"
+              track-color="grey-3"
+              show-value
+              class="text-caption"
+            >
+              {{ Math.round(contextUsageRatio * 100) }}%
+            </q-circular-progress>
+            <div class="text-caption text-grey-7">
+              {{ lastContextTokens.toLocaleString() }} / {{ llamaContextWindow.toLocaleString() }} tokens
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -501,6 +546,12 @@ export default {
     ragEnabled: false,
     webSearchMode: 'off',
     persistedWebSearchMode: 'off',
+    webSearchLevel: 'low',
+    persistedWebSearchLevel: 'low',
+    userWebSearchMode: 'off',
+    userWebSearchLevel: 'low',
+    webSearchLevels: ['low', 'medium', 'high'],
+    webSearchProfiles: {},
     webSearchSync: Promise.resolve(true),
     skillsOpen: false,
     skillsEnabled: false,
@@ -521,6 +572,8 @@ export default {
     const modelsRes = await api.get('/api/models')
     this.models = modelsRes.data.models
     this.localImageInput = modelsRes.data.local_image_input
+    this.webSearchProfiles = modelsRes.data.web_search_profiles
+    this.webSearchLevels = Object.keys(this.webSearchProfiles)
     if (!this.modelCode && this.models.length > 0) {
       this.modelCode = DEFAULT_MODEL_ID || String(this.models[0].id)
     }
@@ -535,6 +588,15 @@ export default {
     if (!this.conversationId) this.activeSkillIds = this.defaultSkillIds
     this.activeSkillIds = this.defaultSkillIds
     this.llamaContextWindow = userRes.data.llama_context_window || 8192
+    this.userWebSearchMode = userRes.data.web_search_mode || 'off'
+    this.userWebSearchLevel = userRes.data.web_search_level || 'low'
+    // A new chat starts from the user's defaults; an existing one is set by loadConversation.
+    if (!this.conversationId) {
+      this.webSearchMode = this.userWebSearchMode
+      this.persistedWebSearchMode = this.userWebSearchMode
+      this.webSearchLevel = this.userWebSearchLevel
+      this.persistedWebSearchLevel = this.userWebSearchLevel
+    }
 
     // Live context window from llama.cpp is authoritative; the stored value above is only the fallback.
     if (this.isLlamaModel) await this.fetchLlamaContext()
@@ -567,8 +629,10 @@ export default {
           this.messages = []
           this.input = ''
           this.modelCode = DEFAULT_MODEL_ID
-          this.webSearchMode = 'off'
-          this.persistedWebSearchMode = 'off'
+          this.webSearchMode = this.userWebSearchMode
+          this.persistedWebSearchMode = this.userWebSearchMode
+          this.webSearchLevel = this.userWebSearchLevel
+          this.persistedWebSearchLevel = this.userWebSearchLevel
         }
       }
     },
@@ -659,6 +723,19 @@ export default {
         { label: 'Auto', value: 'auto' },
         { label: 'On', value: 'always' }
       ]
+    },
+    webSearchLevelLabels() {
+      return this.webSearchLevels.map(level => level.charAt(0).toUpperCase() + level.slice(1))
+    },
+    webSearchLevelIndex: {
+      get() {
+        const index = this.webSearchLevels.indexOf(this.webSearchLevel)
+        return index === -1 ? 0 : index
+      },
+      set(value) {
+        const level = this.webSearchLevels[value]
+        if (level && level !== this.webSearchLevel) this.updateWebSearchLevel(level)
+      }
     },
     skillsLabel() {
       const count = this.activeSkillIds.length
@@ -878,6 +955,8 @@ export default {
         this.ragEnabled = res.data.rag_enabled || false
         this.webSearchMode = res.data.web_search_mode || 'off'
         this.persistedWebSearchMode = this.webSearchMode
+        this.webSearchLevel = res.data.web_search_level || 'low'
+        this.persistedWebSearchLevel = this.webSearchLevel
         this.skillsEnabled = res.data.use_skills || false
         this.activeSkillIds = res.data.skill_ids || []
         return true
@@ -951,19 +1030,21 @@ export default {
         })
       }
     },
+    // Always updates the user default and, when a conversation exists, pins it there too.
     updateWebSearchMode(value) {
-      if (!this.conversationId) {
-        this.persistedWebSearchMode = value
-        return Promise.resolve(true)
-      }
-
       const conversationId = this.conversationId
 
       this.webSearchSync = this.webSearchSync.then(async () => {
-        await api.patch(`/api/conversations/${conversationId}`, {
-          conversation: { web_search_mode: value }
-        })
-        if (this.conversationId === conversationId) this.persistedWebSearchMode = value
+        if (conversationId) {
+          await api.patch(`/api/conversations/${conversationId}/web_search_settings`, {
+            web_search: { web_search_mode: value }
+          })
+        } else {
+          await api.patch('/api/user', { user: { web_search_mode: value } })
+        }
+        this.userWebSearchMode = value
+        if (this.conversationId !== conversationId) return true
+        this.persistedWebSearchMode = value
         return true
       }).catch((err) => {
         console.error('Error updating web research mode:', err)
@@ -974,6 +1055,32 @@ export default {
         return false
       })
       return this.webSearchSync
+    },
+    updateWebSearchLevel(value) {
+      const conversationId = this.conversationId
+      const previous = this.webSearchLevel
+      this.webSearchLevel = value  // optimistic; reverted on failure
+
+      this.webSearchSync = this.webSearchSync.then(async () => {
+        if (conversationId) {
+          await api.patch(`/api/conversations/${conversationId}/web_search_settings`, {
+            web_search: { web_search_level: value }
+          })
+        } else {
+          await api.patch('/api/user', { user: { web_search_level: value } })
+        }
+        this.userWebSearchLevel = value
+        if (this.conversationId !== conversationId) return true
+        this.persistedWebSearchLevel = value
+        return true
+      }).catch((err) => {
+        console.error('Error updating web research level:', err)
+        if (this.conversationId === conversationId) {
+          this.webSearchLevel = previous
+          this.$q.notify({ type: 'negative', message: 'Failed to update web research setting', position: 'top', timeout: 2000 })
+        }
+        return false
+      })
     },
     async sendMessage() {
       const text = this.input.trim()
@@ -1002,7 +1109,6 @@ export default {
         // Toolbar settings chosen before the first send are applied here.
         const initial = { use_skills: this.skillsEnabled, skill_ids: this.activeSkillIds }
         if (this.ragEnabled) initial.rag_enabled = true
-        if (this.webSearchMode !== 'off') initial.web_search_mode = this.webSearchMode
         await api.patch(`/api/conversations/${this.conversationId}`, { conversation: initial })
       }
 
@@ -1448,27 +1554,81 @@ export default {
   height: 100vh;
   overflow: hidden;
 }
-/* clip, not hidden: hidden makes this a scroll container that focus restoration can scroll. */
 .toolbar-wrap {
-  overflow: clip;
-  transition: max-height 0.25s ease;
-  max-height: 300px;
+  display: grid;
+  grid-template-rows: 1fr;
+  flex-shrink: 0;
+  padding-top: 12px;
+  transition: grid-template-rows 0.25s ease;
 }
 .toolbar-wrap.toolbar-collapsed {
-  max-height: 12px;
+  grid-template-rows: 0fr;
 }
-.toolbar-wrap.toolbar-collapsed:hover {
-  max-height: 300px;
+.toolbar-wrap.toolbar-collapsed:hover,
+.toolbar-wrap.toolbar-collapsed:focus-within {
+  grid-template-rows: 1fr;
+}
+.toolbar-panel {
+  min-height: 0;
+  /* Avoid a scroll container that focus restoration could scroll. */
+  overflow: clip;
+}
+.toolbar-collapsed:not(:hover):not(:focus-within) .toolbar-panel {
+  visibility: hidden;
+}
+.toolbar-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .toolbar-wrap {
+    transition: none;
+  }
 }
 .web-search-control {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: flex-end;
+  gap: 12px;
   white-space: nowrap;
 }
-.web-search-control > span {
+.web-search-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.web-search-field > span {
   line-height: 12px;
   text-align: center;
+}
+.web-search-level {
+  width: 160px;
+}
+.web-search-level-options {
+  display: flex;
+  justify-content: space-between;
+}
+.web-search-level-options > button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  cursor: pointer;
+}
+.web-search-level-options > button:focus-visible {
+  outline: 2px solid var(--q-primary);
+  outline-offset: 2px;
+}
+.web-search-budget-table {
+  border-spacing: 0;
+  font-family: monospace;
+}
+.web-search-budget-table td:last-child {
+  padding-left: 16px;
+  text-align: right;
 }
 .web-search-control :deep(.q-btn) {
   font-size: 10px;

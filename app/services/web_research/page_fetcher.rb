@@ -9,8 +9,8 @@ require "uri"
 module WebResearch
   class PageFetcher
     MAX_REDIRECTS = 3
-    MAX_BODY_BYTES = 1_048_576
-    MAX_TEXT_LENGTH = 6_000
+    MAX_BODY_BYTES = 5_242_880
+    MAX_TEXT_LENGTH = Profile.for_level(Profile::DEFAULT_LEVEL)[:page_max_text_chars]
     MAX_PASSAGE_LENGTH = 1_200
     MAX_QUERY_TERMS = 24
     MIN_SUBSTANTIVE_TEXT_LENGTH = 200
@@ -35,6 +35,10 @@ module WebResearch
 
     class Error < StandardError; end
     class UnsafeTarget < Error; end
+
+    def initialize(max_text_chars: MAX_TEXT_LENGTH)
+      @max_text_chars = max_text_chars
+    end
 
     def self.render_extract(blocks, query, full_length, limit)
       new.render_extract(blocks, query, full_length, limit)
@@ -148,9 +152,9 @@ module WebResearch
 
       blocks = blocks.flat_map { |block| split_long_block(block) }
       full_length = blocks.sum(&:length) + ([ blocks.length - 1, 0 ].max * 2)
-      truncated = full_length > MAX_TEXT_LENGTH
-      selected = truncated ? relevant_blocks(blocks, query, MAX_TEXT_LENGTH) : blocks
-      FetchResult.new(text: render_bounded(selected, MAX_TEXT_LENGTH), truncated: truncated,
+      truncated = full_length > @max_text_chars
+      selected = truncated ? relevant_blocks(blocks, query, @max_text_chars) : blocks
+      FetchResult.new(text: render_bounded(selected, @max_text_chars), truncated: truncated,
         blocks: blocks, query: query, full_length: full_length)
     end
 

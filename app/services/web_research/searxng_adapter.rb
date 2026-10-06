@@ -12,6 +12,15 @@ module WebResearch
 
     class Error < StandardError; end
 
+    class SearchResults < Array
+      attr_reader :engine_failures
+
+      def initialize(results, engine_failures:)
+        super(results)
+        @engine_failures = engine_failures
+      end
+    end
+
     def initialize(base_url: ENV["SEARXNG_URL"])
       configured_adapter = ENV.fetch("WEB_SEARCH_ADAPTER", "searxng")
       raise Error, "unsupported web search adapter" unless configured_adapter == "searxng"
@@ -45,8 +54,18 @@ module WebResearch
       raise Error, "SearXNG returned #{response.code}" unless response.is_a?(Net::HTTPSuccess)
 
       json = JSON.parse(body)
-      raise Error, "SearXNG returned malformed results" unless json.is_a?(Hash)
-      Array(json["results"]).first([ count, MAX_RESULTS ].min).filter_map { |item| normalize(item) }
+      raise Error, "SearXNG returned malformed results" unless json.is_a?(Hash) && json["results"].is_a?(Array)
+
+      engine_failures = json.fetch("unresponsive_engines", [])
+      raise Error, "SearXNG returned malformed engine diagnostics" unless engine_failures.is_a?(Array)
+
+      if engine_failures.any?
+        AuditLog.warn("search_engine_failed", query: query, engine_failures: engine_failures)
+      end
+      results = json["results"].first([ count, MAX_RESULTS ].min).filter_map { |item| normalize(item) }
+      AuditLog.info("search_provider_response", query: query, raw_result_count: json["results"].length,
+        usable_result_count: results.length, engine_failures: engine_failures)
+      SearchResults.new(results, engine_failures: engine_failures)
     rescue JSON::ParserError
       raise Error, "SearXNG returned invalid JSON"
     rescue Net::OpenTimeout, Net::ReadTimeout, Net::ProtocolError, SocketError, OpenSSL::SSL::SSLError, EOFError, IOError, Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::EHOSTUNREACH, Errno::ENETUNREACH, Errno::ETIMEDOUT => e
@@ -58,15 +77,23 @@ module WebResearch
     private
 
     def normalize(item)
-      return nil unless item.is_a?(Hash)
+      unless item.is_a?(Hash)
+        AuditLog.warn("search_result_rejected", reason: "result is not an object")
+        return nil
+      end
 
       url = ToolRequest.new({ "urls" => [ item["url"] ] }, last_four_user_messages: item["url"]).urls.first
-      return nil unless url
+      unless url
+        AuditLog.warn("search_result_rejected", reason: "result has no usable URL")
+        return nil
+      end
 
       { title: truncate(item["title"].to_s.strip.presence || URI(url).host, MAX_TITLE_LENGTH), url: url,
         snippet: truncate(item["content"].to_s.strip, MAX_SNIPPET_LENGTH),
         published_at: truncate(item["publishedDate"].to_s.strip.presence, MAX_DATE_LENGTH) }
-    rescue ToolRequest::InvalidRequest, URI::InvalidURIError
+    rescue ToolRequest::InvalidRequest, URI::InvalidURIError => e
+      AuditLog.warn("search_result_rejected", error_class: e.class.name, error: e.message,
+        exception: e.full_message)
       nil
     end
 

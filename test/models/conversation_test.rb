@@ -324,6 +324,73 @@ class ConversationTest < ActiveSupport::TestCase
     assert_nil @conversation.fork_at(stranger)
   end
 
+  # resolved web search mode and level
+  test "resolved_web_search_mode returns the conversation value when set" do
+    @conversation.web_search_mode = "always"
+    @user.update!(web_search_mode: "auto")
+
+    assert_equal "always", @conversation.resolved_web_search_mode
+  end
+
+  test "resolved_web_search_mode inherits from the user when null" do
+    @conversation.web_search_mode = nil
+    @user.update!(web_search_mode: "always")
+
+    assert_equal "always", @conversation.resolved_web_search_mode
+  end
+
+  test "resolved_web_search_level returns the conversation value when set" do
+    @conversation.web_search_level = "high"
+    @user.update!(web_search_level: "low")
+
+    assert_equal "high", @conversation.resolved_web_search_level
+  end
+
+  test "resolved_web_search_level inherits from the user when null" do
+    @conversation.web_search_level = nil
+    @user.update!(web_search_level: "high")
+
+    assert_equal "high", @conversation.resolved_web_search_level
+  end
+
+  test "web_search_level rejects an unknown value" do
+    @conversation.web_search_level = "ultra"
+
+    refute @conversation.valid?
+    assert_includes @conversation.errors[:web_search_level], "is not included in the list"
+  end
+
+  test "web search mode and level may be null to mean inherit" do
+    @conversation.web_search_mode = nil
+    @conversation.web_search_level = nil
+
+    assert @conversation.valid?
+  end
+
+  test "fork_at copies the web search mode and level overrides" do
+    @conversation.web_search_mode = "auto"
+    @conversation.web_search_level = "high"
+    @conversation.save!
+    message = @conversation.messages.create!(role: "user", content: "one")
+
+    forked = @conversation.fork_at(message)
+
+    assert_equal "auto", forked.web_search_mode
+    assert_equal "high", forked.web_search_level
+  end
+
+  test "fork_at keeps a null override inheriting" do
+    @conversation.web_search_mode = nil
+    @conversation.web_search_level = nil
+    @conversation.save!
+    message = @conversation.messages.create!(role: "user", content: "one")
+
+    forked = @conversation.fork_at(message)
+
+    assert_nil forked.web_search_mode
+    assert_nil forked.web_search_level
+  end
+
   # truncate_from_message
   test "truncate_from_message destroys the message and everything after it" do
     @conversation.save!
