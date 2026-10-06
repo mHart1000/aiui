@@ -139,6 +139,8 @@ module Api
 
       delete "/api/conversations/#{theirs.id}", headers: @headers, as: :json
       assert_response :not_found
+    end
+
     test "show serializes the resolved web search mode and level when inheriting" do
       @user.update!(web_search_mode: "always", web_search_level: "high")
 

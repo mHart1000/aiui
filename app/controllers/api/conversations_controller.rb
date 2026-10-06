@@ -124,6 +124,11 @@ module Api
       render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
     end
 
+    def destroy
+      current_api_user.conversations.find(params[:id]).destroy!
+      head :no_content
+    end
+
     private
 
     def render_conversation_settings(conversation)
@@ -138,13 +143,6 @@ module Api
         skill_ids: conversation.resolved_skills.map(&:id)
       }
     end
-
-    def destroy
-      current_api_user.conversations.find(params[:id]).destroy!
-      head :no_content
-    end
-
-    private
 
     # Splits `content` around the first match of `query` into windowed
     # before/match/after parts so the client can highlight and center the match.
@@ -164,7 +162,7 @@ module Api
     end
 
     def conversation_params
-      params.require(:conversation).permit(:rag_enabled, :web_search_mode, :web_search_level, :use_skills, skill_ids: [])
+      params.require(:conversation).permit(:title, :rag_enabled, :web_search_mode, :web_search_level, :use_skills, skill_ids: [])
     end
 
     def web_search_settings_params
