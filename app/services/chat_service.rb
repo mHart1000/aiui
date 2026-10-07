@@ -8,7 +8,7 @@ class ChatService
   WEB_SELECTOR_MAX_MESSAGES = WebResearch::Profile.for_level(DEFAULT_WEB_SEARCH_LEVEL)[:selector_max_messages]
   WEB_SELECTOR_MAX_MESSAGE_CHARS = WebResearch::Profile.for_level(DEFAULT_WEB_SEARCH_LEVEL)[:selector_max_message_chars]
   WEB_SELECTOR_MAX_TRANSCRIPT_CHARS = WebResearch::Profile.for_level(DEFAULT_WEB_SEARCH_LEVEL)[:selector_max_transcript_chars]
-  WEB_SELECTOR_TIMEOUT_SECONDS = 10
+  WEB_SELECTOR_TIMEOUT_SECONDS = 20
   RAG_CONTEXT_CHARS = WebResearch::Profile.for_level(DEFAULT_WEB_SEARCH_LEVEL)[:rag_context_chars]
   RAG_CONTEXT_CHARS_WITH_WEB = WebResearch::Profile.for_level(DEFAULT_WEB_SEARCH_LEVEL)[:rag_context_chars_with_web]
   WEB_EVIDENCE_CHARS = WebResearch::Profile.for_level(DEFAULT_WEB_SEARCH_LEVEL)[:web_evidence_chars]
