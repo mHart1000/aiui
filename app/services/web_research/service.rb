@@ -32,7 +32,7 @@ module WebResearch
       started_monotonic = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       deadline = started_monotonic + @research_deadline_seconds
       search_deadline = started_monotonic + @search_deadline_seconds
-      first_query_sent_at = nil
+      first_query_queued_at = nil
       executed_queries = []
       results = []
       search_failures = 0
@@ -49,13 +49,18 @@ module WebResearch
         executed_queries << query
         emit(:searching, queries: executed_queries.dup)
         search_started = monotonic_now
-        query_sent_at = Time.current.iso8601(3)
-        first_query_sent_at ||= query_sent_at
-        AuditLog.info("search_started", query: query, sent_at: query_sent_at)
+        query_queued_at = Time.current.iso8601(3)
+        first_query_queued_at ||= query_queued_at
+        AuditLog.info("search_started", query: query, queued_at: query_queued_at)
         begin
           response = @adapter.search(query, deadline: search_deadline)
           search_failures += 1 if response.respond_to?(:engine_failures) && response.engine_failures.any?
           search_results = response.map { |result| result.merge(research_query: query) }
+        rescue SearchPacer::DeadlineExceeded => e
+          AuditLog.warn("search_pacing_deadline", error: e.message, exception: e.full_message)
+          executed_queries.pop
+          search_deadline_exhausted = true
+          break
         rescue SearxngAdapter::Error => e
           AuditLog.warn("search_query_failed", query: query, error_class: e.class.name, error: e.message, exception: e.full_message, elapsed_ms: elapsed_ms(search_started))
           search_failures += 1
@@ -104,7 +109,7 @@ module WebResearch
         thin_extract_count: thin_extracts, cancelled_count: cancelled, fetch_deadline_exhausted: fetch_deadline_exhausted,
         search_failure_count: search_failures, search_deadline_exhausted: search_deadline_exhausted,
         evidence_chars: evidence&.length || 0, elapsed_ms: elapsed_ms(started_monotonic))
-      AuditLog.info("research_latency", first_query_sent_at: first_query_sent_at,
+      AuditLog.info("research_latency", first_query_queued_at: first_query_queued_at,
         search_results_ms: elapsed_ms(started_monotonic, search_completed_monotonic),
         fetch_and_extract_ms: elapsed_ms(search_completed_monotonic, evidence_formatted_monotonic),
         total_ms: elapsed_ms(started_monotonic))

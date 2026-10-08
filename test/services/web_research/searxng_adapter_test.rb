@@ -41,7 +41,7 @@ class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
   end
 
   test "normalizes and caps successful search results" do
-    adapter = WebResearch::SearxngAdapter.new(base_url: "http://searx.example")
+    adapter = WebResearch::SearxngAdapter.new(interval: 0, base_url: "http://searx.example")
     results = 6.times.map do |index|
       {
         "title" => index.zero? ? "T" * 600 : "Result #{index}",
@@ -68,7 +68,7 @@ class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
   end
 
   test "discards malformed and unsafe provider results" do
-    adapter = WebResearch::SearxngAdapter.new(base_url: "http://searx.example")
+    adapter = WebResearch::SearxngAdapter.new(interval: 0, base_url: "http://searx.example")
     results = [
       nil,
       { "title" => "Credentials", "url" => "https://user:password@example.com/private", "content" => "secret" },
@@ -85,7 +85,7 @@ class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
   end
 
   test "rejects malformed provider JSON" do
-    adapter = WebResearch::SearxngAdapter.new(base_url: "http://searx.example")
+    adapter = WebResearch::SearxngAdapter.new(interval: 0, base_url: "http://searx.example")
     http = FakeHttp.new(response: ChunkedResponse.new(chunks: [ "not json" ]))
 
     Net::HTTP.stub(:new, http) do
@@ -96,7 +96,7 @@ class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
   end
 
   test "rejects malformed result structures and non-success responses" do
-    adapter = WebResearch::SearxngAdapter.new(base_url: "http://searx.example")
+    adapter = WebResearch::SearxngAdapter.new(interval: 0, base_url: "http://searx.example")
 
     Net::HTTP.stub(:new, FakeHttp.new(response: ChunkedResponse.new(chunks: [ "[]" ]))) do
       error = assert_raises(WebResearch::SearxngAdapter::Error) { adapter.search("latest news") }
@@ -110,7 +110,7 @@ class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
   end
 
   test "rejects missing or wrongly typed results instead of treating them as empty" do
-    adapter = WebResearch::SearxngAdapter.new(base_url: "http://searx.example")
+    adapter = WebResearch::SearxngAdapter.new(interval: 0, base_url: "http://searx.example")
     [ {}, { results: nil }, { results: {} }, { results: "broken" } ].each do |payload|
       http = FakeHttp.new(response: ChunkedResponse.new(chunks: [ payload.to_json ]))
       Net::HTTP.stub(:new, http) do
@@ -120,7 +120,7 @@ class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
   end
 
   test "preserves and logs engine failures even with HTTP success and usable results" do
-    adapter = WebResearch::SearxngAdapter.new(base_url: "http://searx.example")
+    adapter = WebResearch::SearxngAdapter.new(interval: 0, base_url: "http://searx.example")
     failures = [ [ "google", "CAPTCHA" ] ]
     [ [], [ { url: "https://example.com", title: "Example" } ] ].each do |results|
       http = FakeHttp.new(response: ChunkedResponse.new(chunks: [ { results: results, unresponsive_engines: failures }.to_json ]))
@@ -138,7 +138,7 @@ class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
   end
 
   test "enforces the streamed provider response limit" do
-    adapter = WebResearch::SearxngAdapter.new(base_url: "http://searx.example")
+    adapter = WebResearch::SearxngAdapter.new(interval: 0, base_url: "http://searx.example")
     response = ChunkedResponse.new(chunks: [
       "a" * WebResearch::SearxngAdapter::MAX_RESPONSE_BYTES,
       "b"
@@ -150,8 +150,8 @@ class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
     end
   end
 
-  test "contains TLS failures and deadline breaches as provider errors" do
-    adapter = WebResearch::SearxngAdapter.new(base_url: "https://searx.example")
+  test "contains TLS failures and rejects expired queries before dispatch" do
+    adapter = WebResearch::SearxngAdapter.new(interval: 0, base_url: "https://searx.example")
 
     Net::HTTP.stub(:new, FakeHttp.new(error: OpenSSL::SSL::SSLError.new("certificate verify failed"))) do
       error = assert_raises(WebResearch::SearxngAdapter::Error) { adapter.search("latest news") }
@@ -160,10 +160,9 @@ class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
 
     http = FakeHttp.new(response: ChunkedResponse.new(chunks: [ "{}" ]))
     Net::HTTP.stub(:new, http) do
-      error = assert_raises(WebResearch::SearxngAdapter::Error) do
+      assert_raises(WebResearch::SearchPacer::DeadlineExceeded) do
         adapter.search("latest news", deadline: -Float::INFINITY)
       end
-      assert_equal "SearXNG response timed out", error.message
       assert_nil http.last_request
     end
   end

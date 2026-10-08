@@ -1,6 +1,24 @@
 require "test_helper"
 
 class WebResearch::ServiceTest < ActiveSupport::TestCase
+  test "pacing deadline stops the batch and retains earlier evidence" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "first", "second" ] }, last_four_user_messages: "")
+    adapter = Object.new
+    calls = []
+    adapter.define_singleton_method(:search) do |query, **|
+      calls << query
+      raise WebResearch::SearchPacer::DeadlineExceeded, "no time to send" if calls.length > 1
+      [ { title: "Example", url: "https://example.com", snippet: "" } ]
+    end
+    fetcher = Object.new
+    fetcher.define_singleton_method(:fetch) { |*, **| "Useful evidence" }
+    result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
+    assert_equal "partial", result[:metadata][:status]
+    assert_equal [ "first" ], result[:metadata][:queries]
+    assert_includes result[:evidence], "Useful evidence"
+    assert_includes result[:metadata][:warning], "Web search was incomplete"
+  end
+
   test "reports engine failures as partial research and logs empty searches distinctly" do
     request = WebResearch::ToolRequest.new({ "queries" => [ "example" ] }, last_four_user_messages: "")
     adapter = Object.new

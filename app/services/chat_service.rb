@@ -445,9 +445,9 @@ class ChatService
     query_count = { 2 => "two", 3 => "three", 4 => "four" }.fetch(@budgets[:max_queries], @budgets[:max_queries].to_s)
     instruction =
       if @web_search_mode == "always"
-        "You are a web-research router. You must call research_web exactly once. Use #{query_count} distinct, complementary queries when searching. Return only the tool call; do not answer or explain."
+        "You are a web-research router. You must call research_web exactly once. Use up to #{query_count} distinct, complementary queries when searching; use fewer when sufficient. Return only the tool call; do not answer or explain."
       else
-        "You are a web-research router. Call research_web exactly once only when current or niche external evidence would materially help. Use #{query_count} distinct, complementary queries when searching. Otherwise return no tool call. Do not answer or explain."
+        "You are a web-research router. Call research_web exactly once only when current or niche external evidence would materially help. Use up to #{query_count} distinct, complementary queries when searching; use fewer when sufficient. Otherwise return no tool call. Do not answer or explain."
       end
     transcript = "Conversation transcript:\n\n#{recent.join("\n\n")}\n\nRoute the latest USER request now."
 

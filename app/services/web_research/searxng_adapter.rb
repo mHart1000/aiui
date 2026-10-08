@@ -21,16 +21,26 @@ module WebResearch
       end
     end
 
-    def initialize(base_url: ENV["SEARXNG_URL"])
+    def initialize(base_url: ENV["SEARXNG_URL"], interval: SearchPacer::DEFAULT_INTERVAL_SECONDS, pacer: nil)
       configured_adapter = ENV.fetch("WEB_SEARCH_ADAPTER", "searxng")
       raise Error, "unsupported web search adapter" unless configured_adapter == "searxng"
 
       @base_url = base_url.presence
+      @pacer = pacer || SearchPacer.new(interval: interval)
     end
 
     def search(query, count: MAX_RESULTS, deadline: monotonic_now + 20)
       raise Error, "SearXNG is not configured" unless @base_url
 
+      @pacer.call(deadline: deadline) do
+        AuditLog.info("search_request_sent", query: query, sent_at: Time.current.iso8601(3))
+        perform_search(query, count: count, deadline: deadline)
+      end
+    end
+
+    private
+
+    def perform_search(query, count:, deadline:)
       uri = URI.join(@base_url.end_with?("/") ? @base_url : "#{@base_url}/", "search")
       request = Net::HTTP::Post.new(uri)
       request["Content-Type"] = "application/x-www-form-urlencoded"
@@ -73,8 +83,6 @@ module WebResearch
     rescue URI::InvalidURIError => e
       raise Error, "invalid SearXNG URL: #{e.message}"
     end
-
-    private
 
     def normalize(item)
       unless item.is_a?(Hash)

@@ -24,7 +24,7 @@ class WebResearch::HttpDeadlineTest < ActiveSupport::TestCase
               assert_equal "research deadline exceeded", error.message
             end
           else
-            adapter = WebResearch::SearxngAdapter.new(base_url: uri.to_s)
+            adapter = WebResearch::SearxngAdapter.new(interval: 0, base_url: uri.to_s)
             error = assert_raises(WebResearch::SearxngAdapter::Error) do
               adapter.search("example", deadline: deadline)
             end
