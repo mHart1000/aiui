@@ -5,7 +5,7 @@ class ImageAttachmentProcessor
   MAX_BYTES = 8.megabytes
   MAX_SOURCE_PIXELS = 100_000_000
   MAX_PIXELS = 6_000_000
-  ACCEPTED_TYPES = %w[image/jpeg image/png].freeze
+  ACCEPTED_TYPES = %w[image/jpeg image/png image/webp].freeze
   EXTENSIONS = {
     "image/jpeg" => "jpg",
     "image/png" => "png"
@@ -42,7 +42,7 @@ class ImageAttachmentProcessor
     validate_upload!
     content_type = detected_type
     unless ACCEPTED_TYPES.include?(content_type)
-      raise Error, "Images must be JPEG or PNG."
+      raise Error, "Images must be JPEG, PNG, or WebP."
     end
 
     source = Vips::Image.new_from_file(@upload.tempfile.path, access: :sequential)
@@ -51,6 +51,7 @@ class ImageAttachmentProcessor
       raise Error, "The image dimensions are too large to process safely."
     end
 
+    content_type = normalized_content_type(content_type, source)
     extension = EXTENSIONS.fetch(content_type)
     pipeline = ImageProcessing::Vips.source(@upload.tempfile).autorot
     if width * height > MAX_PIXELS
@@ -127,6 +128,12 @@ class ImageAttachmentProcessor
     return { strip: true, Q: 95, optimize_coding: true } if content_type == "image/jpeg"
 
     { strip: true }
+  end
+
+  def normalized_content_type(source_type, image)
+    return source_type unless source_type == "image/webp"
+
+    image.bands.in?([ 2, 4 ]) ? "image/png" : "image/jpeg"
   end
 
   def sanitized_filename
