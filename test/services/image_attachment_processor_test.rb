@@ -17,6 +17,14 @@ class ImageAttachmentProcessorTest < ActiveSupport::TestCase
     ImageAttachmentProcessor.call(upload: upload)
   end
 
+  def webp_upload(bands:, filename: "image.webp")
+    source = Tempfile.new([ "webp-source", ".webp" ], binmode: true)
+    pixels = bands == 4 ? [ 255, 0, 0, 128 ] : [ 255, 0, 0 ]
+    Vips::Image.black(20, 10).new_from_image(pixels).write_to_file(source.path)
+    source.rewind
+    ActionDispatch::Http::UploadedFile.new(tempfile: source, filename: filename, type: "image/webp")
+  end
+
   test "detects MIME from bytes and corrects a hostile filename extension" do
     upload = uploaded_file(fixture: "small.png", filename: "../unsafe name.jpg", type: "image/jpeg")
     result = process(upload)
@@ -33,8 +41,32 @@ class ImageAttachmentProcessorTest < ActiveSupport::TestCase
     upload = uploaded_file(bytes: "GIF89a".b + ("\0" * 32), filename: "animated.gif", type: "image/png")
 
     error = assert_raises(ImageAttachmentProcessor::Error) { process(upload) }
-    assert_match(/JPEG or PNG/, error.message)
+    assert_match(/JPEG, PNG, or WebP/, error.message)
   ensure
+    upload&.tempfile&.close!
+  end
+
+  test "normalizes opaque WebP to JPEG" do
+    upload = webp_upload(bands: 3, filename: "photo.webp")
+    result = process(upload)
+
+    assert_equal "image/jpeg", result.content_type
+    assert_equal "photo.jpg", result.filename
+    assert_equal [ 20, 10 ], [ result.width, result.height ]
+  ensure
+    result&.close!
+    upload&.tempfile&.close!
+  end
+
+  test "normalizes transparent WebP to PNG" do
+    upload = webp_upload(bands: 4, filename: "sticker.webp")
+    result = process(upload)
+
+    assert_equal "image/png", result.content_type
+    assert_equal "sticker.png", result.filename
+    assert_equal 4, Vips::Image.new_from_file(result.tempfile.path).bands
+  ensure
+    result&.close!
     upload&.tempfile&.close!
   end
 

@@ -30,7 +30,7 @@
     <input
       ref="fileInput"
       type="file"
-      accept="image/png,image/jpeg"
+      accept="image/png,image/jpeg,image/webp"
       multiple
       class="file-input"
       @change="onFilesChosen"
