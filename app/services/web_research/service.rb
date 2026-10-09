@@ -32,12 +32,13 @@ module WebResearch
       started_monotonic = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       deadline = started_monotonic + @research_deadline_seconds
       search_deadline = started_monotonic + @search_deadline_seconds
-      first_query_sent_at = nil
+      first_query_queued_at = nil
       executed_queries = []
       results = []
       search_failures = 0
+      skipped_engines = {}
       search_deadline_exhausted = false
-      AuditLog.info("research_started", candidate_queries: @request.queries, direct_urls: @request.urls.map { |url| AuditLog.safe_url(url) })
+      AuditLog.info("research_started", CANDIDATE_QUERIES: @request.queries, direct_urls: @request.urls.map { |url| AuditLog.safe_url(url) })
       search_capacity = [ @max_fetch_attempts - @request.urls.length, 0 ].max
       @request.queries.each do |query|
         break if distinct_search_results(results).length >= search_capacity
@@ -49,13 +50,20 @@ module WebResearch
         executed_queries << query
         emit(:searching, queries: executed_queries.dup)
         search_started = monotonic_now
-        query_sent_at = Time.current.iso8601(3)
-        first_query_sent_at ||= query_sent_at
-        AuditLog.info("search_started", query: query, sent_at: query_sent_at)
+        query_queued_at = Time.current.iso8601(3)
+        first_query_queued_at ||= query_queued_at
+        AuditLog.info("search_started", query: query, queued_at: query_queued_at)
+        response = nil
         begin
           response = @adapter.search(query, deadline: search_deadline)
           search_failures += 1 if response.respond_to?(:engine_failures) && response.engine_failures.any?
+          skipped_engines.merge!(response.skipped_engines) if response.respond_to?(:skipped_engines)
           search_results = response.map { |result| result.merge(research_query: query) }
+        rescue SearchPacer::DeadlineExceeded => e
+          AuditLog.warn("search_pacing_deadline", error: e.message, exception: e.full_message)
+          executed_queries.pop
+          search_deadline_exhausted = true
+          break
         rescue SearxngAdapter::Error => e
           AuditLog.warn("search_query_failed", query: query, error_class: e.class.name, error: e.message, exception: e.full_message, elapsed_ms: elapsed_ms(search_started))
           search_failures += 1
@@ -64,6 +72,12 @@ module WebResearch
         AuditLog.info("search_completed", query: query, result_count: search_results.length,
           urls: search_results.map { |result| AuditLog.safe_url(result[:url]) }, elapsed_ms: elapsed_ms(search_started))
         results.concat(search_results)
+        if search_results.empty? && response &&
+            ((response.respond_to?(:engine_failures) && response.engine_failures.any?) ||
+             (response.respond_to?(:skipped_engines) && response.skipped_engines.any?))
+          AuditLog.warn("search_batch_stopped", query: query, reason: "No usable results with failed or cooling-down engines")
+          break
+        end
       end
       results = distinct_search_results(results)
       search_completed_monotonic = Process.clock_gettime(Process::CLOCK_MONOTONIC)
@@ -86,7 +100,7 @@ module WebResearch
 
       evidence, sources = render_and_format_evidence(selected)
       evidence_formatted_monotonic = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      search_limited = search_failures.positive? || search_deadline_exhausted
+      search_limited = search_failures.positive? || search_deadline_exhausted || skipped_engines.any?
       fetch_limited = (failures + thin_extracts).positive? ||
         selected.any? { |outcome| outcome[:content_type] == "search_snippet" } ||
         (fetch_deadline_exhausted && successful.length < @max_pages)
@@ -98,13 +112,22 @@ module WebResearch
       if status == "failed" && candidates.empty? && !search_limited
         warning = "Web search returned no usable results; no pages were fetched."
       end
+      if skipped_engines.any?
+        skipped = skipped_engines.map { |engine, data| "#{engine} (retry after #{Time.at(data.fetch("retry_at")).utc.iso8601})" }.join(", ")
+        warning = [ warning, "Engines skipped during cooldown: #{skipped}." ].compact.join(" ")
+      end
       metadata = { status: status, provider: PROVIDER, queries: executed_queries, searched_at: started_at.iso8601,
                    warning: warning, sources: sources }
+      if skipped_engines.any?
+        metadata[:skipped_engines] = skipped_engines.map do |engine, data|
+          { engine: engine, reason: data.fetch("reason"), retry_at: Time.at(data.fetch("retry_at")).utc.iso8601 }
+        end
+      end
       AuditLog.public_send(status == "complete" ? :info : :warn, "research_completed", warning: warning, status: status, source_count: sources.length, failure_count: failures,
         thin_extract_count: thin_extracts, cancelled_count: cancelled, fetch_deadline_exhausted: fetch_deadline_exhausted,
         search_failure_count: search_failures, search_deadline_exhausted: search_deadline_exhausted,
         evidence_chars: evidence&.length || 0, elapsed_ms: elapsed_ms(started_monotonic))
-      AuditLog.info("research_latency", first_query_sent_at: first_query_sent_at,
+      AuditLog.info("research_latency", first_query_queued_at: first_query_queued_at,
         search_results_ms: elapsed_ms(started_monotonic, search_completed_monotonic),
         fetch_and_extract_ms: elapsed_ms(search_completed_monotonic, evidence_formatted_monotonic),
         total_ms: elapsed_ms(started_monotonic))

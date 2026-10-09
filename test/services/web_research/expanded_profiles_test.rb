@@ -2,7 +2,7 @@ require "test_helper"
 require Rails.root.join("db/migrate/20261004000000_rename_high_web_search_level_to_medium")
 
 class ExpandedProfilesTest < ActiveSupport::TestCase
-  test "high selector accepts eight queries and passes the profile to research" do
+  test "high selector accepts its query allowance and passes the profile to research" do
     profile = WebResearch::Profile.for_level("high")
     service = ChatService.new(messages: [ { role: "user", content: "Research local inference" } ],
       model: "local-llama", use_persona: false, use_scaffolding: false,

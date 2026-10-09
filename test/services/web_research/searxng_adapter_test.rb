@@ -1,6 +1,16 @@
 require "test_helper"
+require "tmpdir"
 
 class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
+  setup do
+    @directory = Dir.mktmpdir
+    @pacer = WebResearch::SearchPacer.new(interval: 0, path: File.join(@directory, "pacing.lock"))
+  end
+
+  teardown do
+    FileUtils.remove_entry(@directory)
+  end
+
   class ChunkedResponse < Net::HTTPOK
     def initialize(chunks:)
       super("1.1", "200", "OK")
@@ -41,7 +51,7 @@ class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
   end
 
   test "normalizes and caps successful search results" do
-    adapter = WebResearch::SearxngAdapter.new(base_url: "http://searx.example")
+    adapter = WebResearch::SearxngAdapter.new(pacer: @pacer, base_url: "http://searx.example")
     results = 6.times.map do |index|
       {
         "title" => index.zero? ? "T" * 600 : "Result #{index}",
@@ -68,7 +78,7 @@ class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
   end
 
   test "discards malformed and unsafe provider results" do
-    adapter = WebResearch::SearxngAdapter.new(base_url: "http://searx.example")
+    adapter = WebResearch::SearxngAdapter.new(pacer: @pacer, base_url: "http://searx.example")
     results = [
       nil,
       { "title" => "Credentials", "url" => "https://user:password@example.com/private", "content" => "secret" },
@@ -85,7 +95,7 @@ class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
   end
 
   test "rejects malformed provider JSON" do
-    adapter = WebResearch::SearxngAdapter.new(base_url: "http://searx.example")
+    adapter = WebResearch::SearxngAdapter.new(pacer: @pacer, base_url: "http://searx.example")
     http = FakeHttp.new(response: ChunkedResponse.new(chunks: [ "not json" ]))
 
     Net::HTTP.stub(:new, http) do
@@ -96,7 +106,7 @@ class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
   end
 
   test "rejects malformed result structures and non-success responses" do
-    adapter = WebResearch::SearxngAdapter.new(base_url: "http://searx.example")
+    adapter = WebResearch::SearxngAdapter.new(pacer: @pacer, base_url: "http://searx.example")
 
     Net::HTTP.stub(:new, FakeHttp.new(response: ChunkedResponse.new(chunks: [ "[]" ]))) do
       error = assert_raises(WebResearch::SearxngAdapter::Error) { adapter.search("latest news") }
@@ -110,7 +120,7 @@ class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
   end
 
   test "rejects missing or wrongly typed results instead of treating them as empty" do
-    adapter = WebResearch::SearxngAdapter.new(base_url: "http://searx.example")
+    adapter = WebResearch::SearxngAdapter.new(pacer: @pacer, base_url: "http://searx.example")
     [ {}, { results: nil }, { results: {} }, { results: "broken" } ].each do |payload|
       http = FakeHttp.new(response: ChunkedResponse.new(chunks: [ payload.to_json ]))
       Net::HTTP.stub(:new, http) do
@@ -120,25 +130,61 @@ class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
   end
 
   test "preserves and logs engine failures even with HTTP success and usable results" do
-    adapter = WebResearch::SearxngAdapter.new(base_url: "http://searx.example")
+    adapter = WebResearch::SearxngAdapter.new(pacer: @pacer, base_url: "http://searx.example")
     failures = [ [ "google", "CAPTCHA" ] ]
-    [ [], [ { url: "https://example.com", title: "Example" } ] ].each do |results|
-      http = FakeHttp.new(response: ChunkedResponse.new(chunks: [ { results: results, unresponsive_engines: failures }.to_json ]))
+    results = [ { url: "https://example.com", title: "Example" } ]
+    http = FakeHttp.new(response: ChunkedResponse.new(chunks: [ { results: results, unresponsive_engines: failures }.to_json ]))
+    logged = []
+    WebResearch::AuditLog.stub(:warn, ->(event, **data) { logged << [ event, data ] }) do
+      Net::HTTP.stub(:new, http) do
+        response = adapter.search("example")
+        assert_equal results.length, response.length
+        assert_equal failures, response.engine_failures
+      end
+    end
+    assert_equal "search_engine_failed", logged.first.first
+    assert_equal failures, logged.first.last[:engine_failures]
+  end
+
+  test "partial failures exclude only failed engines and log every skipped query" do
+    adapter = WebResearch::SearxngAdapter.new(pacer: @pacer, base_url: "http://searx.example")
+    failures = [ [ "google cse", "Suspended: too many requests" ] ]
+    http = FakeHttp.new(response: ChunkedResponse.new(chunks: [ { results: [ { url: "https://example.com" } ], unresponsive_engines: failures }.to_json ]))
+    Net::HTTP.stub(:new, http) { assert_equal 1, adapter.search("first").length }
+    retry_at = JSON.parse(File.read(File.join(@directory, "pacing.lock"))).dig("engines", "google cse", "retry_at")
+    2.times do
+      http = FakeHttp.new(response: ChunkedResponse.new(chunks: [ { results: [ { url: "https://example.com" } ] }.to_json ]))
       logged = []
-      WebResearch::AuditLog.stub(:warn, ->(event, **data) { logged << [ event, data ] }) do
+      WebResearch::AuditLog.stub(:info, ->(event, **data) { logged << [ event, data ] }) do
         Net::HTTP.stub(:new, http) do
-          response = adapter.search("example")
-          assert_equal results.length, response.length
-          assert_equal failures, response.engine_failures
+          result = adapter.search("next !goc")
+          assert_equal 1, result.length
+          assert_empty result.engine_failures
+          assert_equal retry_at, result.skipped_engines.dig("google cse", "retry_at")
         end
       end
-      assert_equal "search_engine_failed", logged.first.first
-      assert_equal failures, logged.first.last[:engine_failures]
+      params = URI.decode_www_form(http.last_request.body).to_h
+      assert_equal "google cse__general", params["disabled_engines"]
+      assert_equal 'next "!goc"', params["q"]
+      assert_equal "general", params["categories"]
+      skip = logged.find { |event, _| event == "search_engine_skipped" }.last
+      assert_equal "google cse", skip[:engine]
+      assert_equal failures.first.last, skip[:reason]
+      assert_equal Time.at(retry_at).utc.iso8601, skip[:retry_at]
+      assert_operator skip[:remaining_seconds], :>, 0
+    end
+  end
+
+  test "rejects malformed failure entries before writing cooldown state" do
+    adapter = WebResearch::SearxngAdapter.new(pacer: @pacer, base_url: "http://searx.example")
+    http = FakeHttp.new(response: ChunkedResponse.new(chunks: [ { results: [], unresponsive_engines: [ nil ] }.to_json ]))
+    Net::HTTP.stub(:new, http) do
+      assert_raises(WebResearch::SearxngAdapter::Error) { adapter.search("example") }
     end
   end
 
   test "enforces the streamed provider response limit" do
-    adapter = WebResearch::SearxngAdapter.new(base_url: "http://searx.example")
+    adapter = WebResearch::SearxngAdapter.new(pacer: @pacer, base_url: "http://searx.example")
     response = ChunkedResponse.new(chunks: [
       "a" * WebResearch::SearxngAdapter::MAX_RESPONSE_BYTES,
       "b"
@@ -150,8 +196,8 @@ class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
     end
   end
 
-  test "contains TLS failures and deadline breaches as provider errors" do
-    adapter = WebResearch::SearxngAdapter.new(base_url: "https://searx.example")
+  test "contains TLS failures and rejects expired queries before dispatch" do
+    adapter = WebResearch::SearxngAdapter.new(pacer: @pacer, base_url: "https://searx.example")
 
     Net::HTTP.stub(:new, FakeHttp.new(error: OpenSSL::SSL::SSLError.new("certificate verify failed"))) do
       error = assert_raises(WebResearch::SearxngAdapter::Error) { adapter.search("latest news") }
@@ -160,10 +206,9 @@ class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
 
     http = FakeHttp.new(response: ChunkedResponse.new(chunks: [ "{}" ]))
     Net::HTTP.stub(:new, http) do
-      error = assert_raises(WebResearch::SearxngAdapter::Error) do
+      assert_raises(WebResearch::SearchPacer::DeadlineExceeded) do
         adapter.search("latest news", deadline: -Float::INFINITY)
       end
-      assert_equal "SearXNG response timed out", error.message
       assert_nil http.last_request
     end
   end

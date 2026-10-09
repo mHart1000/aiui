@@ -13,29 +13,49 @@ module WebResearch
     class Error < StandardError; end
 
     class SearchResults < Array
-      attr_reader :engine_failures
+      attr_reader :engine_failures, :skipped_engines
 
-      def initialize(results, engine_failures:)
+      def initialize(results, engine_failures:, skipped_engines: {})
         super(results)
         @engine_failures = engine_failures
+        @skipped_engines = skipped_engines
       end
     end
 
-    def initialize(base_url: ENV["SEARXNG_URL"])
+    def initialize(base_url: ENV["SEARXNG_URL"], interval: SearchPacer::DEFAULT_INTERVAL_SECONDS, pacer: nil)
       configured_adapter = ENV.fetch("WEB_SEARCH_ADAPTER", "searxng")
       raise Error, "unsupported web search adapter" unless configured_adapter == "searxng"
 
       @base_url = base_url.presence
+      @pacer = pacer || SearchPacer.new(interval: interval)
     end
 
     def search(query, count: MAX_RESULTS, deadline: monotonic_now + 20)
       raise Error, "SearXNG is not configured" unless @base_url
 
+      @pacer.call(deadline: deadline) do |cooldowns|
+        cooldowns.each do |engine, data|
+          AuditLog.info("search_engine_skipped", query: query, engine: engine, reason: data.fetch("reason"),
+            retry_at: Time.at(data.fetch("retry_at")).utc.iso8601,
+            remaining_seconds: (data.fetch("retry_at") - Time.now.to_f).ceil)
+        end
+        AuditLog.info("search_request_sent", query: query, sent_at: Time.current.iso8601(3))
+        perform_search(query, count: count, deadline: deadline, cooldowns: cooldowns)
+      end
+    end
+
+    private
+
+    def perform_search(query, count:, deadline:, cooldowns:)
       uri = URI.join(@base_url.end_with?("/") ? @base_url : "#{@base_url}/", "search")
       request = Net::HTTP::Post.new(uri)
       request["Content-Type"] = "application/x-www-form-urlencoded"
       request["Accept-Encoding"] = "identity"
-      request.body = URI.encode_www_form(q: query, format: "json")
+      # Treat bang tokens as search text so they cannot override engine exclusions.
+      search_text = query.gsub(/(?<!\S)![^\s]+/) { |token| %Q("#{token}") }
+      params = { q: search_text, format: "json", categories: "general" }
+      params[:disabled_engines] = cooldowns.keys.map { |engine| "#{engine}__general" }.join(",") if cooldowns.any?
+      request.body = URI.encode_www_form(params)
 
       http = Net::HTTP.new(uri.host, uri.port, nil)
       http.use_ssl = uri.scheme == "https"
@@ -57,7 +77,9 @@ module WebResearch
       raise Error, "SearXNG returned malformed results" unless json.is_a?(Hash) && json["results"].is_a?(Array)
 
       engine_failures = json.fetch("unresponsive_engines", [])
-      raise Error, "SearXNG returned malformed engine diagnostics" unless engine_failures.is_a?(Array)
+      raise Error, "SearXNG returned malformed engine diagnostics" unless engine_failures.is_a?(Array) && engine_failures.all? { |failure|
+        failure.is_a?(Array) && failure.length == 2 && failure.all? { |value| value.is_a?(String) } && failure.first.present?
+      }
 
       if engine_failures.any?
         AuditLog.warn("search_engine_failed", query: query, engine_failures: engine_failures)
@@ -65,7 +87,7 @@ module WebResearch
       results = json["results"].first([ count, MAX_RESULTS ].min).filter_map { |item| normalize(item) }
       AuditLog.info("search_provider_response", query: query, raw_result_count: json["results"].length,
         usable_result_count: results.length, engine_failures: engine_failures)
-      SearchResults.new(results, engine_failures: engine_failures)
+      SearchResults.new(results, engine_failures: engine_failures, skipped_engines: cooldowns.deep_dup)
     rescue JSON::ParserError
       raise Error, "SearXNG returned invalid JSON"
     rescue Net::OpenTimeout, Net::ReadTimeout, Net::ProtocolError, SocketError, OpenSSL::SSL::SSLError, EOFError, IOError, Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::EHOSTUNREACH, Errno::ENETUNREACH, Errno::ETIMEDOUT => e
@@ -73,8 +95,6 @@ module WebResearch
     rescue URI::InvalidURIError => e
       raise Error, "invalid SearXNG URL: #{e.message}"
     end
-
-    private
 
     def normalize(item)
       unless item.is_a?(Hash)
