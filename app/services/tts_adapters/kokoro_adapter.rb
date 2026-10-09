@@ -16,8 +16,9 @@ module TtsAdapters
     # @param text [String] The text to synthesize
     # @param voice [String, nil] Voice identifier (default: "af_heart")
     # @param speed [Float, nil] Playback speed multiplier (default: 1.0)
+    # @param format [String] Audio response format (default: "mp3")
     # @return [String] Raw audio bytes
-    def synthesize(text:, voice: nil, speed: nil)
+    def synthesize(text:, voice: nil, speed: nil, format: "mp3")
       uri = URI("#{@base_url}/v1/audio/speech")
 
       request = Net::HTTP::Post.new(uri)
@@ -27,7 +28,7 @@ module TtsAdapters
         input: text,
         voice: voice || DEFAULT_VOICE,
         speed: speed || 1.0,
-        response_format: "mp3"
+        response_format: format
       }.to_json
 
       response = Net::HTTP.start(uri.hostname, uri.port,
