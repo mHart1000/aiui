@@ -2,51 +2,51 @@ require "test_helper"
 
 class WebResearch::ServiceTest < ActiveSupport::TestCase
   test "stops an empty failed batch but retains previous results and direct URLs" do
-    request = WebResearch::ToolRequest.new({ "queries" => ["first", "second", "third"], "urls" => ["https://direct.example"] }, last_four_user_messages: "https://direct.example", max_queries: 3)
+    request = WebResearch::ToolRequest.new({ "queries" => [ "first", "second", "third" ], "urls" => [ "https://direct.example" ] }, last_four_user_messages: "https://direct.example", max_queries: 3)
     calls = []
     adapter = Object.new
     adapter.define_singleton_method(:search) do |query, **|
       calls << query
       if query == "first"
-        WebResearch::SearxngAdapter::SearchResults.new([{ url: "https://result.example", title: "Result", snippet: "" }], engine_failures: [])
+        WebResearch::SearxngAdapter::SearchResults.new([ { url: "https://result.example", title: "Result", snippet: "" } ], engine_failures: [])
       else
-        WebResearch::SearxngAdapter::SearchResults.new([], engine_failures: [["brave", "CAPTCHA"]])
+        WebResearch::SearxngAdapter::SearchResults.new([], engine_failures: [ [ "brave", "CAPTCHA" ] ])
       end
     end
     fetcher = Object.new
     fetcher.define_singleton_method(:fetch) { |*, **| "Useful evidence" }
     result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
-    assert_equal ["first", "second"], calls
+    assert_equal [ "first", "second" ], calls
     assert_equal "partial", result[:metadata][:status]
     assert_equal 2, result[:metadata][:sources].length
   end
 
   test "cooldown skips mark useful research partial and an empty response stops the batch" do
-    request = WebResearch::ToolRequest.new({ "queries" => ["first", "second", "third"] }, last_four_user_messages: "", max_queries: 3)
+    request = WebResearch::ToolRequest.new({ "queries" => [ "first", "second", "third" ] }, last_four_user_messages: "", max_queries: 3)
     skipped = { "brave" => { "reason" => "CAPTCHA", "retry_at" => Time.now.to_f + 60 } }
     adapter = Object.new
     calls = []
     adapter.define_singleton_method(:search) do |query, **|
       calls << query
-      results = query == "first" ? [{ url: "https://example.com", title: "Example", snippet: "" }] : []
+      results = query == "first" ? [ { url: "https://example.com", title: "Example", snippet: "" } ] : []
       WebResearch::SearxngAdapter::SearchResults.new(results, engine_failures: [], skipped_engines: skipped)
     end
     fetcher = Object.new
     fetcher.define_singleton_method(:fetch) { |*, **| "Useful evidence" }
     result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
-    assert_equal ["first", "second"], calls
+    assert_equal [ "first", "second" ], calls
     assert_equal "partial", result[:metadata][:status]
     assert_includes result[:metadata][:warning], "Engines skipped during cooldown: brave"
     assert_equal "brave", result[:metadata][:skipped_engines].first[:engine]
   end
 
   test "ordinary empty responses do not stop further queries" do
-    request = WebResearch::ToolRequest.new({ "queries" => ["first", "second"] }, last_four_user_messages: "")
+    request = WebResearch::ToolRequest.new({ "queries" => [ "first", "second" ] }, last_four_user_messages: "")
     calls = []
     adapter = Object.new
     adapter.define_singleton_method(:search) { |query, **| calls << query; [] }
     WebResearch::Service.new(request: request, adapter: adapter).call
-    assert_equal ["first", "second"], calls
+    assert_equal [ "first", "second" ], calls
   end
 
   test "pacing deadline stops the batch and retains earlier evidence" do

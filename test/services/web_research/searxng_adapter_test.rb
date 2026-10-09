@@ -149,13 +149,13 @@ class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
   test "partial failures exclude only failed engines and log every skipped query" do
     adapter = WebResearch::SearxngAdapter.new(pacer: @pacer, base_url: "http://searx.example")
     failures = [ [ "google cse", "Suspended: too many requests" ] ]
-    http = FakeHttp.new(response: ChunkedResponse.new(chunks: [ { results: [{ url: "https://example.com" }], unresponsive_engines: failures }.to_json ]))
+    http = FakeHttp.new(response: ChunkedResponse.new(chunks: [ { results: [ { url: "https://example.com" } ], unresponsive_engines: failures }.to_json ]))
     Net::HTTP.stub(:new, http) { assert_equal 1, adapter.search("first").length }
     retry_at = JSON.parse(File.read(File.join(@directory, "pacing.lock"))).dig("engines", "google cse", "retry_at")
     2.times do
-      http = FakeHttp.new(response: ChunkedResponse.new(chunks: [ { results: [{ url: "https://example.com" }] }.to_json ]))
+      http = FakeHttp.new(response: ChunkedResponse.new(chunks: [ { results: [ { url: "https://example.com" } ] }.to_json ]))
       logged = []
-      WebResearch::AuditLog.stub(:info, ->(event, **data) { logged << [event, data] }) do
+      WebResearch::AuditLog.stub(:info, ->(event, **data) { logged << [ event, data ] }) do
         Net::HTTP.stub(:new, http) do
           result = adapter.search("next !goc")
           assert_equal 1, result.length
@@ -177,7 +177,7 @@ class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
 
   test "rejects malformed failure entries before writing cooldown state" do
     adapter = WebResearch::SearxngAdapter.new(pacer: @pacer, base_url: "http://searx.example")
-    http = FakeHttp.new(response: ChunkedResponse.new(chunks: [ { results: [], unresponsive_engines: [nil] }.to_json ]))
+    http = FakeHttp.new(response: ChunkedResponse.new(chunks: [ { results: [], unresponsive_engines: [ nil ] }.to_json ]))
     Net::HTTP.stub(:new, http) do
       assert_raises(WebResearch::SearxngAdapter::Error) { adapter.search("example") }
     end

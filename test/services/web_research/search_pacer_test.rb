@@ -68,7 +68,7 @@ class WebResearch::SearchPacerTest < ActiveSupport::TestCase
   end
 
   test "partial failures persist per engine across processes without extending on skips" do
-    response = WebResearch::SearxngAdapter::SearchResults.new([ { url: "https://example.com" } ], engine_failures: [["brave", "CAPTCHA"]])
+    response = WebResearch::SearxngAdapter::SearchResults.new([ { url: "https://example.com" } ], engine_failures: [ [ "brave", "CAPTCHA" ] ])
     pacer(0).call(deadline: now + 2) { response }
     original = JSON.parse(File.read(@path)).fetch("engines")
     reader, writer = IO.pipe
@@ -95,17 +95,17 @@ class WebResearch::SearchPacerTest < ActiveSupport::TestCase
       pacer(0).call(deadline: now + 2) { failed_response }
       travel 10
       pacer(0).call(deadline: now + 2) do |cooldowns|
-        assert_equal ["brave"], cooldowns.keys
-        WebResearch::SearxngAdapter::SearchResults.new([], engine_failures: [["duckduckgo", "CAPTCHA"]])
+        assert_equal [ "brave" ], cooldowns.keys
+        WebResearch::SearxngAdapter::SearchResults.new([], engine_failures: [ [ "duckduckgo", "CAPTCHA" ] ])
       end
       travel WebResearch::SearchPacer::FAILURE_COOLDOWN_SECONDS - 10
       pacer(0).call(deadline: now + 2) do |cooldowns|
-        assert_equal ["duckduckgo"], cooldowns.keys
+        assert_equal [ "duckduckgo" ], cooldowns.keys
         failed_response
       end
       travel 11
       pacer(0).call(deadline: now + 2) do |cooldowns|
-        assert_equal ["brave"], cooldowns.keys
+        assert_equal [ "brave" ], cooldowns.keys
         []
       end
     end
@@ -135,7 +135,7 @@ class WebResearch::SearchPacerTest < ActiveSupport::TestCase
     end
     release << true
     thread.value
-    assert_equal ["brave"], waiter.value
+    assert_equal [ "brave" ], waiter.value
   ensure
     release << true
     thread&.join
@@ -152,7 +152,7 @@ class WebResearch::SearchPacerTest < ActiveSupport::TestCase
   private
 
   def failed_response
-    WebResearch::SearxngAdapter::SearchResults.new([], engine_failures: [["brave", "too many requests"]])
+    WebResearch::SearxngAdapter::SearchResults.new([], engine_failures: [ [ "brave", "too many requests" ] ])
   end
 
   def pacer(interval)
