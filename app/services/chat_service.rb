@@ -118,6 +118,8 @@ class ChatService
         finish_reason: adapter_result.is_a?(Hash) ? adapter_result[:finish_reason] : nil,
         tokens: adapter_result.is_a?(Hash) ? adapter_result[:tokens] : nil,
         stats: adapter_result.is_a?(Hash) ? adapter_result[:stats] : nil,
+        model_label: adapter_result.is_a?(Hash) ? adapter_result[:model_label] : nil,
+        persona_label: persona&.dig(:name),
         persona_version: persona&.dig(:version),
         skill_versions: skill_versions,
         web_search_data: @web_search_data
@@ -130,6 +132,8 @@ class ChatService
         finish_reason: response[:finish_reason],
         tokens: response[:tokens],
         stats: response[:stats],
+        model_label: response[:model_label],
+        persona_label: persona&.dig(:name),
         persona_version: persona&.dig(:version),
         skill_versions: skill_versions,
         web_search_data: @web_search_data
@@ -214,6 +218,8 @@ class ChatService
         finish_reason: execution_result.is_a?(Hash) ? execution_result[:finish_reason] : nil,
         tokens: total_tokens,
         stats: combined_stats,
+        model_label: execution_result.is_a?(Hash) ? execution_result[:model_label] : nil,
+        persona_label: persona&.dig(:name),
         persona_version: persona&.dig(:version),
         skill_versions: skill_versions,
         web_search_data: @web_search_data
@@ -233,6 +239,8 @@ class ChatService
         finish_reason: response[:finish_reason],
         tokens: total_tokens,
         stats: combined_stats,
+        model_label: response[:model_label],
+        persona_label: persona&.dig(:name),
         persona_version: persona&.dig(:version),
         skill_versions: skill_versions,
         web_search_data: @web_search_data
@@ -282,7 +290,7 @@ class ChatService
     else
       Rails.logger.warn("Persona: id=#{persona.id} failed to load — proceeding without persona system message")
     end
-    result
+    result&.merge(id: persona.id, name: persona.name)
   end
 
   def prepend_system(messages, content)

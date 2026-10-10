@@ -4,6 +4,7 @@ export function useStreamingChat() {
   const thinkingText = ref('')
   const responseText = ref('')
   const stats = ref(null)
+  const metadata = ref(null)
   const isStreaming = ref(false)
   const error = ref(null)
   const loadingPhase = ref('idle')
@@ -29,6 +30,7 @@ export function useStreamingChat() {
     thinkingText.value = ''
     responseText.value = ''
     stats.value = null
+    metadata.value = null
     error.value = null
     wasStopped.value = false
     webSearch.value = null
@@ -114,6 +116,12 @@ export function useStreamingChat() {
                 total_tokens: data.total_tokens,
                 tokens_per_second: data.tokens_per_second,
                 generation_ms: data.generation_ms
+              }
+              break
+            case 'metadata':
+              metadata.value = {
+                model_label: data.model_label,
+                persona_label: data.persona_label
               }
               break
             case 'done':

@@ -70,6 +70,9 @@ module Api
             total_tokens: m.total_tokens,
             tokens_per_second: m.tokens_per_second,
             generation_ms: m.generation_ms,
+            model_label: m.model_label,
+            persona_label: m.persona_label,
+            created_at: m.created_at,
             web_search_data: m.web_search_data,
             images: m.images.attachments.map { |a|
               {

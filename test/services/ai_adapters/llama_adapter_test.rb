@@ -3,6 +3,7 @@ require "test_helper"
 class AiAdapters::LlamaAdapterTest < ActiveSupport::TestCase
   test "blocking chat passes template kwargs and returns the finish reason" do
     response_body = {
+      model: "./models/Qwen3.8-27B-UD-Q4_K_M.gguf&#x20;",
       choices: [ {
         finish_reason: "tool_calls",
         message: {
@@ -35,13 +36,14 @@ class AiAdapters::LlamaAdapterTest < ActiveSupport::TestCase
       assert_equal 128, captured_payload["thinking_budget_tokens"]
       assert_equal "Call the tool now.", captured_payload["reasoning_budget_message"]
       assert_equal "tool_calls", result[:finish_reason]
+      assert_equal "Qwen3.8-27B-UD-Q4_K_M", result[:model_label]
       assert_equal 1, result[:tool_calls].length
     end
   end
 
   test "streaming chat returns and logs the final finish reason" do
     chunks = [
-      "data: #{ { choices: [ { delta: { content: "Done" }, finish_reason: nil } ] }.to_json }\n\n",
+      "data: #{ { model: "./models/Qwen3.8-27B-UD-Q4_K_M.gguf&#x20;", choices: [ { delta: { content: "Done" }, finish_reason: nil } ] }.to_json }\n\n",
       "data: #{ { choices: [ { delta: {}, finish_reason: "length" } ] }.to_json }\n\n",
       "data: #{ { choices: [], usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 } }.to_json }\n\n",
       "data: [DONE]\n\n"
@@ -61,6 +63,7 @@ class AiAdapters::LlamaAdapterTest < ActiveSupport::TestCase
 
         assert_equal "length", result[:finish_reason]
         assert_equal 6, result.dig(:tokens, :total_tokens)
+        assert_equal "Qwen3.8-27B-UD-Q4_K_M", result[:model_label]
       end
     end
 
