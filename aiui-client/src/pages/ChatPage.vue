@@ -383,6 +383,9 @@
                 <q-tooltip>Retry</q-tooltip>
               </q-btn>
             </template>
+            <span v-if="formatMessageMetadata(msg)" class="message-metadata">
+              {{ formatMessageMetadata(msg) }}
+            </span>
           </div>
         </div>
       </div>
@@ -1121,7 +1124,8 @@ export default {
       this.messages.push({
         role: 'user',
         content: text,
-        images: optimisticImages
+        images: optimisticImages,
+        created_at: new Date().toISOString()
       })
       this.input = ''
       this.pendingAttachments = []
@@ -1132,7 +1136,8 @@ export default {
       this.messages.push({
         role: 'assistant',
         content: '',
-        thinking: ''
+        thinking: '',
+        created_at: new Date().toISOString()
       })
 
       const token = localStorage.getItem('jwt')
@@ -1156,6 +1161,9 @@ export default {
         streamedMessage.total_tokens = finalStats.total_tokens
         streamedMessage.tokens_per_second = finalStats.tokens_per_second
         streamedMessage.generation_ms = finalStats.generation_ms
+      }
+      if (this.streamingChat.metadata.value && streamedMessage) {
+        Object.assign(streamedMessage, this.streamingChat.metadata.value)
       }
 
       const streamError = this.streamingChat.error.value
@@ -1284,6 +1292,24 @@ export default {
       const total = msg.total_tokens != null ? msg.total_tokens.toLocaleString() : '?'
       const tps = msg.tokens_per_second != null ? msg.tokens_per_second.toFixed(1) : '?'
       return `${total} tokens · ${tps} tok/s`
+    },
+
+    formatMessageMetadata(msg) {
+      const parts = []
+      if (msg.role === 'assistant') {
+        if (msg.model_label) parts.push(msg.model_label)
+        if (msg.persona_label) parts.push(msg.persona_label)
+      }
+      if (msg.created_at) {
+        const date = new Date(msg.created_at)
+        if (!Number.isNaN(date.getTime())) {
+          parts.push(new Intl.DateTimeFormat(undefined, {
+            dateStyle: 'medium',
+            timeStyle: 'short'
+          }).format(date))
+        }
+      }
+      return parts.join(' · ')
     },
 
     async updateScaffoldingPreference(value) {
@@ -1485,7 +1511,8 @@ export default {
       this.messages.push({
         role: 'assistant',
         content: '',
-        thinking: ''
+        thinking: '',
+        created_at: new Date().toISOString()
       })
 
       const token = localStorage.getItem('jwt')
@@ -1504,8 +1531,13 @@ export default {
       streamedMessage.thinking = this.streamingChat.thinkingText.value
       streamedMessage.content = this.streamingChat.responseText.value
 
+      if (this.streamingChat.stats.value) Object.assign(streamedMessage, this.streamingChat.stats.value)
+      if (this.streamingChat.metadata.value) Object.assign(streamedMessage, this.streamingChat.metadata.value)
+
       if (this.streamingChat.error.value) {
         streamedMessage.failed = true
+      } else if (!this.streamingChat.wasStopped.value) {
+        await this.loadConversation()
       }
 
       if (this.streamingMessageIndex === myIndex) {
@@ -1688,6 +1720,12 @@ export default {
   padding-top: 4px;
 }
 .message-stats {
+  margin-left: 8px;
+  font-size: 0.75rem;
+  opacity: 0.55;
+  white-space: nowrap;
+}
+.message-metadata {
   margin-left: 8px;
   font-size: 0.75rem;
   opacity: 0.55;

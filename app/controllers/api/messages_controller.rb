@@ -82,6 +82,8 @@ module Api
           thinking: thinking_accumulator,
           tokens: result&.dig(:tokens),
           stats: result&.dig(:stats),
+          model_label: result&.dig(:model_label),
+          persona_label: result&.dig(:persona_label),
           persona_version: result&.dig(:persona_version),
           skill_versions: result&.dig(:skill_versions),
           web_search_data: result&.dig(:web_search_data) || research_metadata || {},
@@ -98,6 +100,13 @@ module Api
           }
           response.stream.write("data: #{stats_event.to_json}\n\n")
         end
+
+        metadata_event = {
+          type: "metadata",
+          model_label: result&.dig(:model_label),
+          persona_label: result&.dig(:persona_label)
+        }
+        response.stream.write("data: #{metadata_event.to_json}\n\n")
 
         response.stream.write("data: #{({ type: 'done' }).to_json}\n\n")
       rescue ActionController::Live::ClientDisconnected
@@ -166,7 +175,7 @@ module Api
       uploads
     end
 
-    def persist_streamed_response(conversation, answering_id, answering_signature, reply:, thinking:, tokens: nil, stats: nil, persona_version: nil, skill_versions: nil, web_search_data: {}, entitle:)
+    def persist_streamed_response(conversation, answering_id, answering_signature, reply:, thinking:, tokens: nil, stats: nil, model_label: nil, persona_label: nil, persona_version: nil, skill_versions: nil, web_search_data: {}, entitle:)
       return false if reply.blank? && thinking.blank?
 
       conversation.with_lock do
@@ -178,6 +187,8 @@ module Api
           thinking: thinking,
           tokens: tokens,
           stats: stats,
+          model_label: model_label,
+          persona_label: persona_label,
           persona_version: persona_version,
           skill_versions: skill_versions,
           web_search_data: web_search_data

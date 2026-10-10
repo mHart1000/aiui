@@ -2,6 +2,7 @@ require "net/http"
 require "json"
 require "timeout"
 require "uri"
+require "cgi"
 
 module AiAdapters
   class LlamaAdapter < BaseAdapter
@@ -87,7 +88,8 @@ module AiAdapters
         tool_calls: json.dig("choices", 0, "message", "tool_calls") || [ json.dig("choices", 0, "message", "function_call") ].compact,
         finish_reason: finish_reason,
         tokens: tokens,
-        stats: stats
+        stats: stats,
+        model_label: clean_model_label(json["model"].presence || @model)
       }
     rescue Net::OpenTimeout, Net::ReadTimeout, SocketError, EOFError, IOError, Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::EHOSTUNREACH, Errno::ENETUNREACH, Errno::ETIMEDOUT => e
       raise Error, "Llama API request failed: #{e.message}"
@@ -97,6 +99,7 @@ module AiAdapters
       final_usage = nil
       final_timings = nil
       finish_reason = nil
+      model_label = nil
       # Stage timestamps, all relative to started_at, to pinpoint where latency
       # accrues: connect -> first raw byte (TTFB) -> first SSE event -> first
       # content delta (TTFT). A large TTFB means bytes are held upstream; a large
@@ -138,6 +141,7 @@ module AiAdapters
                 json_str = line.sub("data: ", "")
                 begin
                   json = JSON.parse(json_str)
+                  model_label ||= json["model"].presence
                   # llama.cpp's final chunk (when stream_options.include_usage is set)
                   # has an empty choices array and a populated usage block. Capture
                   # it for throughput logging instead of yielding to the caller.
@@ -189,7 +193,11 @@ module AiAdapters
       stats = build_stats(tokens: tokens, usage: final_usage, timings: final_timings, elapsed: elapsed, ttft_ms: ttft_ms, stream_diag: stream_diag)
       log_throughput(tokens: tokens, stats: stats, finish_reason: finish_reason)
 
-      { finish_reason: finish_reason, tokens: tokens, stats: stats }
+      { finish_reason: finish_reason, tokens: tokens, stats: stats, model_label: clean_model_label(model_label || @model) }
+    end
+
+    def clean_model_label(value)
+      CGI.unescapeHTML(value.to_s).strip.split("/").last.to_s.sub(/\.gguf\z/i, "")
     end
 
     def extract_token_usage(response)

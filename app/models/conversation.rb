@@ -5,7 +5,7 @@ class Conversation < ApplicationRecord
   # Attached images are not columns; copy_attachments handles them.
   COPIED_MESSAGE_COLUMNS = %w[
     role content thinking prompt_tokens completion_tokens total_tokens
-    generation_ms tokens_per_second persona_version skill_versions
+    generation_ms tokens_per_second model_label persona_label persona_version skill_versions
     web_search_data
     created_at updated_at
   ].freeze
@@ -98,7 +98,7 @@ class Conversation < ApplicationRecord
     validated || model_code
   end
 
-  def add_assistant_message(reply:, thinking:, tokens:, stats: nil, persona_version: nil, skill_versions: nil, web_search_data: {})
+  def add_assistant_message(reply:, thinking:, tokens:, stats: nil, model_label: nil, persona_label: nil, persona_version: nil, skill_versions: nil, web_search_data: {})
     if tokens&.dig(:planning) && tokens&.dig(:execution)
       total_prompt = tokens[:planning][:prompt_tokens] + tokens[:execution][:prompt_tokens]
       total_completion = tokens[:planning][:completion_tokens] + tokens[:execution][:completion_tokens]
@@ -118,6 +118,8 @@ class Conversation < ApplicationRecord
       total_tokens: total_all,
       generation_ms: stats&.dig(:elapsed_ms),
       tokens_per_second: stats&.dig(:tokens_per_second),
+      model_label: model_label,
+      persona_label: persona_label,
       persona_version: persona_version,
       skill_versions: skill_versions,
       web_search_data: web_search_data || {}
