@@ -80,7 +80,8 @@ module Api
                 filename: a.blob.filename.to_s,
                 url: rails_storage_proxy_path(a.blob, disposition: "inline", only_path: true)
               }
-            }
+            },
+            pdfs: m.pdf_sources.map { |source| { filename: source["filename"] } }
           }
         }
       }

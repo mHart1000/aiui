@@ -28,19 +28,19 @@ class ImageAttachmentProcessor
 
   class Error < StandardError; end
 
-  def self.call(upload:)
-    new(upload: upload).call
+  def self.call(upload:, content_type: nil)
+    new(upload: upload).call(content_type: content_type)
   end
 
   def initialize(upload:)
     @upload = upload
   end
 
-  def call
+  def call(content_type: nil)
     tempfile = nil
     completed = false
     validate_upload!
-    content_type = detected_type
+    content_type ||= detected_type
     unless ACCEPTED_TYPES.include?(content_type)
       raise Error, "Images must be JPEG, PNG, or WebP."
     end

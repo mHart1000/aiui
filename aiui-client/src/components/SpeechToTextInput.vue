@@ -1,7 +1,12 @@
 <template>
   <div class="stt-input">
     <div class="input-wrapper">
-      <AttachmentStrip :attachments="attachments" @remove="$emit('remove-attachment', $event)" />
+      <AttachmentStrip
+        :attachments="attachments"
+        :pdf-text-limit="pdfTextLimit"
+        @remove="$emit('remove-attachment', $event)"
+        @update:pdf-text-limit="$emit('update:pdf-text-limit', $event)"
+      />
       <q-input
         ref="inputField"
         filled
@@ -17,9 +22,7 @@
       <div class="button-overlay" :class="{ 'overlay-centered': !expanded }">
         <div class="left-buttons">
           <AttachmentButton
-            :images-supported="imagesSupported"
             :show-new-chat="showNewChat"
-            :model-label="modelLabel"
             @files-selected="$emit('files-selected', $event)"
             @new-chat="$emit('new-chat')"
           />
@@ -120,13 +123,9 @@ export default {
       type: Array,
       default: () => []
     },
-    imagesSupported: {
-      type: Boolean,
-      default: true
-    },
-    modelLabel: {
-      type: String,
-      default: 'This model'
+    pdfTextLimit: {
+      type: Number,
+      default: 24000
     },
     isStreaming: {
       type: Boolean,
@@ -169,7 +168,7 @@ export default {
       default: 250
     }
   },
-  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat', 'stop', 'toggle-voice-mode', 'files-selected', 'remove-attachment'],
+  emits: ['update:modelValue', 'error', 'status', 'send-message', 'new-chat', 'stop', 'toggle-voice-mode', 'files-selected', 'remove-attachment', 'update:pdf-text-limit'],
   data () {
     return {
       isLoading: false,

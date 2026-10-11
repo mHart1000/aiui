@@ -25,7 +25,7 @@ class Api::MessageImageUploadsControllerTest < ActionDispatch::IntegrationTest
     fixture_file_upload(filename, content_type)
   end
 
-  def stream_message(content:, images: [], model: MODEL, &capture)
+  def stream_message(content:, attachments: [], model: MODEL, &capture)
     service = lambda do |**kwargs, &block|
       capture&.call(kwargs)
       block.call("answer", :response)
@@ -37,7 +37,7 @@ class Api::MessageImageUploadsControllerTest < ActionDispatch::IntegrationTest
     AiModels.stub(:local_image_input, true) do
       ChatService.stub(:call, service) do
         post "/api/conversations/#{@conversation.id}/messages/stream",
-             params: { content: content, images: images, model_code: model },
+             params: { content: content, attachments: attachments, model_code: model },
              headers: @headers
       end
     end
@@ -45,7 +45,7 @@ class Api::MessageImageUploadsControllerTest < ActionDispatch::IntegrationTest
 
   test "accepts an image-only multipart message without generating a filename title" do
     assert_no_enqueued_jobs only: ConversationEntitleJob do
-      stream_message(content: "", images: [ image ])
+      stream_message(content: "", attachments: [ image ])
     end
 
     assert_response :success
@@ -56,7 +56,7 @@ class Api::MessageImageUploadsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "accepts multiple images" do
-    stream_message(content: "compare", images: [ image, image ])
+    stream_message(content: "compare", attachments: [ image, image ])
 
     assert_response :success
     assert_equal 2, @conversation.messages.find_by!(role: "user").images.blobs.size
@@ -64,7 +64,7 @@ class Api::MessageImageUploadsControllerTest < ActionDispatch::IntegrationTest
 
   test "rejects the entire request when one selected image is invalid" do
     assert_no_difference [ "Message.count", "ActiveStorage::Blob.count" ] do
-      stream_message(content: "mixed", images: [ image, image("sample.txt", "image/png") ])
+      stream_message(content: "mixed", attachments: [ image, image("sample.txt", "image/png") ])
     end
 
     assert_response :internal_server_error
@@ -75,7 +75,7 @@ class Api::MessageImageUploadsControllerTest < ActionDispatch::IntegrationTest
     captured = nil
     stream_message(
       content: "look",
-      images: [ image ],
+      attachments: [ image ],
       model: "openrouter/google/gemma-4-31b-it:free"
     ) { |kwargs| captured = kwargs[:messages] }
 

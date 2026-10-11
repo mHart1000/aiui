@@ -223,6 +223,11 @@
               <img :src="image.url" :alt="image.filename" class="message-image" />
             </a>
           </div>
+          <div v-if="msg.pdfs && msg.pdfs.length" class="message-pdfs">
+            <q-chip v-for="pdf in msg.pdfs" :key="pdf.filename" icon="picture_as_pdf" color="grey-3">
+              {{ pdf.filename }}
+            </q-chip>
+          </div>
           <div v-if="!msg.content && isActivelyStreaming(i) && streamingChat.loadingPhase.value === 'connecting'" class="loading-placeholder">
             <div class="typing-indicator">
               <span class="dot"></span>
@@ -402,8 +407,7 @@
         :context-label="composerContextLabel"
         :voice-mode="voiceChatMode"
         :attachments="pendingAttachments"
-        :images-supported="imagesSupported"
-        :model-label="modelLabel"
+        :pdf-text-limit="pdfTextLimit"
         @error="handleSttError"
         @status="handleSttStatus"
         @send-message="sendMessage"
@@ -412,6 +416,7 @@
         @toggle-voice-mode="toggleVoiceMode"
         @files-selected="onFilesSelected"
         @remove-attachment="removeAttachment"
+        @update:pdf-text-limit="pdfTextLimit = $event"
         class="col message-input"
       />
       <VoiceChatInput
@@ -429,8 +434,7 @@
         :tts-available="ttsPlayer.isTtsAvailable.value"
         :voice-mode="voiceChatMode"
         :attachments="pendingAttachments"
-        :images-supported="imagesSupported"
-        :model-label="modelLabel"
+        :pdf-text-limit="pdfTextLimit"
         @error="handleSttError"
         @status="handleSttStatus"
         @send-message="sendMessage"
@@ -441,6 +445,7 @@
         @inactivity-timeout="handleVoiceInactivityTimeout"
         @files-selected="onFilesSelected"
         @remove-attachment="removeAttachment"
+        @update:pdf-text-limit="pdfTextLimit = $event"
         class="col message-input"
       />
     </div>
@@ -540,6 +545,7 @@ export default {
     localImageInput: null,
     modelCode: null,
     pendingAttachments: [],
+    pdfTextLimit: 24000,
     streamingMessageIndex: null,
     expandedThinking: {},
     useScaffolding: true,
@@ -916,21 +922,22 @@ export default {
       }
     },
     onFilesSelected(files) {
-      if (!this.imagesSupported) return
       const room = Math.max(0, MAX_ATTACHMENTS - this.pendingAttachments.length)
       if (files.length > room) {
         this.$q.notify({
-          message: `You can attach up to ${MAX_ATTACHMENTS} images`,
+          message: `You can attach up to ${MAX_ATTACHMENTS} files`,
           position: 'top',
           timeout: 2000
         })
       }
 
       files.slice(0, room).forEach((file) => {
+        const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
         this.pendingAttachments.push({
           file,
           filename: file.name,
-          url: URL.createObjectURL(file)
+          kind: isPdf ? 'pdf' : 'image',
+          url: isPdf ? null : URL.createObjectURL(file)
         })
       })
     },
@@ -1089,12 +1096,14 @@ export default {
       const text = this.input.trim()
       const model = this.modelCode
       const attachments = this.pendingAttachments
+      const imageAttachments = attachments.filter(attachment => attachment.kind === 'image')
+      const pdfAttachments = attachments.filter(attachment => attachment.kind === 'pdf')
       const conversationIdAtSend = this.conversationId
 
       if (!text && !attachments.length) return
       if (!await this.webSearchSync) return
       if (this.conversationId !== conversationIdAtSend) return
-      if (attachments.length && !this.imagesSupported) {
+      if (imageAttachments.length && !this.imagesSupported) {
         this.$q.notify({ type: 'negative', message: `${this.modelLabel} does not accept images. Your selected images are still here.`, timeout: 3000 })
         return
       }
@@ -1120,11 +1129,13 @@ export default {
       const optimisticImages = attachments.map(attachment => ({
         url: attachment.url,
         filename: attachment.filename
-      }))
+      })).filter(image => image.url)
+      const optimisticPdfs = pdfAttachments.map(attachment => ({ filename: attachment.filename }))
       this.messages.push({
         role: 'user',
         content: text,
         images: optimisticImages,
+        pdfs: optimisticPdfs,
         created_at: new Date().toISOString()
       })
       this.input = ''
@@ -1148,7 +1159,10 @@ export default {
         text,
         token,
         model,
-        { images: attachments.map(attachment => attachment.file) }
+        {
+          attachments: attachments.map(attachment => attachment.file),
+          pdfTextLimit: this.pdfTextLimit
+        }
       )
 
       const streamedMessage = this.messages[myIndex]
@@ -1704,6 +1718,12 @@ export default {
   flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 6px;
+}
+.message-pdfs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
 }
 .message-image {
   max-width: 220px;

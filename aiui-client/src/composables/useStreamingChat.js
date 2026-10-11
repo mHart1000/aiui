@@ -61,7 +61,8 @@ export function useStreamingChat() {
         requestBody.append('regenerating', 'true')
         if (options.regeneratingMessageId) requestBody.append('message_id', options.regeneratingMessageId)
       }
-      options.images?.forEach(file => requestBody.append('images[]', file, file.name))
+      options.attachments?.forEach(file => requestBody.append('attachments[]', file, file.name))
+      if (options.pdfTextLimit) requestBody.append('pdf_text_limit', options.pdfTextLimit)
 
       const response = await fetch(`/api/conversations/${conversationId}/messages/stream`, {
         method: 'POST',
