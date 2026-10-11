@@ -1,5 +1,7 @@
 module Api
   class MessagesController < ApplicationController
+    MAX_ATTACHMENTS = 64
+
     before_action :authenticate_api_user!
     include ActionController::Live
 
@@ -19,13 +21,17 @@ module Api
       regenerating = ActiveModel::Type::Boolean.new.cast(params[:regenerating])
       safe_model_code = conversation.resolve_model_code(params[:model_code])
       images_allowed = AiModels.images_allowed?(safe_model_code)
-      processed_images = process_image_uploads!(image_uploads)
+      validate_attachment_count!
+      processed_attachments = []
       begin
+        processed_attachments = process_attachment_uploads!
+        processed_images = processed_attachments.filter_map(&:image)
+        processed_pdfs = processed_attachments.filter_map(&:pdf_source)
         answering_message = prepare_answering_message!(
-          conversation, regenerating, processed_images, model_code: safe_model_code
+          conversation, regenerating, processed_images, processed_pdfs, model_code: safe_model_code
         )
       ensure
-        processed_images.each(&:close!)
+        processed_attachments.filter_map(&:image).each(&:close!)
       end
 
       answering_id = answering_message.id
@@ -53,7 +59,8 @@ module Api
           rag_context: rag_context,
           skills: fetch_skills(conversation),
           web_search_mode: conversation.resolved_web_search_mode,
-          web_search_level: conversation.resolved_web_search_level
+          web_search_level: conversation.resolved_web_search_level,
+          has_pdf_sources: conversation.messages.where("pdf_sources <> '[]'::jsonb").exists?
         ) do |chunk, phase|
           if phase == :thinking
             thinking_accumulator += chunk
@@ -126,9 +133,9 @@ module Api
 
     private
 
-    def prepare_answering_message!(conversation, regenerating, processed_images, model_code:)
+    def prepare_answering_message!(conversation, regenerating, processed_images, processed_pdfs, model_code:)
       unless regenerating
-        return create_user_message!(conversation, params[:content].to_s, processed_images, model_code: model_code)
+        return create_user_message!(conversation, params[:content].to_s, processed_images, processed_pdfs, model_code: model_code)
       end
 
       conversation.with_lock do
@@ -148,31 +155,32 @@ module Api
       end
     end
 
-    def create_user_message!(conversation, content, processed_images, model_code:)
+    def create_user_message!(conversation, content, processed_images, processed_pdfs, model_code:)
       conversation.transaction do
         conversation.apply_model_code(model_code)
-        message = conversation.messages.build(role: "user", content: content)
+        message = conversation.messages.build(role: "user", content: content, pdf_sources: processed_pdfs.map(&:source))
         message.images.attach(processed_images.map(&:attachable))
         message.save!
         message
       end
     end
 
-    def process_image_uploads!(uploads)
-      processed = []
-      uploads.each { |upload| processed << ImageAttachmentProcessor.call(upload: upload) }
-      processed
-    rescue
-      processed&.each(&:close!)
-      raise
+    def process_attachment_uploads!
+      text_limit = PdfAttachmentProcessor.text_limit(params[:pdf_text_limit].presence || PdfAttachmentProcessor::DEFAULT_TEXT_CHARS)
+      attachment_uploads.each_with_object([]) do |upload, processed|
+        remaining = text_limit - processed.filter_map(&:pdf_source).sum { |result| result.text.length }
+        processed << MessageAttachmentProcessor.call(upload: upload, max_pdf_text_chars: remaining)
+      end
     end
 
-    def image_uploads
-      uploads = Array(params[:images]).reject(&:blank?)
-      if uploads.size > 4
-        raise ImageAttachmentProcessor::Error, "You can attach up to 4 images."
-      end
-      uploads
+    def validate_attachment_count!
+      return if attachment_uploads.size <= MAX_ATTACHMENTS
+
+      raise ImageAttachmentProcessor::Error, "You can attach up to #{MAX_ATTACHMENTS} files."
+    end
+
+    def attachment_uploads
+      Array(params[:attachments]).reject(&:blank?)
     end
 
     def persist_streamed_response(conversation, answering_id, answering_signature, reply:, thinking:, tokens: nil, stats: nil, model_label: nil, persona_label: nil, persona_version: nil, skill_versions: nil, web_search_data: {}, entitle:)
@@ -199,7 +207,7 @@ module Api
     end
 
     def message_signature(message)
-      [ message.content, message.images.attachments.order(:id).pluck(:blob_id) ]
+      [ message.content, message.images.attachments.order(:id).pluck(:blob_id), message.pdf_sources ]
     end
 
     def fetch_skills(conversation)

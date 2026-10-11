@@ -1,4 +1,7 @@
 class Message < ApplicationRecord
+  PDF_SOURCE_OPEN = "[External PDF sources]".freeze
+  PDF_SOURCE_CLOSE = "[/External PDF sources]".freeze
+
   belongs_to :conversation, touch: true
   has_many_attached :images
 
@@ -8,11 +11,12 @@ class Message < ApplicationRecord
   # model can see images. See docs/image-attachments-spec.md §2.4.
   def to_ai_payload(multimodal: false)
     attached = images.attachments
-    return { role: role, content: content } if attached.empty?
-    return { role: role, content: content_with_image_markers(attached) } unless multimodal
+    text = content_with_pdf_sources
+    return { role: role, content: text } if attached.empty?
+    return { role: role, content: content_with_image_markers(text, attached) } unless multimodal
 
     parts = []
-    parts << { type: "text", text: content } if content.present?
+    parts << { type: "text", text: text } if text.present?
     parts.concat(attached.map { |a| { type: "image_url", image_url: { url: data_url(a.blob) } } })
     { role: role, content: parts }
   end
@@ -24,9 +28,18 @@ class Message < ApplicationRecord
   end
 
   # Text-only models still need to know an image was there, or the reply reads as a non-sequitur.
-  def content_with_image_markers(attached)
+  def content_with_pdf_sources
+    return content if pdf_sources.blank?
+
+    source_json = JSON.generate(sources: pdf_sources.map { |source|
+      { filename: source.fetch("filename"), text: source.fetch("text") }
+    })
+    [ content.presence, PDF_SOURCE_OPEN, source_json, PDF_SOURCE_CLOSE ].compact.join("\n\n")
+  end
+
+  def content_with_image_markers(text, attached)
     markers = attached.map { |a| "[Image attached: #{a.filename}]" }
-    [ content.presence, *markers ].compact.join("\n\n")
+    [ text.presence, *markers ].compact.join("\n\n")
   end
 
   def images_belong_to_user_messages

@@ -4,16 +4,11 @@
       <q-tooltip>Attach or start a new chat</q-tooltip>
       <q-menu anchor="top left" self="bottom left">
         <q-list style="min-width: 240px">
-          <q-item v-close-popup clickable :disable="!imagesSupported" @click="pickFiles">
+          <q-item v-close-popup clickable @click="pickFiles">
             <q-item-section avatar>
-              <q-icon name="image" />
+              <q-icon name="attach_file" />
             </q-item-section>
-            <q-item-section>Attach image</q-item-section>
-          </q-item>
-          <q-item v-if="!imagesSupported" dense class="attach-hint">
-            <q-item-section caption>
-              {{ modelLabel }} can't read images
-            </q-item-section>
+            <q-item-section>Attach files</q-item-section>
           </q-item>
           <q-separator v-if="showNewChat" />
 
@@ -28,9 +23,9 @@
     </q-btn>
 
     <input
-      ref="fileInput"
+      ref="attachmentInput"
       type="file"
-      accept="image/png,image/jpeg,image/webp"
+      accept="image/png,image/jpeg,image/webp,application/pdf,.pdf"
       multiple
       class="file-input"
       @change="onFilesChosen"
@@ -43,25 +38,16 @@ export default {
   name: 'AttachmentButton',
 
   props: {
-    imagesSupported: {
-      type: Boolean,
-      default: true
-    },
     showNewChat: {
       type: Boolean,
       default: false
-    },
-    modelLabel: {
-      type: String,
-      default: 'This model'
     }
   },
   emits: ['files-selected', 'new-chat'],
 
   methods: {
     pickFiles () {
-      if (!this.imagesSupported) return
-      this.$refs.fileInput.click()
+      this.$refs.attachmentInput.click()
     },
     onFilesChosen (event) {
       const files = Array.from(event.target.files || [])
@@ -76,8 +62,5 @@ export default {
 <style scoped>
 .file-input {
   display: none;
-}
-.attach-hint {
-  max-width: 240px;
 }
 </style>

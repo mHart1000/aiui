@@ -2,10 +2,16 @@
   <div v-if="attachments.length" class="attachment-strip">
     <div
       v-for="(attachment, index) in attachments"
-      :key="attachment.url"
+      :key="attachment.url || `${attachment.filename}-${index}`"
       class="attachment-thumb"
     >
-      <img :src="attachment.url" :alt="attachment.filename" class="attachment-image" />
+      <img
+        v-if="attachment.kind === 'image'"
+        :src="attachment.url"
+        :alt="attachment.filename"
+        class="attachment-image"
+      />
+      <q-icon v-else name="picture_as_pdf" size="36px" color="negative" class="pdf-icon" />
 
       <q-btn
         class="attachment-remove"
@@ -19,6 +25,20 @@
       />
       <q-tooltip>{{ attachment.filename }}</q-tooltip>
     </div>
+    <q-input
+      v-if="hasPdfAttachments"
+      :model-value="pdfTextLimit"
+      type="number"
+      dense
+      outlined
+      min="1000"
+      max="48000"
+      step="1000"
+      label="Total PDF text limit"
+      suffix="chars"
+      class="pdf-text-limit"
+      @update:model-value="$emit('update:pdf-text-limit', Number($event))"
+    />
   </div>
 </template>
 
@@ -30,9 +50,18 @@ export default {
     attachments: {
       type: Array,
       default: () => []
+    },
+    pdfTextLimit: {
+      type: Number,
+      default: 24000
     }
   },
-  emits: ['remove']
+  emits: ['remove', 'update:pdf-text-limit'],
+  computed: {
+    hasPdfAttachments () {
+      return this.attachments.some(attachment => attachment.kind === 'pdf')
+    }
+  }
 }
 </script>
 
@@ -62,5 +91,16 @@ export default {
   right: 2px;
   background: rgba(0, 0, 0, 0.55);
   color: white;
+}
+.pdf-icon {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  background: #f5f5f5;
+}
+.pdf-text-limit {
+  width: 180px;
+  align-self: center;
 }
 </style>
