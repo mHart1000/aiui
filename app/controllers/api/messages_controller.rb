@@ -1,6 +1,6 @@
 module Api
   class MessagesController < ApplicationController
-    MAX_ATTACHMENTS = 4
+    MAX_ATTACHMENTS = 64
 
     before_action :authenticate_api_user!
     include ActionController::Live
