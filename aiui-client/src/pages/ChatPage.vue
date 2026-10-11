@@ -54,6 +54,18 @@
                 @update:model-value="updateWebSearchMode"
               />
             </div>
+            <q-select
+              :model-value="webSearchQueryCount"
+              :options="[1, 2, 3, 4, 5]"
+              label="Max queries"
+              aria-label="Maximum search queries"
+              class="web-search-query-count"
+              dense
+              outlined
+              @update:model-value="updateWebSearchQueryCount"
+            >
+              <q-tooltip>The model can use fewer queries. Low allows up to 2; Medium up to 3; High up to 5.</q-tooltip>
+            </q-select>
             <div class="web-search-field web-search-level">
               <span class="text-caption text-grey-7">Search level</span>
               <q-slider
@@ -559,6 +571,9 @@ export default {
     persistedWebSearchLevel: 'low',
     userWebSearchMode: 'off',
     userWebSearchLevel: 'low',
+    webSearchQueryCount: 2,
+    persistedWebSearchQueryCount: 2,
+    userWebSearchQueryCount: 2,
     webSearchLevels: ['low', 'medium', 'high'],
     webSearchProfiles: {},
     webSearchSync: Promise.resolve(true),
@@ -599,12 +614,15 @@ export default {
     this.llamaContextWindow = userRes.data.llama_context_window || 8192
     this.userWebSearchMode = userRes.data.web_search_mode || 'off'
     this.userWebSearchLevel = userRes.data.web_search_level || 'low'
+    this.userWebSearchQueryCount = userRes.data.web_search_query_count
     // A new chat starts from the user's defaults; an existing one is set by loadConversation.
     if (!this.conversationId) {
       this.webSearchMode = this.userWebSearchMode
       this.persistedWebSearchMode = this.userWebSearchMode
       this.webSearchLevel = this.userWebSearchLevel
       this.persistedWebSearchLevel = this.userWebSearchLevel
+      this.webSearchQueryCount = this.userWebSearchQueryCount
+      this.persistedWebSearchQueryCount = this.userWebSearchQueryCount
     }
 
     // Live context window from llama.cpp is authoritative; the stored value above is only the fallback.
@@ -642,6 +660,8 @@ export default {
           this.persistedWebSearchMode = this.userWebSearchMode
           this.webSearchLevel = this.userWebSearchLevel
           this.persistedWebSearchLevel = this.userWebSearchLevel
+          this.webSearchQueryCount = this.userWebSearchQueryCount
+          this.persistedWebSearchQueryCount = this.userWebSearchQueryCount
         }
       }
     },
@@ -967,6 +987,8 @@ export default {
         this.persistedWebSearchMode = this.webSearchMode
         this.webSearchLevel = res.data.web_search_level || 'low'
         this.persistedWebSearchLevel = this.webSearchLevel
+        this.webSearchQueryCount = res.data.web_search_query_count
+        this.persistedWebSearchQueryCount = this.webSearchQueryCount
         this.skillsEnabled = res.data.use_skills || false
         this.activeSkillIds = res.data.skill_ids || []
         return true
@@ -1091,6 +1113,32 @@ export default {
         }
         return false
       })
+    },
+    updateWebSearchQueryCount(value) {
+      const conversationId = this.conversationId
+      this.webSearchQueryCount = value
+
+      this.webSearchSync = this.webSearchSync.then(async () => {
+        if (conversationId) {
+          await api.patch(`/api/conversations/${conversationId}/web_search_settings`, {
+            web_search: { web_search_query_count: value }
+          })
+        } else {
+          await api.patch('/api/user', { user: { web_search_query_count: value } })
+        }
+        this.userWebSearchQueryCount = value
+        if (this.conversationId !== conversationId) return true
+        this.persistedWebSearchQueryCount = value
+        return true
+      }).catch((err) => {
+        console.error('Error updating web research query count:', err)
+        if (this.conversationId === conversationId) {
+          this.webSearchQueryCount = this.persistedWebSearchQueryCount
+          this.$q.notify({ type: 'negative', message: 'Failed to update web research setting', position: 'top', timeout: 2000 })
+        }
+        return false
+      })
+      return this.webSearchSync
     },
     async sendMessage() {
       const text = this.input.trim()
@@ -1636,6 +1684,7 @@ export default {
 }
 .web-search-control {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   gap: 12px;
   white-space: nowrap;
@@ -1648,6 +1697,9 @@ export default {
 .web-search-field > span {
   line-height: 12px;
   text-align: center;
+}
+.web-search-query-count {
+  min-width: 110px;
 }
 .web-search-level {
   width: 160px;

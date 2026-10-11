@@ -142,12 +142,13 @@ module Api
     end
 
     test "show serializes the resolved web search mode and level when inheriting" do
-      @user.update!(web_search_mode: "always", web_search_level: "high")
+      @user.update!(web_search_mode: "always", web_search_level: "high", web_search_query_count: 1)
 
       get "/api/conversations/#{@conversation.id}", headers: @headers
 
       assert_response :success
       body = JSON.parse(response.body)
+      assert_equal @conversation.resolved_web_search_query_count, body["web_search_query_count"]
       assert_equal "always", body["web_search_mode"]
       assert_equal "high", body["web_search_level"]
     end
@@ -159,6 +160,7 @@ module Api
       get "/api/conversations/#{@conversation.id}", headers: @headers
 
       body = JSON.parse(response.body)
+      assert_equal @conversation.resolved_web_search_query_count, body["web_search_query_count"]
       assert_equal "always", body["web_search_mode"]
       assert_equal "high", body["web_search_level"]
     end
@@ -174,7 +176,7 @@ module Api
 
     test "web search settings atomically update the conversation and user default" do
       patch "/api/conversations/#{@conversation.id}/web_search_settings",
-            params: { web_search: { web_search_mode: "always", web_search_level: "high" } },
+            params: { web_search: { web_search_mode: "always", web_search_level: "high", web_search_query_count: 1 } },
             headers: @headers, as: :json
 
       assert_response :success
@@ -182,16 +184,26 @@ module Api
       assert_equal "high", @conversation.web_search_level
       assert_equal "always", @user.reload.web_search_mode
       assert_equal "high", @user.web_search_level
+      assert_equal 1, @user.web_search_query_count
+      assert_equal 1, @conversation.web_search_query_count
+      assert_equal 1, JSON.parse(response.body)["web_search_query_count"]
+
+      patch "/api/conversations/#{@conversation.id}/web_search_settings",
+            params: { web_search: { web_search_level: "low" } }, headers: @headers, as: :json
+      assert_response :success
+      assert_equal 1, @conversation.reload.web_search_query_count
+      assert_equal 1, @user.reload.web_search_query_count
     end
 
     test "web search settings reject invalid values without changing either record" do
       patch "/api/conversations/#{@conversation.id}/web_search_settings",
-            params: { web_search: { web_search_mode: "always", web_search_level: "ultra" } },
+            params: { web_search: { web_search_mode: "always", web_search_level: "high", web_search_query_count: 6 } },
             headers: @headers, as: :json
 
       assert_response :unprocessable_entity
       assert_nil @conversation.reload.web_search_mode
       assert_nil @conversation.web_search_level
+      assert_nil @conversation.web_search_query_count
       assert_equal "off", @user.reload.web_search_mode
       assert_equal "low", @user.web_search_level
     end

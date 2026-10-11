@@ -339,8 +339,20 @@ class ConversationTest < ActiveSupport::TestCase
     assert_equal "always", @conversation.resolved_web_search_mode
   end
 
+  test "query count inherits independently of level and can be overridden or reset" do
+    @user.update!(web_search_query_count: 5, web_search_level: "low")
+    @conversation.update!(web_search_level: "high")
+    assert_equal 5, @conversation.resolved_web_search_query_count
+    @conversation.update!(web_search_query_count: 1)
+    @user.update!(web_search_query_count: 3)
+    assert_equal 1, @conversation.resolved_web_search_query_count
+    @conversation.update!(web_search_query_count: nil)
+    assert_equal 3, @conversation.resolved_web_search_query_count
+  end
+
   test "resolved_web_search_level returns the conversation value when set" do
     @conversation.web_search_level = "high"
+    @conversation.web_search_query_count = 1
     @user.update!(web_search_level: "low")
 
     assert_equal "high", @conversation.resolved_web_search_level
@@ -370,6 +382,7 @@ class ConversationTest < ActiveSupport::TestCase
   test "fork_at copies the web search mode and level overrides" do
     @conversation.web_search_mode = "auto"
     @conversation.web_search_level = "high"
+    @conversation.web_search_query_count = 1
     @conversation.save!
     message = @conversation.messages.create!(role: "user", content: "one")
 
@@ -377,6 +390,7 @@ class ConversationTest < ActiveSupport::TestCase
 
     assert_equal "auto", forked.web_search_mode
     assert_equal "high", forked.web_search_level
+    assert_equal 1, forked.web_search_query_count
   end
 
   test "fork_at keeps a null override inheriting" do
@@ -389,6 +403,7 @@ class ConversationTest < ActiveSupport::TestCase
 
     assert_nil forked.web_search_mode
     assert_nil forked.web_search_level
+    assert_nil forked.web_search_query_count
   end
 
   # truncate_from_message

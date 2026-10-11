@@ -27,12 +27,12 @@ class ChatService
     6. Response Strategy: If answerable, how should the response be structured?
   PROMPT
 
-  def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil, rag_context: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, has_pdf_sources: false, log_stats: true, &block)
-    new(messages: messages, model: model, use_persona: use_persona, use_scaffolding: use_scaffolding, stream: stream, max_tokens: max_tokens, rag_context: rag_context, persona_id: persona_id, skills: skills, web_search_mode: web_search_mode, web_search_level: web_search_level, has_pdf_sources: has_pdf_sources, log_stats: log_stats).call(&block)
+  def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil, rag_context: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, has_pdf_sources: false, log_stats: true, &block)
+    new(messages: messages, model: model, use_persona: use_persona, use_scaffolding: use_scaffolding, stream: stream, max_tokens: max_tokens, rag_context: rag_context, persona_id: persona_id, skills: skills, web_search_mode: web_search_mode, web_search_level: web_search_level, web_search_query_count: web_search_query_count, has_pdf_sources: has_pdf_sources, log_stats: log_stats).call(&block)
   end
 
   # skills is an array of { id:, name:, content:, version: } hashes resolved by the caller.
-  def initialize(messages:, model:, use_persona:, use_scaffolding:, stream:, max_tokens:, rag_context: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, has_pdf_sources: false, log_stats: true)
+  def initialize(messages:, model:, use_persona:, use_scaffolding:, stream:, max_tokens:, rag_context: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, has_pdf_sources: false, log_stats: true)
     @messages = messages
     @model_id = model.presence || FALLBACK_MODEL
     @use_persona = use_persona
@@ -41,6 +41,7 @@ class ChatService
     @web_search_mode = web_search_mode.to_s
     @web_search_level = web_search_level.to_s.presence || WebResearch::Profile::DEFAULT_LEVEL
     @budgets = WebResearch::Profile.for_level(@web_search_level)
+    @web_search_query_count = [ web_search_query_count, @budgets[:max_queries] ].min
     @max_tokens = max_tokens || @budgets[:max_tokens]
     @rag_context = rag_context.presence
     @persona_id = persona_id.presence
@@ -417,7 +418,7 @@ class ChatService
     calls = selection[:tool_calls]
     return {} if calls.blank? && @web_search_mode == "auto"
 
-    request = WebResearch::ToolRequest.parse!(tool_calls: calls, last_four_user_messages: selector_user_texts, max_queries: @budgets[:max_queries])
+    request = WebResearch::ToolRequest.parse!(tool_calls: calls, last_four_user_messages: selector_user_texts, max_queries: @web_search_query_count)
     outcome = measure_web_stage(:research) do
       WebResearch::Service.new(
         request: request,
@@ -461,7 +462,7 @@ class ChatService
       remaining -= entry.length + 2
       entry
     end.reverse
-    query_count = { 2 => "two", 3 => "three", 4 => "four" }.fetch(@budgets[:max_queries], @budgets[:max_queries].to_s)
+    query_count = { 1 => "one", 2 => "two", 3 => "three", 4 => "four", 5 => "five" }.fetch(@web_search_query_count, @web_search_query_count.to_s)
     instruction =
       if @web_search_mode == "always"
         "You are a web-research router. You must call research_web exactly once. Use up to #{query_count} distinct, complementary queries when searching; use fewer when sufficient. Return only the tool call; do not answer or explain."
@@ -485,7 +486,7 @@ class ChatService
         parameters: {
           type: "object",
           properties: {
-            queries: { type: "array", items: { type: "string" }, maxItems: @budgets[:max_queries] },
+            queries: { type: "array", items: { type: "string" }, maxItems: @web_search_query_count },
             urls: { type: "array", items: { type: "string" }, maxItems: WebResearch::ToolRequest::MAX_URLS }
           },
           additionalProperties: false

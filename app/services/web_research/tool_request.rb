@@ -4,8 +4,8 @@ require "set"
 module WebResearch
   class ToolRequest
     TOOL_NAME = "research_web".freeze
-    # Default-level value; per-request count is chosen by the web search level.
-    MAX_QUERIES = Profile.for_level(Profile::DEFAULT_LEVEL)[:max_queries]
+    MAX_QUERIES = 2
+    QUERY_COUNT_RANGE = (1..5).freeze
     MAX_URLS = 3
     MAX_QUERY_LENGTH = 240
     MAX_URL_LENGTH = 2_048

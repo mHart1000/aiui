@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_10_000000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_11_000000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "vector"
@@ -54,6 +54,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_10_000000) do
     t.bigint "user_id", null: false
     t.string "web_search_level"
     t.string "web_search_mode"
+    t.integer "web_search_query_count"
     t.index ["user_id"], name: "index_conversations_on_user_id"
   end
 
@@ -144,6 +145,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_10_000000) do
     t.boolean "use_skills", default: false, null: false
     t.string "web_search_level", default: "low", null: false
     t.string "web_search_mode", default: "off", null: false
+    t.integer "web_search_query_count", default: 2, null: false
     t.index ["email"], name: "index_users_on_email", unique: true
     t.index ["reset_password_token"], name: "index_users_on_reset_password_token", unique: true
   end
