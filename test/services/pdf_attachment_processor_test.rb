@@ -10,7 +10,9 @@ class PdfAttachmentProcessorTest < ActiveSupport::TestCase
   end
 
   def simple_pdf(text)
-    stream = "BT\n/F1 12 Tf\n72 720 Td\n(#{text.gsub(/([()\\])/, '\\\\1')}) Tj\nET\n"
+    lines = text.scan(/.{1,80}/).presence || [ "" ]
+    shown = lines.map { |line| "(#{line.gsub(/([()\\])/, '\\\\1')}) Tj T*\n" }.join
+    stream = "BT\n/F1 12 Tf\n14 TL\n72 720 Td\n#{shown}ET\n"
     objects = [
       "<< /Type /Catalog /Pages 2 0 R >>",
       "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
