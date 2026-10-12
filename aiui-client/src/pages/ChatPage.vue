@@ -55,8 +55,8 @@
               />
             </div>
             <q-select
-              :model-value="webSearchQueryCount"
-              :options="[1, 2, 3, 4, 5]"
+              :model-value="effectiveWebSearchQueryCount"
+              :options="webSearchQueryOptions"
               label="Max queries"
               aria-label="Maximum search queries"
               class="web-search-query-count"
@@ -752,6 +752,13 @@ export default {
         { label: 'Auto', value: 'auto' },
         { label: 'On', value: 'always' }
       ]
+    },
+    webSearchQueryOptions() {
+      const limit = this.webSearchProfiles[this.webSearchLevel]?.max_queries ?? 2
+      return Array.from({ length: limit }, (_, index) => index + 1)
+    },
+    effectiveWebSearchQueryCount() {
+      return Math.min(this.webSearchQueryCount, this.webSearchQueryOptions.length)
     },
     webSearchLevelLabels() {
       return this.webSearchLevels.map(level => level.charAt(0).toUpperCase() + level.slice(1))
