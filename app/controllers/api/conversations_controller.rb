@@ -13,6 +13,7 @@ module Api
           rag_enabled: c.rag_enabled,
           web_search_mode: c.resolved_web_search_mode,
           web_search_level: c.resolved_web_search_level,
+          web_search_query_count: c.resolved_web_search_query_count,
           updated_at: c.updated_at
         }
       }
@@ -43,6 +44,7 @@ module Api
           rag_enabled: c.rag_enabled,
           web_search_mode: c.resolved_web_search_mode,
           web_search_level: c.resolved_web_search_level,
+          web_search_query_count: c.resolved_web_search_query_count,
           updated_at: c.updated_at,
           snippet: snippets[c.id]
         }
@@ -59,6 +61,7 @@ module Api
         rag_enabled: conversation.rag_enabled,
         web_search_mode: conversation.resolved_web_search_mode,
         web_search_level: conversation.resolved_web_search_level,
+        web_search_query_count: conversation.resolved_web_search_query_count,
         use_skills: conversation.resolved_use_skills,
         skill_ids: conversation.resolved_skills.map(&:id),
         messages: conversation.messages.order(:created_at).includes(images_attachments: :blob).map { |m|
@@ -143,6 +146,7 @@ module Api
         rag_enabled: conversation.rag_enabled,
         web_search_mode: conversation.resolved_web_search_mode,
         web_search_level: conversation.resolved_web_search_level,
+        web_search_query_count: conversation.resolved_web_search_query_count,
         use_skills: conversation.resolved_use_skills,
         skill_ids: conversation.resolved_skills.map(&:id)
       }
@@ -166,11 +170,11 @@ module Api
     end
 
     def conversation_params
-      params.require(:conversation).permit(:title, :rag_enabled, :web_search_mode, :web_search_level, :use_skills, skill_ids: [])
+      params.require(:conversation).permit(:title, :rag_enabled, :web_search_mode, :web_search_level, :web_search_query_count, :use_skills, skill_ids: [])
     end
 
     def web_search_settings_params
-      params.require(:web_search).permit(:web_search_mode, :web_search_level)
+      params.require(:web_search).permit(:web_search_mode, :web_search_level, :web_search_query_count)
     end
   end
 end

@@ -18,11 +18,22 @@ module Api
 
     test "update persists the web search mode and level defaults" do
       patch "/api/user",
-            params: { user: { web_search_mode: "always", web_search_level: "high" } }, headers: @headers, as: :json
+            params: { user: { web_search_mode: "always", web_search_level: "high", web_search_query_count: 5 } }, headers: @headers, as: :json
 
       assert_response :success
       assert_equal "always", @user.reload.web_search_mode
       assert_equal "high", @user.reload.web_search_level
+      assert_equal 5, @user.web_search_query_count
+      assert_equal 5, JSON.parse(response.body)["web_search_query_count"]
+    end
+
+    test "query count rejects fractions and values outside the selector range" do
+      [ 0, 6, 1.5, "invalid", nil ].each do |value|
+        previous = @user.reload.web_search_query_count
+        patch "/api/user", params: { user: { web_search_query_count: value } }, headers: @headers, as: :json
+        assert_response :unprocessable_entity
+        assert_equal previous, @user.reload.web_search_query_count
+      end
     end
 
     test "update rejects an unknown web search level" do

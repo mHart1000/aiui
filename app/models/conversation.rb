@@ -15,6 +15,7 @@ class Conversation < ApplicationRecord
 
   validates :web_search_mode, inclusion: { in: %w[off auto always], allow_nil: true }
   validates :web_search_level, inclusion: { in: WebResearch::Profile::LEVELS, allow_nil: true }
+  validates :web_search_query_count, numericality: { only_integer: true, in: WebResearch::ToolRequest::QUERY_COUNT_RANGE, allow_nil: true }
 
   def entitle_async(content)
     return if title.present? && !placeholder_title?
@@ -41,6 +42,7 @@ class Conversation < ApplicationRecord
         rag_enabled: rag_enabled,
         web_search_mode: web_search_mode,
         web_search_level: web_search_level,
+        web_search_query_count: web_search_query_count,
         use_skills: use_skills,
         skill_ids: skill_ids
       )
@@ -70,6 +72,10 @@ class Conversation < ApplicationRecord
 
   def resolved_web_search_mode
     web_search_mode.presence || user.web_search_mode.presence || "off"
+  end
+
+  def resolved_web_search_query_count
+    web_search_query_count || user.web_search_query_count || WebResearch::ToolRequest::MAX_QUERIES
   end
 
   def resolved_web_search_level

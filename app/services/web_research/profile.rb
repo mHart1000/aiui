@@ -50,7 +50,7 @@ module WebResearch
         max_fetch_attempts: 40,
         search_deadline_seconds: 20,
         research_deadline_seconds: 40,
-        max_queries: 4,
+        max_queries: 5,
         selector_max_messages: 10,
         selector_max_message_chars: 6_000,
         selector_max_transcript_chars: 16_000,

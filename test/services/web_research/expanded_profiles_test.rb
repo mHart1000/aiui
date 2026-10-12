@@ -1,30 +1,38 @@
 require "test_helper"
 require Rails.root.join("db/migrate/20261004000000_rename_high_web_search_level_to_medium")
 
+require Rails.root.join("db/migrate/20261011000000_add_web_search_query_count")
+
 class ExpandedProfilesTest < ActiveSupport::TestCase
-  test "high selector accepts its query allowance and passes the profile to research" do
-    profile = WebResearch::Profile.for_level("high")
-    service = ChatService.new(messages: [ { role: "user", content: "Research local inference" } ],
-      model: "local-llama", use_persona: false, use_scaffolding: false,
-      stream: false, max_tokens: nil, web_search_mode: "always", web_search_level: "high")
-    queries = Array.new(profile[:max_queries]) { |i| "local inference topic #{i}" }
-    selection = { tool_calls: [ { "function" => { "name" => "research_web", "arguments" => { "queries" => queries }.to_json } } ] }
-    research = Object.new
-    research.define_singleton_method(:call) { { evidence: "Evidence", metadata: { status: "complete" } } }
-    adapter = service.instance_variable_get(:@adapter)
-    adapter.stub(:chat, ->(**args) {
-      assert_equal profile[:selector_max_tokens], args[:max_tokens]
-      assert_equal queries.length, args[:tools].first.dig(:function, :parameters, :properties, :queries, :maxItems)
-      selection
-    }) do
-      WebResearch::Service.stub(:new, ->(**args) {
-        assert_equal queries, args[:request].queries
-        assert_equal profile, args[:budgets]
-        assert_equal profile[:web_evidence_chars], args[:max_evidence_chars]
-        research
-      }) { service.send(:perform_web_research) }
+  test "selector applies the requested query count within the level ceiling" do
+    [ [ "high", 1, 1 ], [ "high", 5, 5 ], [ "low", 5, 2 ], [ "medium", 5, 3 ], [ "low", 1, 1 ], [ "medium", 1, 1 ] ].each do |level, count, effective_count|
+      profile = WebResearch::Profile.for_level(level)
+      service = ChatService.new(messages: [ { role: "user", content: "Research local inference" } ],
+        model: "local-llama", use_persona: false, use_scaffolding: false,
+        stream: false, max_tokens: nil, web_search_mode: "always", web_search_level: level,
+        web_search_query_count: count)
+      queries = Array.new(effective_count) { |i| "local inference topic #{i}" }
+      selection = { tool_calls: [ { "function" => { "name" => "research_web", "arguments" => { "queries" => queries }.to_json } } ] }
+      research = Object.new
+      research.define_singleton_method(:call) { { evidence: "Evidence", metadata: { status: "complete" } } }
+      adapter = service.instance_variable_get(:@adapter)
+      adapter.stub(:chat, ->(**args) {
+        assert_equal profile[:selector_max_tokens], args[:max_tokens]
+        assert_equal effective_count, args[:tools].first.dig(:function, :parameters, :properties, :queries, :maxItems)
+        selection
+      }) do
+        WebResearch::Service.stub(:new, ->(**args) {
+          assert_equal queries, args[:request].queries
+          assert_equal profile, args[:budgets]
+          assert_equal profile[:web_evidence_chars], args[:max_evidence_chars]
+          research
+        }) { service.send(:perform_web_research) }
+      end
+      assert_equal profile[:max_tokens], service.instance_variable_get(:@max_tokens)
+      assert_raises(WebResearch::ToolRequest::InvalidRequest) do
+        WebResearch::ToolRequest.new({ queries: queries + [ "extra" ] }, last_four_user_messages: "", max_queries: effective_count)
+      end
     end
-    assert_equal profile[:max_tokens], service.instance_variable_get(:@max_tokens)
   end
 
   test "service configures larger extracts only for high" do
@@ -39,6 +47,21 @@ class ExpandedProfilesTest < ActiveSupport::TestCase
     end
     assert_equal lengths[0], lengths[1]
     assert_operator lengths[2], :>, lengths[1]
+  end
+
+  test "query count migration preserves existing ceilings and nullable inheritance" do
+    user = User.create!(email: "query-migration@example.com", password: "password123", web_search_level: "medium")
+    conversations = [ "low", "medium", "high", nil ].map { |level| user.conversations.create!(web_search_level: level) }
+    migration = AddWebSearchQueryCount.new
+    migration.suppress_messages do
+      migration.down
+      migration.up
+    end
+    User.reset_column_information
+    Conversation.reset_column_information
+    assert_equal 3, user.reload.web_search_query_count
+    assert_equal [ 2, 3, 4, nil ], conversations.map { |conversation| conversation.reload.web_search_query_count }
+    assert_equal 3, conversations.last.resolved_web_search_query_count
   end
 
   test "migration preserves low and inheritance and renames existing high in both directions" do
