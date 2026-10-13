@@ -125,7 +125,7 @@ export default {
     },
     pdfTextLimit: {
       type: Number,
-      default: 24000
+      default: 128000
     },
     isStreaming: {
       type: Boolean,

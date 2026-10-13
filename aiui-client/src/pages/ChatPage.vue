@@ -557,7 +557,7 @@ export default {
     localImageInput: null,
     modelCode: null,
     pendingAttachments: [],
-    pdfTextLimit: 24000,
+    pdfTextLimit: 128000,
     streamingMessageIndex: null,
     expandedThinking: {},
     useScaffolding: true,
