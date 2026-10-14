@@ -41,7 +41,7 @@
             color="primary"
           />
           <div class="web-search-control">
-            <div class="web-search-field web-search-level">
+            <div class="web-search-field web-search-mode">
               <span class="text-caption text-grey-7">Web research</span>
               <q-slider
                 v-model="webSearchModeIndex"
@@ -1731,10 +1731,13 @@ export default {
   text-align: center;
 }
 .web-search-query-count {
-  min-width: 110px;
+  min-width: 100px;
+}
+.web-search-mode {
+  width: 90px;
 }
 .web-search-level {
-  width: 160px;
+  width: 120px;
 }
 .web-search-level-options {
   display: flex;
