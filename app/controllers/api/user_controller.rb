@@ -26,6 +26,7 @@ module Api
         id: current_api_user.id,
         email: current_api_user.email,
         use_scaffolding: current_api_user.use_scaffolding,
+        reasoning_effort: current_api_user.reasoning_effort,
         use_persona: current_api_user.use_persona,
         persona_id: current_api_user.persona_id,
         personas: Persona.all.map { |p| { id: p.id, name: p.name, description: p.description } },
@@ -42,7 +43,7 @@ module Api
     end
 
     def user_params
-      params.require(:user).permit(:use_scaffolding, :use_persona, :persona_id, :use_skills, :web_search_mode, :web_search_level, :web_search_query_count, :tts_enabled, :tts_voice, :tts_speed, :llama_context_window)
+      params.require(:user).permit(:reasoning_effort, :use_scaffolding, :use_persona, :persona_id, :use_skills, :web_search_mode, :web_search_level, :web_search_query_count, :tts_enabled, :tts_voice, :tts_speed, :llama_context_window)
     end
   end
 end

@@ -13,7 +13,7 @@ module AiAdapters
       @log_stats = log_stats
     end
 
-    def chat(messages:, stream: false, max_tokens: nil, tools: nil, tool_choice: nil, temperature: 0.7, chat_template_kwargs: nil,
+    def chat(messages:, stream: false, max_tokens: nil, tools: nil, tool_choice: nil, temperature: 0.7, reasoning_effort: nil, chat_template_kwargs: nil,
              thinking_budget_tokens: nil, reasoning_budget_message: nil, request_timeout: nil, &block)
       base_url = ENV["LLAMA_API_URL"] || "http://host.docker.internal:8080/v1"
       uri = URI("#{base_url}/chat/completions")
@@ -25,6 +25,7 @@ module AiAdapters
         temperature: temperature,
         stream: stream
       }
+      payload[:reasoning_effort] = reasoning_effort if @model == "custom-llama" && reasoning_effort.present?
       payload[:max_tokens] = max_tokens if max_tokens
       payload[:tools] = tools if tools.present?
       payload[:tool_choice] = tool_choice if tool_choice.present?

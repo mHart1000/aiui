@@ -27,12 +27,12 @@ class ChatService
     6. Response Strategy: If answerable, how should the response be structured?
   PROMPT
 
-  def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil, rag_context: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, has_pdf_sources: false, log_stats: true, &block)
-    new(messages: messages, model: model, use_persona: use_persona, use_scaffolding: use_scaffolding, stream: stream, max_tokens: max_tokens, rag_context: rag_context, persona_id: persona_id, skills: skills, web_search_mode: web_search_mode, web_search_level: web_search_level, web_search_query_count: web_search_query_count, has_pdf_sources: has_pdf_sources, log_stats: log_stats).call(&block)
+  def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil, rag_context: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, has_pdf_sources: false, reasoning_effort: nil, log_stats: true, &block)
+    new(messages: messages, model: model, use_persona: use_persona, use_scaffolding: use_scaffolding, stream: stream, max_tokens: max_tokens, rag_context: rag_context, persona_id: persona_id, skills: skills, web_search_mode: web_search_mode, web_search_level: web_search_level, web_search_query_count: web_search_query_count, has_pdf_sources: has_pdf_sources, reasoning_effort: reasoning_effort, log_stats: log_stats).call(&block)
   end
 
   # skills is an array of { id:, name:, content:, version: } hashes resolved by the caller.
-  def initialize(messages:, model:, use_persona:, use_scaffolding:, stream:, max_tokens:, rag_context: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, has_pdf_sources: false, log_stats: true)
+  def initialize(messages:, model:, use_persona:, use_scaffolding:, stream:, max_tokens:, rag_context: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, has_pdf_sources: false, reasoning_effort: nil, log_stats: true)
     @messages = messages
     @model_id = model.presence || FALLBACK_MODEL
     @use_persona = use_persona
@@ -49,6 +49,7 @@ class ChatService
     @has_pdf_sources = has_pdf_sources
     @log_stats = log_stats
     @adapter = select_adapter(@model_id)
+    @reasoning_options = @model_id == "custom-llama" && reasoning_effort.present? ? { reasoning_effort: reasoning_effort } : {}
     @web_latency = {}
   end
 
@@ -102,7 +103,7 @@ class ChatService
       saw_reasoning = false
       switched_to_response = false
       mark_web_answer_started
-      adapter_result = @adapter.chat(messages: messages_to_send, stream: true, max_tokens: @max_tokens) do |chunk, kind|
+      adapter_result = @adapter.chat(messages: messages_to_send, stream: true, max_tokens: @max_tokens, **@reasoning_options) do |chunk, kind|
         record_web_first_visible_output(chunk, kind == :reasoning ? :reasoning : :content)
         if kind == :reasoning
           saw_reasoning = true
@@ -127,7 +128,7 @@ class ChatService
         web_search_data: @web_search_data
       }
     else
-      response = @adapter.chat(messages: messages_to_send, stream: false, max_tokens: @max_tokens)
+      response = @adapter.chat(messages: messages_to_send, stream: false, max_tokens: @max_tokens, **@reasoning_options)
       {
         reply: response[:content],
         thinking: response[:reasoning],
@@ -162,7 +163,7 @@ class ChatService
 
     if @stream && block_given?
       mark_web_answer_started
-      planning_result = @adapter.chat(messages: planning_messages, stream: true, max_tokens: @max_tokens) do |content|
+      planning_result = @adapter.chat(messages: planning_messages, stream: true, max_tokens: @max_tokens, **@reasoning_options) do |content|
         record_web_first_visible_output(content, :thinking)
         thinking += content
         yield content, :thinking
@@ -173,7 +174,7 @@ class ChatService
       end
       yield nil, :phase_change
     else
-      response = @adapter.chat(messages: planning_messages, stream: false, max_tokens: @max_tokens)
+      response = @adapter.chat(messages: planning_messages, stream: false, max_tokens: @max_tokens, **@reasoning_options)
       thinking = response[:content]
       planning_tokens = response[:tokens]
       planning_stats = response[:stats]
@@ -197,7 +198,7 @@ class ChatService
 
     if @stream && block_given?
       reply = ""
-      execution_result = @adapter.chat(messages: execution_messages, stream: true, max_tokens: @max_tokens) do |chunk, kind|
+      execution_result = @adapter.chat(messages: execution_messages, stream: true, max_tokens: @max_tokens, **@reasoning_options) do |chunk, kind|
         record_web_first_visible_output(chunk, kind == :reasoning ? :reasoning : :content)
         # Native reasoning during the execution pass goes to the thinking stream,
         # never into the saved reply.
@@ -227,7 +228,7 @@ class ChatService
         web_search_data: @web_search_data
       }
     else
-      response = @adapter.chat(messages: execution_messages, stream: false, max_tokens: @max_tokens)
+      response = @adapter.chat(messages: execution_messages, stream: false, max_tokens: @max_tokens, **@reasoning_options)
       reply = response[:content]
       execution_tokens = response[:tokens]
       execution_stats = response[:stats]
@@ -404,7 +405,7 @@ class ChatService
         stream: false,
         max_tokens: @budgets[:selector_max_tokens],
         temperature: 0,
-        chat_template_kwargs: { reasoning_effort: "low" },
+        **(@model_id == "custom-llama" ? { reasoning_effort: "low" } : {}),
         thinking_budget_tokens: 1,
         reasoning_budget_message: "Proceed directly to the required tool call.",
         request_timeout: WEB_SELECTOR_TIMEOUT_SECONDS,

@@ -28,6 +28,18 @@
             style="min-width: 220px"
             @update:model-value="updatePersonaSelection"
           />
+          <q-select
+            v-if="modelCode === 'custom-llama'"
+            :model-value="reasoningEffort"
+            :options="reasoningEffortOptions"
+            :disable="savingReasoningEffort"
+            label="Reasoning level"
+            emit-value
+            map-options
+            dense
+            style="min-width: 140px"
+            @update:model-value="updateReasoningEffort"
+          />
           <q-toggle
             v-model="useScaffolding"
             label="Scaffolding"
@@ -574,6 +586,11 @@ export default {
     useScaffolding: true,
     usePersona: true,
     personaId: 'persona1',
+    reasoningEffort: 'high',
+    savingReasoningEffort: false,
+    reasoningEffortOptions: ['none', 'low', 'medium', 'high'].map(value => ({
+      label: value.charAt(0).toUpperCase() + value.slice(1), value
+    })),
     personas: [],
     ragEnabled: false,
     webSearchMode: 'off',
@@ -616,6 +633,7 @@ export default {
     const userRes = await api.get('/api/user')
     this.useScaffolding = userRes.data.use_scaffolding
     this.usePersona = userRes.data.use_persona
+    this.reasoningEffort = userRes.data.reasoning_effort
     this.personaId = userRes.data.persona_id
     this.personas = userRes.data.personas || []
     this.skillsEnabled = userRes.data.use_skills || false
@@ -1428,6 +1446,19 @@ export default {
         if (res.data.n_ctx) this.llamaContextWindow = res.data.n_ctx
       } catch (err) {
         console.error('Error fetching llama context window:', err)
+      }
+    },
+
+    async updateReasoningEffort(value) {
+      this.savingReasoningEffort = true
+      try {
+        const response = await api.patch('/api/user', { user: { reasoning_effort: value } })
+        this.reasoningEffort = response.data.reasoning_effort
+      } catch (err) {
+        console.error('Error updating reasoning level:', err)
+        this.$q.notify({ type: 'negative', message: 'Failed to save reasoning level' })
+      } finally {
+        this.savingReasoningEffort = false
       }
     },
 

@@ -1,7 +1,17 @@
 require "test_helper"
 
 class AiAdapters::LlamaAdapterTest < ActiveSupport::TestCase
-  test "blocking chat passes template kwargs and returns the finish reason" do
+  test "local llama omits reasoning effort even when supplied" do
+    adapter = AiAdapters::LlamaAdapter.new(model: "local-llama", log_stats: false)
+    adapter.stub(:perform_blocking_request, ->(_uri, payload, **_options) {
+      refute payload.key?(:reasoning_effort)
+      {}
+    }) do
+      adapter.chat(messages: [], reasoning_effort: "high")
+    end
+  end
+
+  test "custom chat passes top-level reasoning effort and returns the finish reason" do
     response_body = {
       model: "./models/Qwen3.8-27B-UD-Q4_K_M.gguf&#x20;",
       choices: [ {
@@ -25,14 +35,15 @@ class AiAdapters::LlamaAdapterTest < ActiveSupport::TestCase
     end
 
     Net::HTTP.stub(:new, http) do
-      result = AiAdapters::LlamaAdapter.new(model: "local-llama", log_stats: false).chat(
+      result = AiAdapters::LlamaAdapter.new(model: "custom-llama", log_stats: false).chat(
         messages: [ { role: "user", content: "route this" } ],
-        chat_template_kwargs: { reasoning_effort: "low" },
+        reasoning_effort: "low",
         thinking_budget_tokens: 128,
         reasoning_budget_message: "Call the tool now."
       )
 
-      assert_equal({ "reasoning_effort" => "low" }, captured_payload["chat_template_kwargs"])
+      assert_equal "low", captured_payload["reasoning_effort"]
+      refute captured_payload.key?("chat_template_kwargs")
       assert_equal 128, captured_payload["thinking_budget_tokens"]
       assert_equal "Call the tool now.", captured_payload["reasoning_budget_message"]
       assert_equal "tool_calls", result[:finish_reason]

@@ -52,6 +52,7 @@ module Api
         result = ChatService.call(
           messages: conversation.messages_for_ai(multimodal: images_allowed),
           model: safe_model_code,
+          reasoning_effort: current_api_user.reasoning_effort,
           use_persona: current_api_user.use_persona,
           persona_id: current_api_user.persona_id,
           use_scaffolding: current_api_user.use_scaffolding,
