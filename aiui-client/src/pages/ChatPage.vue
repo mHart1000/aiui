@@ -41,18 +41,30 @@
             color="primary"
           />
           <div class="web-search-control">
-            <div class="web-search-field">
+            <div class="web-search-field web-search-level">
               <span class="text-caption text-grey-7">Web research</span>
-              <q-btn-toggle
-                v-model="webSearchMode"
-                :options="webSearchOptions"
-                no-caps
-                unelevated
+              <q-slider
+                v-model="webSearchModeIndex"
+                :min="0"
+                :max="webSearchOptions.length - 1"
+                :step="1"
+                aria-label="Web research"
+                :aria-valuetext="webSearchOptions[webSearchModeIndex].label"
                 dense
-                rounded
-                toggle-color="primary"
-                @update:model-value="updateWebSearchMode"
               />
+              <div class="web-search-level-options">
+                <button
+                  v-for="(option, index) in webSearchOptions"
+                  :key="option.value"
+                  type="button"
+                  class="text-caption"
+                  :class="{ 'text-primary text-weight-bold': option.value === webSearchMode }"
+                  :aria-pressed="option.value === webSearchMode"
+                  @click="webSearchModeIndex = index"
+                >
+                  {{ option.label }}
+                </button>
+              </div>
             </div>
             <q-select
               :model-value="effectiveWebSearchQueryCount"
@@ -752,6 +764,19 @@ export default {
         { label: 'Auto', value: 'auto' },
         { label: 'On', value: 'always' }
       ]
+    },
+    webSearchModeIndex: {
+      get() {
+        const index = this.webSearchOptions.findIndex(option => option.value === this.webSearchMode)
+        return index === -1 ? 0 : index
+      },
+      set(value) {
+        const option = this.webSearchOptions[value]
+        if (option && option.value !== this.webSearchMode) {
+          this.webSearchMode = option.value
+          this.updateWebSearchMode(option.value)
+        }
+      }
     },
     webSearchQueryOptions() {
       const limit = this.webSearchProfiles[this.webSearchLevel]?.max_queries ?? 2
