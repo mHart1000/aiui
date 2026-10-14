@@ -69,14 +69,13 @@
             <q-select
               :model-value="effectiveWebSearchQueryCount"
               :options="webSearchQueryOptions"
-              label="Max queries"
+              label="Queries"
               aria-label="Maximum search queries"
               class="web-search-query-count"
               dense
-              outlined
+              filled
               @update:model-value="updateWebSearchQueryCount"
             >
-              <q-tooltip>The model can use fewer queries. Low allows up to 2; Medium up to 3; High up to 5.</q-tooltip>
             </q-select>
             <div class="web-search-field web-search-level">
               <span class="text-caption text-grey-7">Search level</span>
