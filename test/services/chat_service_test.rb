@@ -6,7 +6,7 @@ class ChatServiceTest < ActiveSupport::TestCase
 
   test "reasoning effort is forwarded only for custom llama in streaming and blocking answers" do
     %w[local-llama custom-llama].each do |model|
-      [false, true].each do |stream|
+      [ false, true ].each do |stream|
         service = ChatService.new(messages: MESSAGES, model: model, use_persona: false,
           use_scaffolding: false, stream: stream, max_tokens: nil, reasoning_effort: "medium")
         captured = nil

@@ -16,7 +16,7 @@ module Api
         assert_equal effort, @user.reload.reasoning_effort
         assert_equal effort, JSON.parse(response.body)["reasoning_effort"]
       end
-      [nil, "", "ultra"].each do |effort|
+      [ nil, "", "ultra" ].each do |effort|
         patch "/api/user", params: { user: { reasoning_effort: effort } }, headers: @headers, as: :json
         assert_response :unprocessable_entity
         assert_equal "high", @user.reload.reasoning_effort
