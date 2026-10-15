@@ -4,7 +4,7 @@ module WebResearch
   class SearchPacer
     DEFAULT_INTERVAL_SECONDS = 3
     LOCK_POLL_SECONDS = 0.05
-    FAILURE_COOLDOWN_SECONDS = 180
+    FAILURE_COOLDOWN_SECONDS = 300
     class DeadlineExceeded < StandardError; end
 
     def initialize(interval: DEFAULT_INTERVAL_SECONDS, path: Rails.root.join("tmp", "web-search-pacing-#{Rails.env}.lock"))

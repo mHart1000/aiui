@@ -8,6 +8,7 @@ class Api::ModelsControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     models = response.parsed_body["models"]
+    assert models.any? { |model| model["id"] == "custom-llama" && model["owned_by"] == "local" }
     assert_equal false, response.parsed_body["local_image_input"]
     assert models.none? { |model| model.key?("image_input") || model.key?("vision") }
   end

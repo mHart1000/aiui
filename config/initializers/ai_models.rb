@@ -2,6 +2,7 @@ require "net/http"
 
 AI_MODELS = [
  { "id"=>"local-llama", "object"=>"model", "created"=>1700000000, "owned_by"=>"local" },
+ { "id"=>"custom-llama", "object"=>"model", "created"=>1700000000, "owned_by"=>"local" },
  { "id"=>"openrouter/nvidia/nemotron-3-super-120b-a12b:free", "object"=>"model", "created"=>1764600000, "owned_by"=>"openrouter" },
  { "id"=>"openrouter/arcee-ai/trinity-large-preview:free", "object"=>"model", "created"=>1764600000, "owned_by"=>"openrouter" },
  { "id"=>"openrouter/z-ai/glm-4.5-air:free", "object"=>"model", "created"=>1764600000, "owned_by"=>"openrouter" },

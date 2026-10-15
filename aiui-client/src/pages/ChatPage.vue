@@ -28,6 +28,18 @@
             style="min-width: 220px"
             @update:model-value="updatePersonaSelection"
           />
+          <q-select
+            v-if="modelCode === 'custom-llama'"
+            :model-value="reasoningEffort"
+            :options="reasoningEffortOptions"
+            :disable="savingReasoningEffort"
+            label="Reasoning level"
+            emit-value
+            map-options
+            dense
+            style="min-width: 140px"
+            @update:model-value="updateReasoningEffort"
+          />
           <q-toggle
             v-model="useScaffolding"
             label="Scaffolding"
@@ -41,31 +53,31 @@
             color="primary"
           />
           <div class="web-search-control">
-            <div class="web-search-field">
+            <div class="web-search-field web-search-mode">
               <span class="text-caption text-grey-7">Web research</span>
-              <q-btn-toggle
-                v-model="webSearchMode"
-                :options="webSearchOptions"
-                no-caps
-                unelevated
+              <q-slider
+                v-model="webSearchModeIndex"
+                :min="0"
+                :max="webSearchOptions.length - 1"
+                :step="1"
+                aria-label="Web research"
+                :aria-valuetext="webSearchOptions[webSearchModeIndex].label"
                 dense
-                rounded
-                toggle-color="primary"
-                @update:model-value="updateWebSearchMode"
               />
+              <div class="web-search-level-options">
+                <button
+                  v-for="(option, index) in webSearchOptions"
+                  :key="option.value"
+                  type="button"
+                  class="text-caption"
+                  :class="{ 'text-primary text-weight-bold': option.value === webSearchMode }"
+                  :aria-pressed="option.value === webSearchMode"
+                  @click="webSearchModeIndex = index"
+                >
+                  {{ option.label }}
+                </button>
+              </div>
             </div>
-            <q-select
-              :model-value="effectiveWebSearchQueryCount"
-              :options="webSearchQueryOptions"
-              label="Max queries"
-              aria-label="Maximum search queries"
-              class="web-search-query-count"
-              dense
-              outlined
-              @update:model-value="updateWebSearchQueryCount"
-            >
-              <q-tooltip>The model can use fewer queries. Low allows up to 2; Medium up to 3; High up to 5.</q-tooltip>
-            </q-select>
             <div class="web-search-field web-search-level">
               <span class="text-caption text-grey-7">Search level</span>
               <q-slider
@@ -102,6 +114,16 @@
                 </button>
               </div>
             </div>
+            <q-select
+              :model-value="effectiveWebSearchQueryCount"
+              :options="webSearchQueryOptions"
+              label="Queries"
+              aria-label="Maximum search queries"
+              class="web-search-query-count"
+              borderless
+              @update:model-value="updateWebSearchQueryCount"
+            >
+            </q-select>
           </div>
           <q-btn
             flat
@@ -557,12 +579,17 @@ export default {
     localImageInput: null,
     modelCode: null,
     pendingAttachments: [],
-    pdfTextLimit: 24000,
+    pdfTextLimit: 128000,
     streamingMessageIndex: null,
     expandedThinking: {},
     useScaffolding: true,
     usePersona: true,
     personaId: 'persona1',
+    reasoningEffort: 'high',
+    savingReasoningEffort: false,
+    reasoningEffortOptions: ['none', 'low', 'medium', 'high'].map(value => ({
+      label: value.charAt(0).toUpperCase() + value.slice(1), value
+    })),
     personas: [],
     ragEnabled: false,
     webSearchMode: 'off',
@@ -605,6 +632,7 @@ export default {
     const userRes = await api.get('/api/user')
     this.useScaffolding = userRes.data.use_scaffolding
     this.usePersona = userRes.data.use_persona
+    this.reasoningEffort = userRes.data.reasoning_effort
     this.personaId = userRes.data.persona_id
     this.personas = userRes.data.personas || []
     this.skillsEnabled = userRes.data.use_skills || false
@@ -752,6 +780,19 @@ export default {
         { label: 'Auto', value: 'auto' },
         { label: 'On', value: 'always' }
       ]
+    },
+    webSearchModeIndex: {
+      get() {
+        const index = this.webSearchOptions.findIndex(option => option.value === this.webSearchMode)
+        return index === -1 ? 0 : index
+      },
+      set(value) {
+        const option = this.webSearchOptions[value]
+        if (option && option.value !== this.webSearchMode) {
+          this.webSearchMode = option.value
+          this.updateWebSearchMode(option.value)
+        }
+      }
     },
     webSearchQueryOptions() {
       const limit = this.webSearchProfiles[this.webSearchLevel]?.max_queries ?? 2
@@ -1255,7 +1296,9 @@ export default {
       if (this.streamingMessageIndex === myIndex) {
         this.streamingMessageIndex = null
       }
-      this.refreshConversations()
+      await this.refreshConversations(
+        isNew && !streamError && !this.streamingChat.wasStopped.value ? this.conversationId : null
+      )
     },
     scrollToBottom() {
       const el = this.$refs.chatWindow
@@ -1404,6 +1447,19 @@ export default {
         if (res.data.n_ctx) this.llamaContextWindow = res.data.n_ctx
       } catch (err) {
         console.error('Error fetching llama context window:', err)
+      }
+    },
+
+    async updateReasoningEffort(value) {
+      this.savingReasoningEffort = true
+      try {
+        const response = await api.patch('/api/user', { user: { reasoning_effort: value } })
+        this.reasoningEffort = response.data.reasoning_effort
+      } catch (err) {
+        console.error('Error updating reasoning level:', err)
+        this.$q.notify({ type: 'negative', message: 'Failed to save reasoning level' })
+      } finally {
+        this.savingReasoningEffort = false
       }
     },
 
@@ -1706,10 +1762,16 @@ export default {
   text-align: center;
 }
 .web-search-query-count {
-  min-width: 110px;
+  min-width: 100px;
+  padding: 0 10px;
+}
+.web-search-mode {
+  width: 90px;
+  margin: 0 5px;
 }
 .web-search-level {
-  width: 160px;
+  width: 120px;
+  margin: 0 10px;
 }
 .web-search-level-options {
   display: flex;

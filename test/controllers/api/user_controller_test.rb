@@ -7,6 +7,22 @@ module Api
       @headers = sign_in_as(@user)
     end
 
+    test "reasoning effort defaults to high and accepts only supported levels" do
+      get "/api/user", headers: @headers
+      assert_equal "high", JSON.parse(response.body)["reasoning_effort"]
+      %w[none low medium high].each do |effort|
+        patch "/api/user", params: { user: { reasoning_effort: effort } }, headers: @headers, as: :json
+        assert_response :success
+        assert_equal effort, @user.reload.reasoning_effort
+        assert_equal effort, JSON.parse(response.body)["reasoning_effort"]
+      end
+      [ nil, "", "ultra" ].each do |effort|
+        patch "/api/user", params: { user: { reasoning_effort: effort } }, headers: @headers, as: :json
+        assert_response :unprocessable_entity
+        assert_equal "high", @user.reload.reasoning_effort
+      end
+    end
+
     test "show serializes the web search mode and level defaults" do
       get "/api/user", headers: @headers
 
