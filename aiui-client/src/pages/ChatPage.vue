@@ -78,17 +78,6 @@
                 </button>
               </div>
             </div>
-            <q-select
-              :model-value="effectiveWebSearchQueryCount"
-              :options="webSearchQueryOptions"
-              label="Queries"
-              aria-label="Maximum search queries"
-              class="web-search-query-count"
-              dense
-              filled
-              @update:model-value="updateWebSearchQueryCount"
-            >
-            </q-select>
             <div class="web-search-field web-search-level">
               <span class="text-caption text-grey-7">Search level</span>
               <q-slider
@@ -125,6 +114,16 @@
                 </button>
               </div>
             </div>
+            <q-select
+              :model-value="effectiveWebSearchQueryCount"
+              :options="webSearchQueryOptions"
+              label="Queries"
+              aria-label="Maximum search queries"
+              class="web-search-query-count"
+              borderless
+              @update:model-value="updateWebSearchQueryCount"
+            >
+            </q-select>
           </div>
           <q-btn
             flat
@@ -1764,12 +1763,15 @@ export default {
 }
 .web-search-query-count {
   min-width: 100px;
+  padding: 0 10px;
 }
 .web-search-mode {
   width: 90px;
+  margin: 0 5px;
 }
 .web-search-level {
   width: 120px;
+  margin: 0 10px;
 }
 .web-search-level-options {
   display: flex;
