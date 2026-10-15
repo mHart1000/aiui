@@ -180,6 +180,7 @@ export function useStreamingChat() {
     thinkingText,
     responseText,
     stats,
+    metadata,
     isStreaming,
     error,
     loadingPhase,

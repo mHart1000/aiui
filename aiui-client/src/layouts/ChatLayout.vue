@@ -155,16 +155,24 @@ import { Dark } from 'quasar'
 import { api } from 'src/boot/axios'
 import RagKnowledgeDialog from 'components/RagKnowledgeDialog.vue'
 
+const TITLE_REFRESH_INTERVAL_MS = 2000
+
 export default {
   name: 'ChatLayout',
   components: { RagKnowledgeDialog },
   provide() {
     return {
-      refreshConversations: () => this.getUserConversations()
+      refreshConversations: (pendingTitleId) => {
+        if (pendingTitleId) this.pendingTitleId = pendingTitleId
+        return this.getUserConversations()
+      }
     }
   },
   data: () => ({
     conversations: [],
+    pendingTitleId: null,
+    titleRefreshTimer: null,
+    disposed: false,
     knowledgeOpen: false,
     searchActive: false,
     searchQuery: '',
@@ -211,6 +219,8 @@ export default {
     this.getUserConversations()
   },
   beforeUnmount() {
+    this.disposed = true
+    clearTimeout(this.titleRefreshTimer)
     clearTimeout(this.searchTimer)
     document.removeEventListener('mousemove', this.onResize)
     document.removeEventListener('mouseup', this.stopResize)
@@ -249,10 +259,22 @@ export default {
       this.$router.replace('/login')
     },
     getUserConversations() {
+      clearTimeout(this.titleRefreshTimer)
       console.log('Fetching user conversations...')
       return api.get('/api/conversations')
         .then(response => {
           this.conversations = response.data.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+          const pending = this.conversations.find(c => String(c.id) === String(this.pendingTitleId))
+          if (pending && (!pending.title || pending.title === 'New Chat') && !this.disposed) {
+            this.titleRefreshTimer = setTimeout(() => {
+              this.getUserConversations().catch(error => {
+                console.error('Error refreshing conversation title:', error)
+                this.$q.notify({ type: 'negative', message: 'Title refresh failed. Reload to retry.' })
+              })
+            }, TITLE_REFRESH_INTERVAL_MS)
+          } else {
+            this.pendingTitleId = null
+          }
         })
     },
     replaceConversation(updated) {

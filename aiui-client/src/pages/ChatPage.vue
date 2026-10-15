@@ -1297,7 +1297,9 @@ export default {
       if (this.streamingMessageIndex === myIndex) {
         this.streamingMessageIndex = null
       }
-      this.refreshConversations()
+      await this.refreshConversations(
+        isNew && !streamError && !this.streamingChat.wasStopped.value ? this.conversationId : null
+      )
     },
     scrollToBottom() {
       const el = this.$refs.chatWindow
