@@ -24,7 +24,7 @@ class ChatServiceTest < ActiveSupport::TestCase
     end
   end
 
-  test "custom web selector uses low effort independently of the answer preference" do
+  test "custom web selector disables reasoning independently of the answer preference" do
     service = ChatService.new(messages: MESSAGES, model: "custom-llama", use_persona: false,
       use_scaffolding: false, stream: false, max_tokens: nil, reasoning_effort: "high", web_search_mode: "auto")
     requests = []
@@ -32,9 +32,9 @@ class ChatServiceTest < ActiveSupport::TestCase
       requests << kwargs
       FAKE_RESPONSE
     }) { service.call }
-    assert_equal "low", requests.first[:reasoning_effort]
+    assert_equal "none", requests.first[:reasoning_effort]
     refute requests.first.key?(:chat_template_kwargs)
-    assert_equal 1, requests.first[:thinking_budget_tokens]
+    refute requests.first.key?(:thinking_budget_tokens)
     assert_equal "high", requests.last[:reasoning_effort]
     refute requests.last.key?(:thinking_budget_tokens)
   end
