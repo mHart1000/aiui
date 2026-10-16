@@ -20,6 +20,7 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
     Message.delete_all
     Conversation.delete_all
     Skill.delete_all
+    Project.delete_all
     User.delete_all
   end
 
@@ -58,6 +59,28 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
     controller.define_singleton_method(:render) { |json:| json }
 
     controller
+  end
+
+  test "each request resolves current project description without sharing sibling messages" do
+    project = @user.projects.create!(name: "AIUI", description: "Original context")
+    @conversation.update!(project: project)
+    sibling = @user.conversations.create!(project: project)
+    sibling.messages.create!(role: "user", content: "Private sibling history")
+    descriptions = []
+    service = lambda do |**kwargs, &block|
+      descriptions << kwargs[:project_description]
+      refute_includes kwargs[:messages].map { |message| message[:content] }, "Private sibling history"
+      block.call("Answer", :response)
+      {}
+    end
+    ChatService.stub(:call, service) do
+      build_controller(@conversation).create_streaming
+      project.update!(description: "Updated context")
+      build_controller(@conversation).create_streaming
+      @conversation.update!(project: nil)
+      build_controller(@conversation).create_streaming
+    end
+    assert_equal ["Original context", "Updated context", nil], descriptions
   end
 
   test "create_streaming saves partial content when client disconnects" do

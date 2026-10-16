@@ -12,6 +12,12 @@ class Conversation < ApplicationRecord
 
   has_many :messages, dependent: :destroy
   belongs_to :user
+  belongs_to :project, optional: true
+  validate :project_belongs_to_user
+
+  def project_belongs_to_user
+    errors.add(:project, "must belong to this user") if project_id.present? && (project.nil? || project.user_id != user_id)
+  end
 
   validates :web_search_mode, inclusion: { in: %w[off auto always], allow_nil: true }
   validates :web_search_level, inclusion: { in: WebResearch::Profile::LEVELS, allow_nil: true }
@@ -38,6 +44,7 @@ class Conversation < ApplicationRecord
     transaction do
       forked = user.conversations.create!(
         title: fork_title,
+        project_id: project_id,
         model_code: model_code,
         rag_enabled: rag_enabled,
         web_search_mode: web_search_mode,

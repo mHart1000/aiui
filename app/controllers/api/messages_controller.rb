@@ -58,6 +58,7 @@ module Api
           use_scaffolding: current_api_user.use_scaffolding,
           stream: true,
           rag_context: rag_context,
+          project_description: conversation.project&.description,
           skills: fetch_skills(conversation),
           web_search_mode: conversation.resolved_web_search_mode,
           web_search_level: conversation.resolved_web_search_level,

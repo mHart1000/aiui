@@ -39,6 +39,31 @@ class ChatServiceTest < ActiveSupport::TestCase
     refute requests.last.key?(:thinking_budget_tokens)
   end
 
+  test "project description joins persona and skills in one system message for local answers" do
+    service = ChatService.new(messages: MESSAGES, model: "local-llama", use_persona: true,
+      use_scaffolding: false, stream: false, max_tokens: nil, project_description: "Build a local chat app",
+      skills: [{ id: 1, name: "Coding", content: "Use Ruby", version: "v1" }])
+    captured = nil
+    service.stub(:load_persona, { content: "Be concise" }) do
+      service.instance_variable_get(:@adapter).stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) do
+        service.call
+      end
+    end
+    assert_equal 1, captured.count { |m| m[:role] == "system" }
+    assert_includes captured.first[:content], "Be concise"
+    assert_includes captured.first[:content], "## Project context\n\nBuild a local chat app"
+    assert_includes captured.first[:content], "Use Ruby"
+    assert_equal MESSAGES, captured.drop(1)
+  end
+
+  test "blank project descriptions add no system message" do
+    service = ChatService.new(messages: MESSAGES, model: "local-llama", use_persona: false,
+      use_scaffolding: false, stream: false, max_tokens: nil, project_description: "")
+    captured = nil
+    service.instance_variable_get(:@adapter).stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) { service.call }
+    assert_equal MESSAGES, captured
+  end
+
   # adapter routing
   test "selects AnthropicAdapter for claude models" do
     service = ChatService.new(messages: MESSAGES, model: "claude-sonnet-4-5", use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil)

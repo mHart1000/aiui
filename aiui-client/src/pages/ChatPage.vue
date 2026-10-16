@@ -693,6 +693,12 @@ export default {
         }
       }
     },
+    '$route.query.project'() {
+      if (!this.$route.params.id) {
+        this.input = ''
+        this.clearAttachments()
+      }
+    },
     // Auto-scroll when messages change
     messages: {
       handler() {
@@ -1211,7 +1217,9 @@ export default {
       const isNew = !this.conversationId
 
       if (isNew) {
-        const convRes = await api.post('/api/conversations')
+        const convRes = await api.post('/api/conversations', {
+          conversation: { project_id: this.$route.query.project || null }
+        })
         this.conversationId = convRes.data.id
 
         // Toolbar settings chosen before the first send are applied here.

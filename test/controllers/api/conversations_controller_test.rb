@@ -11,7 +11,37 @@ module Api
       @conversation.messages.create!(role: "user", content: "three")
     end
 
+    test "project membership supports creation moving removal and sidebar serialization" do
+      project = @user.projects.create!(name: "AIUI")
+      post "/api/conversations", params: { conversation: { project_id: project.id } }, headers: @headers, as: :json
+      assert_response :success
+      assert_equal project.id, Conversation.find(response.parsed_body["id"]).project_id
+
+      patch "/api/conversations/#{@conversation.id}", params: { conversation: { project_id: project.id } }, headers: @headers, as: :json
+      assert_response :success
+      assert_equal project.id, response.parsed_body["project_id"]
+      [ "/api/conversations", "/api/conversations/search?q=Debugging", "/api/conversations/#{@conversation.id}" ].each do |path|
+        get path, headers: @headers
+        assert_response :success
+        body = response.parsed_body
+        entry = body.is_a?(Array) ? body.find { |c| c["id"] == @conversation.id } : body
+        assert_equal project.id, entry["project_id"]
+      end
+      patch "/api/conversations/#{@conversation.id}", params: { conversation: { project_id: nil } }, headers: @headers, as: :json
+      assert_response :success
+      assert_nil @conversation.reload.project_id
+    end
+
+    test "reject nonexistent project membership" do
+      patch "/api/conversations/#{@conversation.id}",
+            params: { conversation: { project_id: Project.maximum(:id).to_i + 1 } }, headers: @headers, as: :json
+      assert_response :unprocessable_entity
+      assert_nil @conversation.reload.project_id
+    end
+
     test "fork creates a conversation holding the messages up to the given one" do
+      project = @user.projects.create!(name: "AIUI")
+      @conversation.update!(project: project)
       assert_difference -> { @user.conversations.count }, 1 do
         post "/api/conversations/#{@conversation.id}/fork",
              params: { message_id: @answer.id }, headers: @headers, as: :json
@@ -20,6 +50,7 @@ module Api
 
       forked = Conversation.find(JSON.parse(response.body)["id"])
       assert_equal @user.id, forked.user_id
+      assert_equal project.id, forked.project_id
       assert_equal "(fork) Debugging Rails", forked.title
       assert_equal [ "one", "two" ], forked.messages.order(:created_at).map(&:content)
     end

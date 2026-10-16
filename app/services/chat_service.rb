@@ -27,12 +27,12 @@ class ChatService
     6. Response Strategy: If answerable, how should the response be structured?
   PROMPT
 
-  def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil, rag_context: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, has_pdf_sources: false, reasoning_effort: nil, log_stats: true, &block)
-    new(messages: messages, model: model, use_persona: use_persona, use_scaffolding: use_scaffolding, stream: stream, max_tokens: max_tokens, rag_context: rag_context, persona_id: persona_id, skills: skills, web_search_mode: web_search_mode, web_search_level: web_search_level, web_search_query_count: web_search_query_count, has_pdf_sources: has_pdf_sources, reasoning_effort: reasoning_effort, log_stats: log_stats).call(&block)
+  def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil, rag_context: nil, project_description: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, has_pdf_sources: false, reasoning_effort: nil, log_stats: true, &block)
+    new(messages: messages, model: model, use_persona: use_persona, use_scaffolding: use_scaffolding, stream: stream, max_tokens: max_tokens, rag_context: rag_context, project_description: project_description, persona_id: persona_id, skills: skills, web_search_mode: web_search_mode, web_search_level: web_search_level, web_search_query_count: web_search_query_count, has_pdf_sources: has_pdf_sources, reasoning_effort: reasoning_effort, log_stats: log_stats).call(&block)
   end
 
   # skills is an array of { id:, name:, content:, version: } hashes resolved by the caller.
-  def initialize(messages:, model:, use_persona:, use_scaffolding:, stream:, max_tokens:, rag_context: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, has_pdf_sources: false, reasoning_effort: nil, log_stats: true)
+  def initialize(messages:, model:, use_persona:, use_scaffolding:, stream:, max_tokens:, rag_context: nil, project_description: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, has_pdf_sources: false, reasoning_effort: nil, log_stats: true)
     @messages = messages
     @model_id = model.presence || FALLBACK_MODEL
     @use_persona = use_persona
@@ -43,6 +43,7 @@ class ChatService
     @budgets = WebResearch::Profile.for_level(@web_search_level)
     @web_search_query_count = [ web_search_query_count, @budgets[:max_queries] ].min
     @max_tokens = max_tokens || @budgets[:max_tokens]
+    @project_description = project_description.presence
     @rag_context = rag_context.presence
     @persona_id = persona_id.presence
     @skills = skills.presence || []
@@ -304,7 +305,7 @@ class ChatService
 
   # Persona and skills share one system message; local models handle that better than several.
   def build_system_content(persona)
-    parts = [ persona&.dig(:content), format_skills, pdf_source_policy, web_evidence_policy ].compact
+    parts = [ persona&.dig(:content), (@project_description && "## Project context\n\n#{@project_description}"), format_skills, pdf_source_policy, web_evidence_policy ].compact
     return nil if parts.empty?
 
     parts.join("\n\n")

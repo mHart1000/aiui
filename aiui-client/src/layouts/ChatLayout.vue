@@ -13,7 +13,7 @@
               icon="add"
               label="New Chat"
               class="full-width q-mb-sm"
-              @click="$router.push('/chat')"
+              @click="newChat()"
             />
             <q-btn
               flat
@@ -46,50 +46,78 @@
                 <q-icon name="search" />
               </template>
             </q-input>
+            <q-btn flat icon="create_new_folder" label="New project" class="full-width q-mb-sm" @click="editProject()" />
             <q-list dense>
-              <q-item
-                v-for="c in filteredConversations"
-                :key="c.id"
-                clickable
-                class="conversation-row"
-                @click="$router.push(`/chat/${c.id}`)"
-              >
-                <q-item-section class="conversation-title" :style="{ maxWidth: titleMaxWidth }">
-                  <q-item-label class="ellipsis">
-                    {{ c.title }}
-                  </q-item-label>
-                  <q-item-label v-if="c.snippet" caption class="snippet-line">
-                    <span class="snippet-side snippet-before"><bdi>{{ c.snippet.before }}</bdi></span><mark class="snippet-match">{{ c.snippet.match }}</mark><span class="snippet-side snippet-after">{{ c.snippet.after }}</span>
-                  </q-item-label>
-                </q-item-section>
-                <q-btn
-                  class="conversation-actions"
-                  flat
-                  round
-                  dense
-                  size="sm"
-                  icon="more_vert"
-                  :aria-label="`Actions for ${c.title}`"
-                  @click.stop
-                >
-                  <q-menu auto-close>
-                    <q-list dense style="min-width: 140px">
-                      <q-item clickable @click="openRename(c)">
-                        <q-item-section avatar><q-icon name="edit" /></q-item-section>
-                        <q-item-section>Rename</q-item-section>
-                      </q-item>
-                      <q-item clickable :disable="actionConversationId === c.id" @click="duplicateConversation(c)">
-                        <q-item-section avatar><q-icon name="content_copy" /></q-item-section>
-                        <q-item-section>Duplicate</q-item-section>
-                      </q-item>
-                      <q-item clickable @click="openDelete(c)">
-                        <q-item-section avatar><q-icon name="delete" /></q-item-section>
-                        <q-item-section>Delete</q-item-section>
-                      </q-item>
-                    </q-list>
-                  </q-menu>
-                </q-btn>
-              </q-item>
+              <template v-for="group in conversationGroups" :key="group.key">
+                <q-item v-if="group.project" class="q-px-none">
+                  <q-item-section avatar>
+                    <q-btn flat round dense :icon="collapsedProjects[group.project.id] ? 'chevron_right' : 'expand_more'" :aria-label="`Toggle ${group.project.name}`" @click="collapsedProjects[group.project.id] = !collapsedProjects[group.project.id]" />
+                  </q-item-section>
+                  <q-item-section class="ellipsis">{{ group.project.name }}</q-item-section>
+                  <q-item-section side>
+                    <q-btn flat round dense icon="more_vert" :aria-label="`Actions for ${group.project.name}`">
+                      <q-menu auto-close>
+                        <q-list dense>
+                          <q-item clickable @click="newChat(group.project.id)"><q-item-section>New chat</q-item-section></q-item>
+                          <q-item clickable @click="editProject(group.project)"><q-item-section>Edit project</q-item-section></q-item>
+                          <q-item clickable @click="projectToDelete = group.project"><q-item-section>Delete project</q-item-section></q-item>
+                        </q-list>
+                      </q-menu>
+                    </q-btn>
+                  </q-item-section>
+                </q-item>
+                <q-item-label v-else-if="!searchQuery.trim() && projects.length" header>Unfiled</q-item-label>
+                <template v-if="!group.project || !collapsedProjects[group.project.id]">
+                  <q-item
+                    v-for="c in group.conversations"
+                    :key="c.id"
+                    clickable
+                    class="conversation-row"
+                    @click="$router.push(`/chat/${c.id}`)"
+                  >
+                    <q-item-section class="conversation-title" :style="{ maxWidth: titleMaxWidth }">
+                      <q-item-label class="ellipsis">
+                        {{ c.title }}
+                      </q-item-label>
+                      <q-item-label v-if="searchQuery.trim()" caption>{{ projectName(c.project_id) }}</q-item-label>
+                      <q-item-label v-if="c.snippet" caption class="snippet-line">
+                        <span class="snippet-side snippet-before"><bdi>{{ c.snippet.before }}</bdi></span><mark class="snippet-match">{{ c.snippet.match }}</mark><span class="snippet-side snippet-after">{{ c.snippet.after }}</span>
+                      </q-item-label>
+                    </q-item-section>
+                    <q-btn
+                      class="conversation-actions"
+                      flat
+                      round
+                      dense
+                      size="sm"
+                      icon="more_vert"
+                      :aria-label="`Actions for ${c.title}`"
+                      @click.stop
+                    >
+                      <q-menu auto-close>
+                        <q-list dense style="min-width: 140px">
+                          <q-item clickable @click="openMove(c)">
+                            <q-item-section avatar><q-icon name="drive_file_move" /></q-item-section>
+                            <q-item-section>Move to project</q-item-section>
+                          </q-item>
+                          <q-item clickable @click="openRename(c)">
+                            <q-item-section avatar><q-icon name="edit" /></q-item-section>
+                            <q-item-section>Rename</q-item-section>
+                          </q-item>
+                          <q-item clickable :disable="actionConversationId === c.id" @click="duplicateConversation(c)">
+                            <q-item-section avatar><q-icon name="content_copy" /></q-item-section>
+                            <q-item-section>Duplicate</q-item-section>
+                          </q-item>
+                          <q-item clickable @click="openDelete(c)">
+                            <q-item-section avatar><q-icon name="delete" /></q-item-section>
+                            <q-item-section>Delete</q-item-section>
+                          </q-item>
+                        </q-list>
+                      </q-menu>
+                    </q-btn>
+                  </q-item>
+                </template>
+              </template>
             </q-list>
           </div>
           <div class="column items-center">
@@ -109,8 +137,49 @@
     ></div>
 
     <q-page-container>
+      <q-banner v-if="!$route.params.id && $route.query.project" dense class="bg-panel">
+        <q-icon name="folder" class="q-mr-sm" />New chat in {{ projectName(Number($route.query.project)) }}
+      </q-banner>
       <router-view />
     </q-page-container>
+
+    <q-dialog v-model="projectEditorOpen" persistent>
+      <q-card style="width: 520px; max-width: 90vw">
+        <q-card-section class="text-h6">{{ editingProjectId ? 'Edit project' : 'New project' }}</q-card-section>
+        <q-card-section class="q-gutter-md">
+          <q-input v-model="projectDraft.name" outlined autofocus label="Project name" :maxlength="projectLimits.name" counter />
+          <q-input v-model="projectDraft.description" outlined type="textarea" label="Project description" :maxlength="projectLimits.description" counter hint="Shared with every conversation in this project on subsequent turns." />
+          <div v-if="projectError" class="text-negative" role="alert">{{ projectError }}</div>
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" :disable="savingProject" v-close-popup />
+          <q-btn color="primary" label="Save" :loading="savingProject" :disable="!projectDraft.name.trim()" @click="saveProject" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+    <q-dialog :model-value="!!projectToDelete" @update:model-value="value => { if (!value) projectToDelete = null }" persistent>
+      <q-card style="width: 400px; max-width: 90vw">
+        <q-card-section class="text-h6">Delete project?</q-card-section>
+        <q-card-section>Delete “{{ projectToDelete?.name }}” and its description? Its conversations will be kept in Unfiled.</q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" :disable="savingProject" @click="projectToDelete = null" />
+          <q-btn label="Delete" :loading="savingProject" @click="deleteProject" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+    <q-dialog v-model="moveOpen" persistent>
+      <q-card style="width: 400px; max-width: 90vw">
+        <q-card-section class="text-h6">Move conversation</q-card-section>
+        <q-card-section>
+          <q-select v-model="moveProjectId" outlined label="Project" :options="projectOptions" emit-value map-options />
+          <div v-if="moveError" class="text-negative q-mt-sm" role="alert">{{ moveError }}</div>
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" :disable="movingConversation" v-close-popup />
+          <q-btn color="primary" label="Move" :loading="movingConversation" @click="moveConversation" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
 
     <RagKnowledgeDialog v-model="knowledgeOpen" />
 
@@ -170,6 +239,20 @@ export default {
   },
   data: () => ({
     conversations: [],
+    projects: [],
+    projectLimits: {},
+    collapsedProjects: {},
+    projectEditorOpen: false,
+    editingProjectId: null,
+    projectDraft: { name: '', description: '' },
+    projectError: '',
+    savingProject: false,
+    projectToDelete: null,
+    moveOpen: false,
+    movingConversation: false,
+    moveTarget: null,
+    moveProjectId: null,
+    moveError: '',
     pendingTitleId: null,
     titleRefreshTimer: null,
     disposed: false,
@@ -202,11 +285,18 @@ export default {
     }
   }),
   computed: {
+    projectOptions () {
+      return [{ label: 'Unfiled', value: null }, ...this.projects.map(p => ({ label: p.name, value: p.id }))]
+    },
+    conversationGroups () {
+      if (this.searchQuery.trim()) return [{ key: 'search', conversations: this.searchResults }]
+      return [
+        ...this.projects.map(project => ({ key: project.id, project, conversations: this.conversations.filter(c => c.project_id === project.id) })),
+        { key: 'unfiled', conversations: this.conversations.filter(c => !c.project_id) }
+      ]
+    },
     titleMaxWidth () {
       return `${this.sidebarWidth - 40}px`
-    },
-    filteredConversations () {
-      return this.searchQuery?.trim() ? this.searchResults : this.conversations
     }
   },
   watch: {
@@ -217,6 +307,7 @@ export default {
   },
   mounted() {
     this.getUserConversations()
+    this.getProjects()
   },
   beforeUnmount() {
     this.disposed = true
@@ -227,6 +318,79 @@ export default {
     document.body.classList.remove('drawer-resizing')
   },
   methods: {
+    async getProjects() {
+      const { data } = await api.get('/api/projects')
+      this.projects = data.projects
+      this.projectLimits = data.limits
+    },
+    projectName(id) {
+      return this.projects.find(p => p.id === id)?.name || 'Unfiled'
+    },
+    newChat(projectId = null) {
+      if (projectId) this.collapsedProjects[projectId] = false
+      return this.$router.push({ path: '/chat', query: projectId ? { project: projectId } : {} })
+    },
+    editProject(project = null) {
+      this.editingProjectId = project?.id || null
+      this.projectDraft = { name: project?.name || '', description: project?.description || '' }
+      this.projectError = ''
+      this.projectEditorOpen = true
+    },
+    async saveProject() {
+      if (this.savingProject || !this.projectDraft.name.trim()) return
+      this.savingProject = true
+      this.projectError = ''
+      try {
+        const payload = { project: this.projectDraft }
+        if (this.editingProjectId) await api.patch(`/api/projects/${this.editingProjectId}`, payload)
+        else await api.post('/api/projects', payload)
+        await this.getProjects()
+        this.projectEditorOpen = false
+      } catch (error) {
+        if (error.response?.status !== 422) throw error
+        console.error('Project validation failed:', error)
+        this.projectError = error.response.data.errors.join(', ')
+      } finally {
+        this.savingProject = false
+      }
+    },
+    async deleteProject() {
+      if (this.savingProject || !this.projectToDelete) return
+      this.savingProject = true
+      try {
+        const id = this.projectToDelete.id
+        await api.delete(`/api/projects/${id}`)
+        this.projectToDelete = null
+        await Promise.all([this.getProjects(), this.getUserConversations()])
+        this.runSearch()
+        if (String(this.$route.query.project) === String(id)) await this.$router.replace({ path: this.$route.path })
+      } finally {
+        this.savingProject = false
+      }
+    },
+    openMove(conversation) {
+      this.moveTarget = conversation
+      this.moveProjectId = conversation.project_id
+      this.moveError = ''
+      this.moveOpen = true
+    },
+    async moveConversation() {
+      if (this.movingConversation || !this.moveTarget) return
+      this.movingConversation = true
+      this.moveError = ''
+      try {
+        const { data } = await api.patch(`/api/conversations/${this.moveTarget.id}`, { conversation: { project_id: this.moveProjectId } })
+        this.replaceConversation(data)
+        if (data.project_id) this.collapsedProjects[data.project_id] = false
+        this.moveOpen = false
+      } catch (error) {
+        if (error.response?.status !== 422) throw error
+        console.error('Conversation move validation failed:', error)
+        this.moveError = error.response.data.errors.join(', ')
+      } finally {
+        this.movingConversation = false
+      }
+    },
     toggleDark() {
       Dark.toggle();
     },
