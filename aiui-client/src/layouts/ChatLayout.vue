@@ -46,8 +46,16 @@
                 <q-icon name="search" />
               </template>
             </q-input>
-            <q-btn flat icon="create_new_folder" label="New project" class="full-width q-mb-sm" @click="editProject()" />
             <q-list dense>
+              <q-item class="q-px-none q-mb-sm">
+                <q-item-section>
+                  <div class="row items-center">
+                    <span class="text-subtitle2">Projects</span>
+                    <q-space />
+                    <q-btn flat round dense icon="add" aria-label="New project" @click="editProject()" />
+                  </div>
+                </q-item-section>
+              </q-item>
               <template v-for="group in conversationGroups" :key="group.key">
                 <q-separator v-if="group.key === 'unfiled' && projects.length && group.conversations.length" class="q-my-md q-mx-xl" />
                 <ConversationGroup
