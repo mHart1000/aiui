@@ -49,6 +49,10 @@
             <q-item-section avatar><q-icon name="drive_file_move" /></q-item-section>
             <q-item-section>Move to project</q-item-section>
           </q-item>
+          <q-item v-if="c.project_id" clickable :disable="actionConversationId !== null" @click="$emit('remove-from-project', c)">
+            <q-item-section avatar><q-icon name="folder_off" /></q-item-section>
+            <q-item-section>Remove from project</q-item-section>
+          </q-item>
           <q-item clickable @click="$emit('rename', c)">
             <q-item-section avatar><q-icon name="edit" /></q-item-section>
             <q-item-section>Rename</q-item-section>
@@ -77,7 +81,7 @@ export default {
     projectNames: { type: Object, required: true },
     actionConversationId: { type: Number, default: null }
   },
-  emits: ['new-chat', 'edit-project', 'delete-project', 'move', 'rename', 'duplicate', 'delete-conversation'],
+  emits: ['new-chat', 'edit-project', 'delete-project', 'move', 'remove-from-project', 'rename', 'duplicate', 'delete-conversation'],
   data: () => ({ collapsed: false }),
   methods: {
     expand() {

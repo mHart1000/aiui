@@ -61,6 +61,7 @@
                   @edit-project="editProject"
                   @delete-project="projectToDelete = $event"
                   @move="openMove"
+                  @remove-from-project="removeFromProject"
                   @rename="openRename"
                   @duplicate="duplicateConversation"
                   @delete-conversation="openDelete"
@@ -327,6 +328,17 @@ export default {
       this.moveProjectId = conversation.project_id
       this.moveError = ''
       this.moveOpen = true
+    },
+    async removeFromProject(conversation) {
+      if (!conversation.project_id || this.actionConversationId !== null) return
+
+      this.actionConversationId = conversation.id
+      try {
+        const { data } = await api.patch(`/api/conversations/${conversation.id}`, { conversation: { project_id: null } })
+        this.replaceConversation(data)
+      } finally {
+        this.actionConversationId = null
+      }
     },
     async moveConversation() {
       if (this.movingConversation || !this.moveTarget || !this.moveProjectId) return
