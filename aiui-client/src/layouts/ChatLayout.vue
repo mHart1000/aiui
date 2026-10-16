@@ -291,8 +291,8 @@ export default {
     expandProject(projectId) {
       this.$refs.conversationGroupComponents?.find(component => component.group.project?.id === projectId)?.expand()
     },
-    newChat(projectId = null) {
-      if (projectId) this.expandProject(projectId)
+    newChat(projectId = null, expandFolder = true) {
+      if (projectId && expandFolder) this.expandProject(projectId)
       return this.$router.push({ path: '/chat', query: projectId ? { project: projectId } : {} })
     },
     editProject(project = null) {

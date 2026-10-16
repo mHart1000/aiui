@@ -4,7 +4,7 @@
       <q-btn flat round dense :icon="collapsed ? 'folder' : 'folder_open'" :aria-label="`Toggle ${group.project.name}`" :aria-expanded="!collapsed" @mousedown.left="collapsed = !collapsed" @click="$event.detail === 0 && (collapsed = !collapsed)" />
     </q-item-section>
     <q-item-section>
-      <button type="button" class="project-name ellipsis" @click="$emit('new-chat', group.project.id)">{{ group.project.name }}</button>
+      <button type="button" class="project-name ellipsis" :aria-expanded="!collapsed" @click="selectProject">{{ group.project.name }}</button>
     </q-item-section>
     <q-item-section side>
       <q-btn flat round dense icon="more_vert" :aria-label="`Actions for ${group.project.name}`">
@@ -86,6 +86,10 @@ export default {
   emits: ['new-chat', 'edit-project', 'delete-project', 'move', 'remove-from-project', 'rename', 'duplicate', 'delete-conversation'],
   data: () => ({ collapsed: false }),
   methods: {
+    selectProject() {
+      this.collapsed = !this.collapsed
+      this.$emit('new-chat', this.group.project.id, false)
+    },
     expand() {
       this.collapsed = false
     }
