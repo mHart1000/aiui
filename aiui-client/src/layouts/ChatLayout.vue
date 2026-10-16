@@ -49,6 +49,7 @@
             <q-btn flat icon="create_new_folder" label="New project" class="full-width q-mb-sm" @click="editProject()" />
             <q-list dense>
               <template v-for="group in conversationGroups" :key="group.key">
+                <q-separator v-if="group.key === 'unfiled' && projects.length && group.conversations.length" class="q-my-md q-mx-xl" />
                 <q-item v-if="group.project" class="q-px-none">
                   <q-item-section avatar>
                     <q-btn flat round dense :icon="collapsedProjects[group.project.id] ? 'chevron_right' : 'expand_more'" :aria-label="`Toggle ${group.project.name}`" @click="collapsedProjects[group.project.id] = !collapsedProjects[group.project.id]" />
@@ -66,7 +67,6 @@
                     </q-btn>
                   </q-item-section>
                 </q-item>
-                <q-item-label v-else-if="!searchQuery.trim() && projects.length" header>Unfiled</q-item-label>
                 <template v-if="!group.project || !collapsedProjects[group.project.id]">
                   <q-item
                     v-for="c in group.conversations"
@@ -79,7 +79,7 @@
                       <q-item-label class="ellipsis">
                         {{ c.title }}
                       </q-item-label>
-                      <q-item-label v-if="searchQuery.trim()" caption>{{ projectName(c.project_id) }}</q-item-label>
+                      <q-item-label v-if="searchQuery.trim() && c.project_id" caption>{{ projectName(c.project_id) }}</q-item-label>
                       <q-item-label v-if="c.snippet" caption class="snippet-line">
                         <span class="snippet-side snippet-before"><bdi>{{ c.snippet.before }}</bdi></span><mark class="snippet-match">{{ c.snippet.match }}</mark><span class="snippet-side snippet-after">{{ c.snippet.after }}</span>
                       </q-item-label>
@@ -160,7 +160,7 @@
     <q-dialog :model-value="!!projectToDelete" @update:model-value="value => { if (!value) projectToDelete = null }" persistent>
       <q-card style="width: 400px; max-width: 90vw">
         <q-card-section class="text-h6">Delete project?</q-card-section>
-        <q-card-section>Delete “{{ projectToDelete?.name }}” and its description? Its conversations will be kept in Unfiled.</q-card-section>
+        <q-card-section>Delete “{{ projectToDelete?.name }}” and its description? Its conversations will be kept.</q-card-section>
         <q-card-actions align="right">
           <q-btn flat label="Cancel" :disable="savingProject" @click="projectToDelete = null" />
           <q-btn label="Delete" :loading="savingProject" @click="deleteProject" />
@@ -176,7 +176,7 @@
         </q-card-section>
         <q-card-actions align="right">
           <q-btn flat label="Cancel" :disable="movingConversation" v-close-popup />
-          <q-btn color="primary" label="Move" :loading="movingConversation" @click="moveConversation" />
+          <q-btn color="primary" label="Move" :disable="!moveProjectId" :loading="movingConversation" @click="moveConversation" />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -286,7 +286,7 @@ export default {
   }),
   computed: {
     projectOptions () {
-      return [{ label: 'Unfiled', value: null }, ...this.projects.map(p => ({ label: p.name, value: p.id }))]
+      return this.projects.map(p => ({ label: p.name, value: p.id }))
     },
     conversationGroups () {
       if (this.searchQuery.trim()) return [{ key: 'search', conversations: this.searchResults }]
@@ -324,7 +324,7 @@ export default {
       this.projectLimits = data.limits
     },
     projectName(id) {
-      return this.projects.find(p => p.id === id)?.name || 'Unfiled'
+      return this.projects.find(p => p.id === id)?.name || ''
     },
     newChat(projectId = null) {
       if (projectId) this.collapsedProjects[projectId] = false
@@ -375,7 +375,7 @@ export default {
       this.moveOpen = true
     },
     async moveConversation() {
-      if (this.movingConversation || !this.moveTarget) return
+      if (this.movingConversation || !this.moveTarget || !this.moveProjectId) return
       this.movingConversation = true
       this.moveError = ''
       try {
