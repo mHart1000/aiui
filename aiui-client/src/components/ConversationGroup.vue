@@ -3,7 +3,9 @@
     <q-item-section avatar>
       <q-btn flat round dense :icon="collapsed ? 'folder' : 'folder_open'" :aria-label="`Toggle ${group.project.name}`" :aria-expanded="!collapsed" @mousedown.left="collapsed = !collapsed" @click="$event.detail === 0 && (collapsed = !collapsed)" />
     </q-item-section>
-    <q-item-section class="ellipsis">{{ group.project.name }}</q-item-section>
+    <q-item-section>
+      <button type="button" class="project-name ellipsis" @click="$emit('new-chat', group.project.id)">{{ group.project.name }}</button>
+    </q-item-section>
     <q-item-section side>
       <q-btn flat round dense icon="more_vert" :aria-label="`Actions for ${group.project.name}`">
         <q-menu auto-close>
@@ -92,6 +94,15 @@ export default {
 </script>
 
 <style scoped>
+.project-name {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
 .conversation-title {
   min-width: 0;
   white-space: nowrap;

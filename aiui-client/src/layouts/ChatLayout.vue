@@ -86,9 +86,6 @@
     ></div>
 
     <q-page-container>
-      <q-banner v-if="!$route.params.id && $route.query.project" dense class="bg-panel">
-        <q-icon name="folder" class="q-mr-sm" />New chat in {{ projectName(Number($route.query.project)) }}
-      </q-banner>
       <router-view />
     </q-page-container>
 
@@ -189,6 +186,7 @@ export default {
   components: { RagKnowledgeDialog, ConversationGroup, SkillsDialog },
   provide() {
     return {
+      getProjectName: (id) => this.projects.find(project => project.id === id)?.name || '',
       getProjectSkillIds: (conversationId) => {
         const projectId = conversationId
           ? this.conversations.find(c => String(c.id) === String(conversationId))?.project_id
@@ -289,9 +287,6 @@ export default {
       const { data } = await api.get('/api/projects')
       this.projects = data.projects
       this.projectLimits = data.limits
-    },
-    projectName(id) {
-      return this.projects.find(p => p.id === id)?.name || ''
     },
     expandProject(projectId) {
       this.$refs.conversationGroupComponents?.find(component => component.group.project?.id === projectId)?.expand()

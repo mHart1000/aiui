@@ -216,7 +216,7 @@
         @loadedmetadata="$event.target.playbackRate = 3"
       />
       <p class="text-subtitle1 text-grey-7 text-center" style="max-width: 500px">
-        Ask me anything. I'm here to help.
+        {{ newChatProjectName ? `Let's talk about ${newChatProjectName}` : "Ask me anything. I'm here to help." }}
       </p>
     </div>
 
@@ -550,6 +550,7 @@ export default {
     SkillsDialog
   },
   inject: {
+    getProjectName: { default: () => () => '' },
     getProjectSkillIds: { default: () => () => [] },
     refreshConversations: { default: () => () => {} }
   },
@@ -821,6 +822,9 @@ export default {
         const level = this.webSearchLevels[value]
         if (level && level !== this.webSearchLevel) this.updateWebSearchLevel(level)
       }
+    },
+    newChatProjectName() {
+      return this.$route.params.id ? '' : this.getProjectName(Number(this.$route.query.project))
     },
     projectSkillIds() {
       return this.getProjectSkillIds(this.conversationId)
