@@ -487,6 +487,7 @@
     <SkillsDialog
       v-model="skillsOpen"
       :active-ids="activeSkillIds"
+      :inherited-ids="projectSkillIds"
       :enabled="skillsEnabled"
       @update:active-ids="updateActiveSkills"
       @update:enabled="updateSkillsEnabled"
@@ -549,6 +550,7 @@ export default {
     SkillsDialog
   },
   inject: {
+    getProjectSkillIds: { default: () => () => [] },
     refreshConversations: { default: () => () => {} }
   },
   setup() {
@@ -820,8 +822,11 @@ export default {
         if (level && level !== this.webSearchLevel) this.updateWebSearchLevel(level)
       }
     },
+    projectSkillIds() {
+      return this.getProjectSkillIds(this.conversationId)
+    },
     skillsLabel() {
-      const count = this.activeSkillIds.length
+      const count = new Set([...this.activeSkillIds, ...this.projectSkillIds]).size
       return this.skillsEnabled && count ? `Skills (${count})` : 'Skills'
     },
     personaSelection: {

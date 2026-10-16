@@ -8,20 +8,24 @@ class Api::ProjectsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "create edit and list projects with description limits" do
-    post "/api/projects", params: { project: { name: " New project ", description: "Shared context" } }, headers: @headers, as: :json
+    skill = @user.skills.create!(name: "Project skill", body: "Shared instructions")
+    post "/api/projects", params: { project: { name: " New project ", description: "Shared context", skill_ids: [skill.id] } }, headers: @headers, as: :json
     assert_response :created
     created = response.parsed_body
     assert_equal "New project", created["name"]
+    assert_equal [skill.id], created["skill_ids"]
     assert_equal @user.id, Project.find(created["id"]).user_id
 
-    patch "/api/projects/#{created['id']}", params: { project: { description: "Updated context" } }, headers: @headers, as: :json
+    patch "/api/projects/#{created['id']}", params: { project: { description: "Updated context", skill_ids: [] } }, headers: @headers, as: :json
     assert_response :success
     assert_equal "Updated context", response.parsed_body["description"]
+    assert_empty Project.find(created["id"]).skill_ids
 
     get "/api/projects", headers: @headers
     assert_response :success
     assert_equal Project::MAX_DESCRIPTION_LENGTH, response.parsed_body.dig("limits", "description")
     assert_equal 2, response.parsed_body["projects"].length
+    assert_empty response.parsed_body["projects"].find { |p| p["id"] == created["id"] }["skill_ids"]
   end
 
   test "description can be cleared" do

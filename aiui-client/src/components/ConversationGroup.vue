@@ -1,7 +1,7 @@
 <template>
   <q-item v-if="group.project" class="q-px-none">
     <q-item-section avatar>
-      <q-btn flat round dense :icon="collapsed ? 'chevron_right' : 'expand_more'" :aria-label="`Toggle ${group.project.name}`" :aria-expanded="!collapsed" @mousedown.left="collapsed = !collapsed" @click="$event.detail === 0 && (collapsed = !collapsed)" />
+      <q-btn flat round dense :icon="collapsed ? 'folder' : 'folder_open'" :aria-label="`Toggle ${group.project.name}`" :aria-expanded="!collapsed" @mousedown.left="collapsed = !collapsed" @click="$event.detail === 0 && (collapsed = !collapsed)" />
     </q-item-section>
     <q-item-section class="ellipsis">{{ group.project.name }}</q-item-section>
     <q-item-section side>

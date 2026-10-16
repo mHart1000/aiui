@@ -98,6 +98,7 @@
         <q-card-section class="q-gutter-md">
           <q-input v-model="projectDraft.name" outlined autofocus label="Project name" :maxlength="projectLimits.name" counter />
           <q-input v-model="projectDraft.description" outlined type="textarea" label="Project description" :maxlength="projectLimits.description" counter hint="Shared with every conversation in this project on subsequent turns." />
+          <q-btn outline icon="extension" :label="`Project skills (${projectDraft.skill_ids.length})`" :disable="savingProject" @click="projectSkillsOpen = true" />
           <div v-if="projectError" class="text-negative" role="alert">{{ projectError }}</div>
         </q-card-section>
         <q-card-actions align="right">
@@ -106,6 +107,12 @@
         </q-card-actions>
       </q-card>
     </q-dialog>
+    <SkillsDialog
+      v-model="projectSkillsOpen"
+      project-mode
+      :active-ids="projectDraft.skill_ids"
+      @update:active-ids="projectDraft.skill_ids = $event"
+    />
     <q-dialog :model-value="!!projectToDelete" @update:model-value="value => { if (!value) projectToDelete = null }" persistent>
       <q-card style="width: 400px; max-width: 90vw">
         <q-card-section class="text-h6">Delete project?</q-card-section>
@@ -173,14 +180,21 @@ import { Dark } from 'quasar'
 import { api } from 'src/boot/axios'
 import RagKnowledgeDialog from 'components/RagKnowledgeDialog.vue'
 import ConversationGroup from 'components/ConversationGroup.vue'
+import SkillsDialog from 'components/SkillsDialog.vue'
 
 const TITLE_REFRESH_INTERVAL_MS = 2000
 
 export default {
   name: 'ChatLayout',
-  components: { RagKnowledgeDialog, ConversationGroup },
+  components: { RagKnowledgeDialog, ConversationGroup, SkillsDialog },
   provide() {
     return {
+      getProjectSkillIds: (conversationId) => {
+        const projectId = conversationId
+          ? this.conversations.find(c => String(c.id) === String(conversationId))?.project_id
+          : Number(this.$route.query.project)
+        return this.projects.find(project => project.id === projectId)?.skill_ids || []
+      },
       refreshConversations: (pendingTitleId) => {
         if (pendingTitleId) this.pendingTitleId = pendingTitleId
         return this.getUserConversations()
@@ -193,7 +207,8 @@ export default {
     projectLimits: {},
     projectEditorOpen: false,
     editingProjectId: null,
-    projectDraft: { name: '', description: '' },
+    projectDraft: { name: '', description: '', skill_ids: [] },
+    projectSkillsOpen: false,
     projectError: '',
     savingProject: false,
     projectToDelete: null,
@@ -287,7 +302,7 @@ export default {
     },
     editProject(project = null) {
       this.editingProjectId = project?.id || null
-      this.projectDraft = { name: project?.name || '', description: project?.description || '' }
+      this.projectDraft = { name: project?.name || '', description: project?.description || '', skill_ids: [...(project?.skill_ids || [])] }
       this.projectError = ''
       this.projectEditorOpen = true
     },

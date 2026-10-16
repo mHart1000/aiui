@@ -89,15 +89,19 @@ class Conversation < ApplicationRecord
     web_search_level.presence || user.web_search_level.presence || WebResearch::Profile::DEFAULT_LEVEL
   end
 
-  # An explicit [] means no skills here; null falls back to the user's defaults.
   def resolved_skills
     return Skill.none unless resolved_use_skills
 
-    if skill_ids.nil?
-      user.skills.where(enabled_by_default: true).order(:id)
-    else
-      user.skills.where(id: skill_ids).order(:id)
-    end
+    selected_skills.or(project_skills).order(:id)
+  end
+
+  # An explicit [] disables personal selections; null inherits the user's defaults.
+  def selected_skills
+    skill_ids.nil? ? user.skills.where(enabled_by_default: true) : user.skills.where(id: skill_ids)
+  end
+
+  def project_skills
+    user.skills.where(id: project&.skill_ids || [])
   end
 
   def apply_model_code(requested_code)

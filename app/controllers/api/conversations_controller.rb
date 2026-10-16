@@ -66,7 +66,8 @@ module Api
         web_search_level: conversation.resolved_web_search_level,
         web_search_query_count: conversation.resolved_web_search_query_count,
         use_skills: conversation.resolved_use_skills,
-        skill_ids: conversation.resolved_skills.map(&:id),
+        skill_ids: conversation.selected_skills.order(:id).pluck(:id),
+        project_skill_ids: conversation.project_skills.order(:id).pluck(:id),
         messages: conversation.messages.order(:created_at).includes(images_attachments: :blob).map { |m|
           {
             id: m.id,
@@ -158,7 +159,8 @@ module Api
         web_search_level: conversation.resolved_web_search_level,
         web_search_query_count: conversation.resolved_web_search_query_count,
         use_skills: conversation.resolved_use_skills,
-        skill_ids: conversation.resolved_skills.map(&:id)
+        skill_ids: conversation.selected_skills.order(:id).pluck(:id),
+        project_skill_ids: conversation.project_skills.order(:id).pluck(:id)
       }
     end
 

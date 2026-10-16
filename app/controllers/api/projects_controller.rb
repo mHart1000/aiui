@@ -36,11 +36,11 @@ module Api
     end
 
     def serialize(project)
-      project.as_json(only: [ :id, :name, :description ])
+      project.as_json(only: [ :id, :name, :description, :skill_ids ])
     end
 
     def project_params
-      params.require(:project).permit(:name, :description)
+      params.require(:project).permit(:name, :description, skill_ids: [])
     end
   end
 end

@@ -12,7 +12,9 @@ module Api
     end
 
     test "project membership supports creation moving removal and sidebar serialization" do
-      project = @user.projects.create!(name: "AIUI")
+      @user.update!(use_skills: true)
+      skill = @user.skills.create!(name: "Project skill", body: "Shared instructions")
+      project = @user.projects.create!(name: "AIUI", skill_ids: [skill.id])
       post "/api/conversations", params: { conversation: { project_id: project.id } }, headers: @headers, as: :json
       assert_response :success
       assert_equal project.id, Conversation.find(response.parsed_body["id"]).project_id
@@ -20,6 +22,8 @@ module Api
       patch "/api/conversations/#{@conversation.id}", params: { conversation: { project_id: project.id } }, headers: @headers, as: :json
       assert_response :success
       assert_equal project.id, response.parsed_body["project_id"]
+      assert_equal [skill.id], response.parsed_body["project_skill_ids"]
+      refute_includes response.parsed_body["skill_ids"], skill.id
       [ "/api/conversations", "/api/conversations/search?q=Debugging", "/api/conversations/#{@conversation.id}" ].each do |path|
         get path, headers: @headers
         assert_response :success
@@ -30,6 +34,7 @@ module Api
       patch "/api/conversations/#{@conversation.id}", params: { conversation: { project_id: nil } }, headers: @headers, as: :json
       assert_response :success
       assert_nil @conversation.reload.project_id
+      assert_empty response.parsed_body["project_skill_ids"]
     end
 
     test "reject nonexistent project membership" do

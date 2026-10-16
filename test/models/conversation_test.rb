@@ -224,6 +224,25 @@ class ConversationTest < ActiveSupport::TestCase
     assert_empty @conversation.reload.resolved_skills
   end
 
+  test "project skills combine with defaults and chat selections without duplicates" do
+    @user.update!(use_skills: true)
+    personal = @user.skills.create!(name: "Personal", body: "Personal instructions", enabled_by_default: true)
+    shared = @user.skills.create!(name: "Shared", body: "Project instructions")
+    project = @user.projects.create!(name: "Project", skill_ids: [personal.id, shared.id, shared.id])
+    @conversation.update!(project: project)
+
+    assert_equal [personal.id, shared.id].sort, @conversation.resolved_skills.pluck(:id)
+    assert_equal [personal.id], @conversation.selected_skills.pluck(:id)
+    @conversation.update!(skill_ids: [])
+    assert_equal [personal.id, shared.id].sort, @conversation.resolved_skills.pluck(:id)
+    project.update!(skill_ids: [shared.id])
+    assert_equal [shared.id], @conversation.reload.resolved_skills.pluck(:id)
+    @conversation.update!(skill_ids: [personal.id], use_skills: false)
+    assert_empty @conversation.resolved_skills
+    @conversation.update!(use_skills: true, project: nil)
+    assert_equal [personal.id], @conversation.resolved_skills.pluck(:id)
+  end
+
   # fork_at
   test "fork_at copies messages up to and including the given one" do
     @conversation.save!
