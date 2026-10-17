@@ -42,7 +42,7 @@ class ChatServiceTest < ActiveSupport::TestCase
   test "project description joins persona and skills in one system message for local answers" do
     service = ChatService.new(messages: MESSAGES, model: "local-llama", use_persona: true,
       use_scaffolding: false, stream: false, max_tokens: nil, project_description: "Build a local chat app",
-      skills: [{ id: 1, name: "Coding", content: "Use Ruby", version: "v1" }])
+      skills: [ { id: 1, name: "Coding", content: "Use Ruby", version: "v1" } ])
     captured = nil
     service.stub(:load_persona, { content: "Be concise" }) do
       service.instance_variable_get(:@adapter).stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) do

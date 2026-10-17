@@ -80,7 +80,7 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
       @conversation.update!(project: nil)
       build_controller(@conversation).create_streaming
     end
-    assert_equal ["Original context", "Updated context", nil], descriptions
+    assert_equal [ "Original context", "Updated context", nil ], descriptions
   end
 
   test "create_streaming saves partial content when client disconnects" do

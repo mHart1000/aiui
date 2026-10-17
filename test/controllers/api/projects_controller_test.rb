@@ -9,11 +9,11 @@ class Api::ProjectsControllerTest < ActionDispatch::IntegrationTest
 
   test "create edit and list projects with description limits" do
     skill = @user.skills.create!(name: "Project skill", body: "Shared instructions")
-    post "/api/projects", params: { project: { name: " New project ", description: "Shared context", skill_ids: [skill.id] } }, headers: @headers, as: :json
+    post "/api/projects", params: { project: { name: " New project ", description: "Shared context", skill_ids: [ skill.id ] } }, headers: @headers, as: :json
     assert_response :created
     created = response.parsed_body
     assert_equal "New project", created["name"]
-    assert_equal [skill.id], created["skill_ids"]
+    assert_equal [ skill.id ], created["skill_ids"]
     assert_equal @user.id, Project.find(created["id"]).user_id
 
     patch "/api/projects/#{created['id']}", params: { project: { description: "Updated context", skill_ids: [] } }, headers: @headers, as: :json
@@ -52,5 +52,4 @@ class Api::ProjectsControllerTest < ActionDispatch::IntegrationTest
     assert_nil conversation.reload.project_id
     assert_equal "Keep me", message.reload.content
   end
-
 end
