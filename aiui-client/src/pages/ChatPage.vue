@@ -216,7 +216,7 @@
         @loadedmetadata="$event.target.playbackRate = 3"
       />
       <p class="text-subtitle1 text-grey-7 text-center" style="max-width: 500px">
-        Ask me anything. I'm here to help.
+        {{ newChatProjectName ? `Let's talk about ${newChatProjectName}` : "Ask me anything. I'm here to help." }}
       </p>
     </div>
 
@@ -487,6 +487,7 @@
     <SkillsDialog
       v-model="skillsOpen"
       :active-ids="activeSkillIds"
+      :inherited-ids="projectSkillIds"
       :enabled="skillsEnabled"
       @update:active-ids="updateActiveSkills"
       @update:enabled="updateSkillsEnabled"
@@ -549,6 +550,8 @@ export default {
     SkillsDialog
   },
   inject: {
+    getProjectName: { default: () => () => '' },
+    getProjectSkillIds: { default: () => () => [] },
     refreshConversations: { default: () => () => {} }
   },
   setup() {
@@ -693,6 +696,12 @@ export default {
         }
       }
     },
+    '$route.query.project'() {
+      if (!this.$route.params.id) {
+        this.input = ''
+        this.clearAttachments()
+      }
+    },
     // Auto-scroll when messages change
     messages: {
       handler() {
@@ -814,8 +823,14 @@ export default {
         if (level && level !== this.webSearchLevel) this.updateWebSearchLevel(level)
       }
     },
+    newChatProjectName() {
+      return this.$route.params.id ? '' : this.getProjectName(Number(this.$route.query.project))
+    },
+    projectSkillIds() {
+      return this.getProjectSkillIds(this.conversationId)
+    },
     skillsLabel() {
-      const count = this.activeSkillIds.length
+      const count = new Set([...this.activeSkillIds, ...this.projectSkillIds]).size
       return this.skillsEnabled && count ? `Skills (${count})` : 'Skills'
     },
     personaSelection: {
@@ -1211,7 +1226,9 @@ export default {
       const isNew = !this.conversationId
 
       if (isNew) {
-        const convRes = await api.post('/api/conversations')
+        const convRes = await api.post('/api/conversations', {
+          conversation: { project_id: this.$route.query.project || null }
+        })
         this.conversationId = convRes.data.id
 
         // Toolbar settings chosen before the first send are applied here.

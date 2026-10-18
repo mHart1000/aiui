@@ -8,6 +8,7 @@ module Api
       render json: conversations.map { |c|
         {
           id: c.id,
+          project_id: c.project_id,
           title: c.title,
           model_code: c.model_code,
           rag_enabled: c.rag_enabled,
@@ -39,6 +40,7 @@ module Api
       render json: conversations.map { |c|
         {
           id: c.id,
+          project_id: c.project_id,
           title: c.title,
           model_code: c.model_code,
           rag_enabled: c.rag_enabled,
@@ -56,6 +58,7 @@ module Api
 
       render json: {
         id: conversation.id,
+        project_id: conversation.project_id,
         title: conversation.title,
         model_code: conversation.model_code,
         rag_enabled: conversation.rag_enabled,
@@ -63,7 +66,8 @@ module Api
         web_search_level: conversation.resolved_web_search_level,
         web_search_query_count: conversation.resolved_web_search_query_count,
         use_skills: conversation.resolved_use_skills,
-        skill_ids: conversation.resolved_skills.map(&:id),
+        skill_ids: conversation.selected_skills.order(:id).pluck(:id),
+        project_skill_ids: conversation.project_skills.order(:id).pluck(:id),
         messages: conversation.messages.order(:created_at).includes(images_attachments: :blob).map { |m|
           {
             id: m.id,
@@ -91,8 +95,12 @@ module Api
     end
 
     def create
-      conversation = current_api_user.conversations.create!(title: "New Chat")
-      render json: { id: conversation.id }
+      conversation = current_api_user.conversations.new(title: "New Chat", project_id: params.dig(:conversation, :project_id))
+      if conversation.save
+        render json: { id: conversation.id, project_id: conversation.project_id }
+      else
+        render json: { errors: conversation.errors.full_messages }, status: :unprocessable_entity
+      end
     end
 
     def create_fork
@@ -115,6 +123,8 @@ module Api
       conversation = current_api_user.conversations.find(params[:id])
       conversation.update!(conversation_params)
       render_conversation_settings(conversation)
+    rescue ActiveRecord::RecordInvalid => e
+      render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
     end
 
     def web_search_settings
@@ -141,6 +151,7 @@ module Api
     def render_conversation_settings(conversation)
       render json: {
         id: conversation.id,
+        project_id: conversation.project_id,
         title: conversation.title,
         model_code: conversation.model_code,
         rag_enabled: conversation.rag_enabled,
@@ -148,7 +159,8 @@ module Api
         web_search_level: conversation.resolved_web_search_level,
         web_search_query_count: conversation.resolved_web_search_query_count,
         use_skills: conversation.resolved_use_skills,
-        skill_ids: conversation.resolved_skills.map(&:id)
+        skill_ids: conversation.selected_skills.order(:id).pluck(:id),
+        project_skill_ids: conversation.project_skills.order(:id).pluck(:id)
       }
     end
 
@@ -170,7 +182,7 @@ module Api
     end
 
     def conversation_params
-      params.require(:conversation).permit(:title, :rag_enabled, :web_search_mode, :web_search_level, :web_search_query_count, :use_skills, skill_ids: [])
+      params.require(:conversation).permit(:project_id, :title, :rag_enabled, :web_search_mode, :web_search_level, :web_search_query_count, :use_skills, skill_ids: [])
     end
 
     def web_search_settings_params

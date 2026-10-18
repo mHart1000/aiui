@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_14_000000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_16_000000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "vector"
@@ -46,6 +46,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_14_000000) do
   create_table "conversations", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.string "model_code"
+    t.bigint "project_id"
     t.boolean "rag_enabled", default: false, null: false
     t.jsonb "skill_ids"
     t.string "title"
@@ -55,6 +56,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_14_000000) do
     t.string "web_search_level"
     t.string "web_search_mode"
     t.integer "web_search_query_count"
+    t.index ["project_id"], name: "index_conversations_on_project_id"
     t.index ["user_id"], name: "index_conversations_on_user_id"
   end
 
@@ -77,6 +79,16 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_14_000000) do
     t.datetime "updated_at", null: false
     t.jsonb "web_search_data", default: {}, null: false
     t.index ["conversation_id"], name: "index_messages_on_conversation_id"
+  end
+
+  create_table "projects", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.text "description", default: "", null: false
+    t.string "name", null: false
+    t.jsonb "skill_ids", default: [], null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["user_id"], name: "index_projects_on_user_id"
   end
 
   create_table "rag_chunks", force: :cascade do |t|
@@ -153,8 +165,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_14_000000) do
 
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
+  add_foreign_key "conversations", "projects", on_delete: :nullify
   add_foreign_key "conversations", "users"
   add_foreign_key "messages", "conversations"
+  add_foreign_key "projects", "users"
   add_foreign_key "rag_chunks", "rag_documents"
   add_foreign_key "rag_chunks", "users"
   add_foreign_key "rag_documents", "users"

@@ -2,7 +2,7 @@
   <q-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)">
     <q-card style="min-width: 560px; max-width: 760px">
       <q-card-section class="row items-center q-pb-none">
-        <div class="text-h6">{{ editing ? editorTitle : 'Skills' }}</div>
+        <div class="text-h6">{{ editing ? editorTitle : (projectMode ? 'Project skills' : 'Skills') }}</div>
         <q-space />
         <q-btn icon="close" flat round dense v-close-popup />
       </q-card-section>
@@ -31,10 +31,11 @@
 
         <template v-else>
           <p class="text-caption text-grey-7 q-mb-sm">
-            Instruction modules that layer on top of your persona. Checked skills apply to this chat.
+            {{ projectMode ? 'Checked skills apply to every conversation in this project, alongside personal skills.' : 'Instruction modules that layer on top of your persona. Checked skills apply to this chat.' }}
           </p>
 
           <q-toggle
+            v-if="!projectMode"
             :model-value="enabled"
             label="Use skills in this chat"
             color="primary"
@@ -42,17 +43,19 @@
             @update:model-value="$emit('update:enabled', $event)"
           />
 
-          <q-list bordered separator v-if="skills.length" :class="{ 'skills-off': !enabled }">
+          <q-list bordered separator v-if="skills.length" :class="{ 'skills-off': !projectMode && !enabled }">
             <q-item v-for="skill in skills" :key="skill.id">
               <q-item-section side top>
                 <q-checkbox
-                  :model-value="activeIds.includes(skill.id)"
+                  :model-value="activeIds.includes(skill.id) || inheritedIds.includes(skill.id)"
+                  :disable="inheritedIds.includes(skill.id)"
                   @update:model-value="toggle(skill.id, $event)"
                 />
               </q-item-section>
               <q-item-section>
                 <q-item-label>{{ skill.name }}</q-item-label>
                 <q-item-label caption>{{ skill.description }}</q-item-label>
+                <q-item-label v-if="inheritedIds.includes(skill.id)" caption>From project</q-item-label>
               </q-item-section>
               <q-item-section side>
                 <div class="row no-wrap">
@@ -71,6 +74,7 @@
             <q-space />
             <q-btn
               flat
+              v-if="!projectMode"
               label="Save as my defaults"
               :loading="savingDefaults"
               @click="saveDefaults"
@@ -90,7 +94,9 @@ export default {
   props: {
     modelValue: { type: Boolean, default: false },
     activeIds: { type: Array, default: () => [] },
-    enabled: { type: Boolean, default: false }
+    enabled: { type: Boolean, default: false },
+    projectMode: { type: Boolean, default: false },
+    inheritedIds: { type: Array, default: () => [] }
   },
   emits: ['update:modelValue', 'update:activeIds', 'update:enabled'],
   data: () => ({
