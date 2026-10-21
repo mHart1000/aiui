@@ -1505,6 +1505,10 @@ export default {
     toggleVoiceMode() {
       const next = !this.voiceChatMode
       this.voiceChatMode = next
+      if (next && this.webSearchMode !== 'off') {
+        this.webSearchMode = 'off'
+        this.updateWebSearchMode('off')
+      }
       this.handleVoiceModeChange(next)
     },
 
