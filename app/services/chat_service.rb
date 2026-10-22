@@ -305,10 +305,16 @@ class ChatService
 
   # Persona and skills share one system message; local models handle that better than several.
   def build_system_content(persona)
-    parts = [ persona&.dig(:content), (@project_description && "## Project context\n\n#{@project_description}"), format_skills, pdf_source_policy, web_evidence_policy ].compact
+    parts = [ current_datetime_prompt, persona&.dig(:content), (@project_description && "## Project context\n\n#{@project_description}"), format_skills, pdf_source_policy, web_evidence_policy ].compact
     return nil if parts.empty?
 
     parts.join("\n\n")
+  end
+
+  def current_datetime_prompt
+    return nil unless @adapter.is_a?(AiAdapters::LlamaAdapter)
+
+    "Current date and time: #{Time.current.iso8601}"
   end
 
   def format_skills

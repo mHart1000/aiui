@@ -61,7 +61,19 @@ class ChatServiceTest < ActiveSupport::TestCase
       use_scaffolding: false, stream: false, max_tokens: nil, project_description: "")
     captured = nil
     service.instance_variable_get(:@adapter).stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) { service.call }
-    assert_equal MESSAGES, captured
+    assert_match(/\ACurrent date and time: /, captured.first[:content])
+    assert_equal MESSAGES, captured.drop(1)
+  end
+
+  test "local answers receive the current date and time in the system message" do
+    travel_to Time.iso8601("2026-10-21T14:30:45-07:00") do
+      service = ChatService.new(messages: MESSAGES, model: "local-llama", use_persona: false,
+        use_scaffolding: false, stream: false, max_tokens: nil)
+      captured = nil
+      service.instance_variable_get(:@adapter).stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) { service.call }
+
+      assert_equal "Current date and time: #{Time.current.iso8601}", captured.first[:content]
+    end
   end
 
   # adapter routing
@@ -354,7 +366,8 @@ class ChatServiceTest < ActiveSupport::TestCase
       adapter.stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) do
         service.call
         system_msg = captured.find { |m| m[:role] == "system" }
-        assert_equal "CONDENSED VARIANT CONTENT", system_msg[:content]
+        assert_includes system_msg[:content], "Current date and time:"
+        assert_includes system_msg[:content], "CONDENSED VARIANT CONTENT"
       end
     end
   end
