@@ -65,14 +65,14 @@ class ChatServiceTest < ActiveSupport::TestCase
     assert_equal MESSAGES, captured.drop(1)
   end
 
-  test "local answers receive the current date and time in the system message" do
+  test "local answers receive the current date and time in the user's time zone" do
     travel_to Time.iso8601("2026-10-21T14:30:45-07:00") do
       service = ChatService.new(messages: MESSAGES, model: "local-llama", use_persona: false,
-        use_scaffolding: false, stream: false, max_tokens: nil)
+        use_scaffolding: false, stream: false, max_tokens: nil, time_zone: "America/New_York")
       captured = nil
       service.instance_variable_get(:@adapter).stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) { service.call }
 
-      assert_equal "Current date and time: #{Time.current.iso8601}", captured.first[:content]
+      assert_equal "Current date and time: 2026-10-21T17:30:45-04:00 (America/New_York)", captured.first[:content]
     end
   end
 

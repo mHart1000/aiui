@@ -63,6 +63,7 @@ module Api
           web_search_mode: conversation.resolved_web_search_mode,
           web_search_level: conversation.resolved_web_search_level,
           web_search_query_count: conversation.resolved_web_search_query_count,
+          time_zone: params[:time_zone],
           has_pdf_sources: conversation.messages.where("pdf_sources <> '[]'::jsonb").exists?
         ) do |chunk, phase|
           if phase == :thinking

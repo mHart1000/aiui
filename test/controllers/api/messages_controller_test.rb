@@ -83,6 +83,21 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
     assert_equal [ "Original context", "Updated context", nil ], descriptions
   end
 
+  test "forwards the browser time zone to the chat service" do
+    captured_time_zone = nil
+    service = lambda do |**kwargs, &block|
+      captured_time_zone = kwargs[:time_zone]
+      block.call("Answer", :response)
+      {}
+    end
+
+    ChatService.stub(:call, service) do
+      build_controller(@conversation, time_zone: "America/Los_Angeles").create_streaming
+    end
+
+    assert_equal "America/Los_Angeles", captured_time_zone
+  end
+
   test "create_streaming saves partial content when client disconnects" do
     controller = build_controller(@conversation)
 

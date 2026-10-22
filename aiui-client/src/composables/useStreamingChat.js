@@ -56,6 +56,8 @@ export function useStreamingChat() {
     try {
       const requestBody = new FormData()
       requestBody.append('content', content)
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+      if (timeZone) requestBody.append('time_zone', timeZone)
       if (modelCode) requestBody.append('model_code', modelCode)
       if (options.regenerating) {
         requestBody.append('regenerating', 'true')

@@ -27,12 +27,12 @@ class ChatService
     6. Response Strategy: If answerable, how should the response be structured?
   PROMPT
 
-  def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil, rag_context: nil, project_description: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, has_pdf_sources: false, reasoning_effort: nil, log_stats: true, &block)
-    new(messages: messages, model: model, use_persona: use_persona, use_scaffolding: use_scaffolding, stream: stream, max_tokens: max_tokens, rag_context: rag_context, project_description: project_description, persona_id: persona_id, skills: skills, web_search_mode: web_search_mode, web_search_level: web_search_level, web_search_query_count: web_search_query_count, has_pdf_sources: has_pdf_sources, reasoning_effort: reasoning_effort, log_stats: log_stats).call(&block)
+  def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil, rag_context: nil, project_description: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, has_pdf_sources: false, reasoning_effort: nil, time_zone: nil, log_stats: true, &block)
+    new(messages: messages, model: model, use_persona: use_persona, use_scaffolding: use_scaffolding, stream: stream, max_tokens: max_tokens, rag_context: rag_context, project_description: project_description, persona_id: persona_id, skills: skills, web_search_mode: web_search_mode, web_search_level: web_search_level, web_search_query_count: web_search_query_count, has_pdf_sources: has_pdf_sources, reasoning_effort: reasoning_effort, time_zone: time_zone, log_stats: log_stats).call(&block)
   end
 
   # skills is an array of { id:, name:, content:, version: } hashes resolved by the caller.
-  def initialize(messages:, model:, use_persona:, use_scaffolding:, stream:, max_tokens:, rag_context: nil, project_description: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, has_pdf_sources: false, reasoning_effort: nil, log_stats: true)
+  def initialize(messages:, model:, use_persona:, use_scaffolding:, stream:, max_tokens:, rag_context: nil, project_description: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, has_pdf_sources: false, reasoning_effort: nil, time_zone: nil, log_stats: true)
     @messages = messages
     @model_id = model.presence || FALLBACK_MODEL
     @use_persona = use_persona
@@ -51,6 +51,7 @@ class ChatService
     @log_stats = log_stats
     @adapter = select_adapter(@model_id)
     @reasoning_options = @model_id == "custom-llama" && reasoning_effort.present? ? { reasoning_effort: reasoning_effort } : {}
+    @time_zone = Time.find_zone(time_zone) || Time.zone
     @web_latency = {}
   end
 
@@ -314,7 +315,8 @@ class ChatService
   def current_datetime_prompt
     return nil unless @adapter.is_a?(AiAdapters::LlamaAdapter)
 
-    "Current date and time: #{Time.current.iso8601}"
+    current_time = Time.current.in_time_zone(@time_zone)
+    "Current date and time: #{current_time.iso8601} (#{@time_zone.tzinfo.name})"
   end
 
   def format_skills
