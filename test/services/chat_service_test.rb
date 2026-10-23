@@ -65,7 +65,7 @@ class ChatServiceTest < ActiveSupport::TestCase
     assert_equal MESSAGES, captured.drop(1)
   end
 
-  test "local answers receive the current date and time in the user's time zone" do
+  test "local prompts receive the current date and time in the user's time zone" do
     travel_to Time.iso8601("2026-10-21T14:30:45-07:00") do
       service = ChatService.new(messages: MESSAGES, model: "local-llama", use_persona: false,
         use_scaffolding: false, stream: false, max_tokens: nil, time_zone: "America/New_York")
@@ -73,6 +73,7 @@ class ChatServiceTest < ActiveSupport::TestCase
       service.instance_variable_get(:@adapter).stub(:chat, ->(**kwargs) { captured = kwargs[:messages]; FAKE_RESPONSE }) { service.call }
 
       assert_equal "Current date and time: 2026-10-21T17:30:45-04:00 (America/New_York)", captured.first[:content]
+      assert_includes service.send(:tool_selection_messages).first[:content], "Current date and time: 2026-10-21T17:30:45-04:00 (America/New_York)"
     end
   end
 
@@ -575,25 +576,6 @@ class ChatServiceTest < ActiveSupport::TestCase
     refute final_request.key?(:thinking_budget_tokens)
     assert_equal %w[system user], selection_request[:messages].pluck(:role)
     assert_includes selection_request[:messages].last[:content], "USER:\nWhat changed today?"
-  end
-
-  test "web selector receives the current date and time in the user's time zone" do
-    travel_to Time.iso8601("2026-10-21T14:30:45-07:00") do
-      service = ChatService.new(
-        messages: [ { role: "user", content: "What happened today?" } ],
-        model: "local-llama",
-        use_persona: false,
-        use_scaffolding: false,
-        stream: false,
-        max_tokens: nil,
-        web_search_mode: "always",
-        time_zone: "America/New_York"
-      )
-
-      system_content = service.send(:tool_selection_messages).first[:content]
-
-      assert_includes system_content, "Current date and time: 2026-10-21T17:30:45-04:00 (America/New_York)"
-    end
   end
 
   test "web selector keeps the newest messages within its character budget" do
