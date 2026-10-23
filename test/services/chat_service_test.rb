@@ -577,6 +577,25 @@ class ChatServiceTest < ActiveSupport::TestCase
     assert_includes selection_request[:messages].last[:content], "USER:\nWhat changed today?"
   end
 
+  test "web selector receives the current date and time in the user's time zone" do
+    travel_to Time.iso8601("2026-10-21T14:30:45-07:00") do
+      service = ChatService.new(
+        messages: [ { role: "user", content: "What happened today?" } ],
+        model: "local-llama",
+        use_persona: false,
+        use_scaffolding: false,
+        stream: false,
+        max_tokens: nil,
+        web_search_mode: "always",
+        time_zone: "America/New_York"
+      )
+
+      system_content = service.send(:tool_selection_messages).first[:content]
+
+      assert_includes system_content, "Current date and time: 2026-10-21T17:30:45-04:00 (America/New_York)"
+    end
+  end
+
   test "web selector keeps the newest messages within its character budget" do
     messages = 6.times.map do |index|
       { role: index.even? ? "user" : "assistant", content: "marker-#{index} #{"x" * 3_000}" }
