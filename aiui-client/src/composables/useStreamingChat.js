@@ -127,6 +127,11 @@ export function useStreamingChat() {
                 persona_label: data.persona_label
               }
               break
+            case 'error': {
+              const streamError = requestError(data, 'The response could not be generated. Please retry.')
+              streamError.streamStarted = true
+              throw streamError
+            }
             case 'done':
               receivedDone = true
               isStreaming.value = false
