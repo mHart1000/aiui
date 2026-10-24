@@ -155,6 +155,22 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
     assert_equal research, @conversation.messages.where(role: "assistant").last.web_search_data.symbolize_keys
   end
 
+  test "create_streaming sends an error event and re-raises an unexpected streaming failure" do
+    controller = build_controller(@conversation)
+    failing_service = lambda do |**_kwargs, &block|
+      block.call({ stage: :complete, status: "complete", queries: [ "latest news" ] }, :web_search)
+      raise AiAdapters::LlamaAdapter::Error, "local model stopped unexpectedly"
+    end
+
+    ChatService.stub(:call, failing_service) do
+      error = assert_raises(AiAdapters::LlamaAdapter::Error) { controller.create_streaming }
+      assert_equal "local model stopped unexpectedly", error.message
+    end
+
+    event = controller.stream_writes.map { |write| JSON.parse(write.delete_prefix("data: ")) }.find { |data| data["type"] == "error" }
+    assert_equal "The response could not be generated. Please retry.", event["error"]
+  end
+
   test "persists the assistant before emitting done" do
     persisted_before_done = false
     controller = build_controller(@conversation) do |event|

@@ -45,10 +45,9 @@ module Api
       research_metadata = nil
       response_persisted = false
 
-      current_api_user.reload
-      rag_context = fetch_rag_context(conversation, answering_message.content)
-
       begin
+        current_api_user.reload
+        rag_context = fetch_rag_context(conversation, answering_message.content)
         result = ChatService.call(
           messages: conversation.messages_for_ai(multimodal: images_allowed),
           model: safe_model_code,
@@ -63,6 +62,7 @@ module Api
           web_search_mode: conversation.resolved_web_search_mode,
           web_search_level: conversation.resolved_web_search_level,
           web_search_query_count: conversation.resolved_web_search_query_count,
+          time_zone: params[:time_zone],
           has_pdf_sources: conversation.messages.where("pdf_sources <> '[]'::jsonb").exists?
         ) do |chunk, phase|
           if phase == :thinking
@@ -129,6 +129,10 @@ module Api
           entitle: false,
           web_search_data: research_metadata || {}
         ) unless response_persisted
+      rescue StandardError => e
+        Rails.logger.error("Streaming chat failed for conversation #{conversation.id}: #{e.full_message}")
+        response.stream.write("data: #{ { type: 'error', error: 'The response could not be generated. Please retry.' }.to_json }\n\n")
+        raise
       ensure
         response.stream.close
       end
@@ -239,9 +243,6 @@ module Api
       context = Rag::ContextFormatter.format(chunks, budgets: WebResearch::Profile.for_level(conversation.resolved_web_search_level))
       Rails.logger.info("[RAG] injected context: #{context.to_s.length} chars")
       context
-    rescue => e
-      Rails.logger.warn("RAG retrieval failed: #{e.class}: #{e.message}")
-      nil
     end
   end
 end
