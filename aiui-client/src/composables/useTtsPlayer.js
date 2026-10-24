@@ -737,6 +737,7 @@ export function useTtsPlayer() {
     queueLength.value = 0
     isProcessing = false
     firstStreamBatchStarted = false
+    streamNextStartTime = 0
   }
 
   /**

@@ -1,10 +1,10 @@
 require "test_helper"
 
 class AiAdapters::LlamaAdapterTest < ActiveSupport::TestCase
-  test "local llama omits reasoning effort even when supplied" do
+  test "local llama passes through reasoning effort when supplied" do
     adapter = AiAdapters::LlamaAdapter.new(model: "local-llama", log_stats: false)
     adapter.stub(:perform_blocking_request, ->(_uri, payload, **_options) {
-      refute payload.key?(:reasoning_effort)
+      assert_equal "high", payload[:reasoning_effort]
       {}
     }) do
       adapter.chat(messages: [], reasoning_effort: "high")
