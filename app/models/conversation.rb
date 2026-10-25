@@ -23,9 +23,11 @@ class Conversation < ApplicationRecord
   validates :web_search_level, inclusion: { in: WebResearch::Profile::LEVELS, allow_nil: true }
   validates :web_search_query_count, numericality: { only_integer: true, in: WebResearch::ToolRequest::QUERY_COUNT_RANGE, allow_nil: true }
 
+  ENTITLE_DELAY = 30.seconds
+
   def entitle_async(content)
     return if title.present? && !placeholder_title?
-    ConversationEntitleJob.perform_later(id, content)
+    ConversationEntitleJob.set(wait: ENTITLE_DELAY).perform_later(id, content)
   end
 
   def messages_for_ai(multimodal: false)
