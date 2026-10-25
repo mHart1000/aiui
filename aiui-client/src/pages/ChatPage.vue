@@ -762,12 +762,16 @@ export default {
     },
     'streamingChat.isStreaming.value'(isStreaming) {
       if (isStreaming) {
-        // New response: re-arm the wait-for-sentences hold.
-        this.ttsPlayer.resetFirstBatchGate()
+        // New response: retry streaming and reset playback state.
+        this.ttsPlayer.startResponse()
       } else if (this.ttsPlayer.isEnabled.value) {
         // Streaming ended: flush any remaining buffered text.
         this.ttsPlayer.flushBuffer()
       }
+    },
+
+    'ttsPlayer.playbackWarning.value'(message) {
+      if (message) this.$q.notify({ type: 'warning', message, timeout: 5000 })
     },
 
     'ttsPlayer.isPlaying.value'(playing) {

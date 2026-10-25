@@ -20,6 +20,7 @@ export function useTtsPlayer() {
   const speed = ref(1.0)
   const availableVoices = ref([])
   const queueLength = ref(0)
+  const playbackWarning = ref(null)
 
   // Web Audio API context
   let audioContext = null
@@ -31,6 +32,8 @@ export function useTtsPlayer() {
   let currentPlaybackChain = null
   // Streaming engines: rolling batches, one stream in flight
   let serverStreaming = false
+  let responseFallback = false
+  let playbackSession = 0
   let streamWorkerActive = false
   let firstStreamBatchStarted = false // First live-stream batch dispatched this response?
   let streamNextStartTime = 0 // Rolling schedule clock across batches
@@ -251,14 +254,14 @@ export function useTtsPlayer() {
     queueLength.value = sentenceQueue.length
 
     // Start processing if not already
-    if (serverStreaming) {
+    if (useStreaming()) {
       // Wait for a few sentences before starting, so the LLM and voice model don't overlap on the GPU.
       const pending = sentenceQueue.filter(item => item.status === 'pending').length
       if (firstStreamBatchStarted || pending >= firstBatchMinSentences) {
         firstStreamBatchStarted = true
-        setTimeout(runStreamWorker, 0)
+        scheduleStreamWorker()
       }
-    } else if (!isProcessing) {
+    } else if (!isProcessing && !streamWorkerActive) {
       processQueue()
     }
   }
@@ -267,42 +270,45 @@ export function useTtsPlayer() {
    * Process the sentence queue
    * Maintains prefetch pipeline and starts playback
    */
-  async function processQueue() {
-    if (isProcessing) return
+  async function processQueue(session = playbackSession) {
+    if (session !== playbackSession || isProcessing) return
     isProcessing = true
+    isPlaying.value = true
 
     try {
       // Start prefetching and playback concurrently
       const prefetchLoop = async () => {
-        while (sentenceQueue.length > 0 || isPlaying.value) {
-          await prefetchSentences()
+        while (session === playbackSession && isPlaying.value) {
+          await prefetchSentences(session)
           await new Promise(resolve => setTimeout(resolve, 100))
         }
       }
 
       const playbackLoop = async () => {
         // Wait for first sentence to be ready
-        while (sentenceQueue.length > 0 && sentenceQueue[0].status !== 'ready') {
+        while (session === playbackSession && sentenceQueue.length > 0 &&
+          !['ready', 'done'].includes(sentenceQueue[0].status)) {
           await new Promise(resolve => setTimeout(resolve, 50))
         }
         
-        if (sentenceQueue.length > 0) {
-          await playQueuedSentences()
-        }
+        if (session === playbackSession) await playQueuedSentences(session)
       }
 
       // Run both loops concurrently
       await Promise.all([prefetchLoop(), playbackLoop()])
     } finally {
-      isProcessing = false
-      queueLength.value = 0
+      if (session === playbackSession) {
+        isProcessing = false
+        queueLength.value = sentenceQueue.length
+        if (sentenceQueue.length > 0) processQueue(session)
+      }
     }
   }
 
   /**
    * Prefetch audio for upcoming sentences
    */
-  async function prefetchSentences() {
+  async function prefetchSentences(session) {
     const synthesizingCount = sentenceQueue.filter(item => item.status === 'synthesizing').length
     const pendingItems = sentenceQueue.filter(item => item.status === 'pending')
 
@@ -310,21 +316,25 @@ export function useTtsPlayer() {
 
     // Fire without awaiting: awaiting here serializes the pipeline
     for (let i = 0; i < toSynthesize; i++) {
-      synthesizeSentence(pendingItems[i])
+      synthesizeSentence(pendingItems[i], session)
     }
   }
 
   /**
    * Synthesize a single sentence
    */
-  async function synthesizeSentence(queueItem) {
+  async function synthesizeSentence(queueItem, session) {
     queueItem.status = 'synthesizing'
 
     try {
-      queueItem.audioBuffer = await synthesize(queueItem.text)
+      const audioBuffer = await synthesize(queueItem.text)
+      if (session !== playbackSession) return
+      queueItem.audioBuffer = audioBuffer
       queueItem.status = 'ready'
     } catch (error) {
       console.error('Failed to synthesize sentence:', error)
+      if (session !== playbackSession) return
+      playbackWarning.value = 'Some speech could not be played.'
       queueItem.error = error
       queueItem.status = 'done' // Skip this sentence
     }
@@ -333,22 +343,23 @@ export function useTtsPlayer() {
   /**
    * Play queued sentences in sequence (gapless)
    */
-  async function playQueuedSentences() {
-    if (isPlaying.value || sentenceQueue.length === 0) return
+  async function playQueuedSentences(session) {
+    if (session !== playbackSession) return
 
     isPlaying.value = true
     const ctx = initAudioContext()
 
-    let nextStartTime = ctx.currentTime
+    let nextStartTime = Math.max(ctx.currentTime, streamNextStartTime)
 
-    while (sentenceQueue.length > 0 && isPlaying.value) {
+    while (session === playbackSession && sentenceQueue.length > 0 && isPlaying.value) {
       const item = sentenceQueue[0]
 
       // Wait for the sentence to be ready
-      while (item.status !== 'ready' && item.status !== 'done' && isPlaying.value) {
+      while (session === playbackSession && item.status !== 'ready' && item.status !== 'done' && isPlaying.value) {
         await new Promise(resolve => setTimeout(resolve, 50))
       }
 
+      if (session !== playbackSession) return
       if (!isPlaying.value) break
       if (item.status === 'done') {
         // Skip failed sentences
@@ -373,14 +384,17 @@ export function useTtsPlayer() {
       // Wait for this sentence to finish
       await new Promise(resolve => {
         source.onended = () => {
-          item.status = 'done'
-          sentenceQueue.shift()
-          queueLength.value = sentenceQueue.length
+          if (session === playbackSession) {
+            item.status = 'done'
+            sentenceQueue.shift()
+            queueLength.value = sentenceQueue.length
+          }
           resolve()
         }
       })
     }
 
+    if (session !== playbackSession) return
     isPlaying.value = false
     currentPlaybackChain = null
   }
@@ -446,19 +460,29 @@ export function useTtsPlayer() {
     }
   }
 
+  function useStreaming() {
+    return serverStreaming && !responseFallback
+  }
+
+  function scheduleStreamWorker() {
+    const session = playbackSession
+    setTimeout(() => runStreamWorker(session), 0)
+  }
+
   /**
    * Stream worker: batches pending sentences into one /api/tts/stream request
    * and schedules arriving audio. See docs/tts-streaming-spec.md.
    */
-  async function runStreamWorker() {
-    if (streamWorkerActive) return
+  async function runStreamWorker(session) {
+    if (session !== playbackSession || streamWorkerActive || !useStreaming() ||
+      !sentenceQueue.some(item => item.status === 'pending')) return
     streamWorkerActive = true
     isPlaying.value = true
     const ctx = initAudioContext()
     streamNextStartTime = Math.max(streamNextStartTime, ctx.currentTime)
 
     try {
-      while (isPlaying.value) {
+      while (session === playbackSession && isPlaying.value) {
         const batch = sentenceQueue.filter(item => item.status === 'pending')
 
         if (batch.length > 0) {
@@ -467,39 +491,46 @@ export function useTtsPlayer() {
           try {
             await streamBatch(batch.map(item => item.text).join('\n'), ctx)
           } catch (error) {
-            if (error.name === 'AbortError') {
-              // stop() aborted us; the loop exits via isPlaying
-            } else if (streamNextStartTime > clockBefore) {
-              // Partial audio arrived and was scheduled; drop the batch
+            if (session !== playbackSession) return
+            responseFallback = true
+            if (streamNextStartTime > clockBefore) {
+              // Some of this batch may have been heard; never replay it automatically.
               console.error('TTS batch stream interrupted:', error)
+              playbackWarning.value = 'Speech was interrupted. Part of this response could not be played.'
+              for (const item of batch) item.status = 'done'
+              sentenceQueue = sentenceQueue.filter(item => item.status !== 'done')
             } else {
-              // Nothing arrived: fall back to per-sentence synthesis
               console.warn('TTS stream failed, falling back to per-sentence synthesis:', error)
-              serverStreaming = false
+              playbackWarning.value = 'Streaming audio failed. Continuing with buffered speech for this response.'
               for (const item of batch) item.status = 'pending'
-              isPlaying.value = false
-              if (!isProcessing) processQueue()
-              return
             }
+            queueLength.value = sentenceQueue.length
+            break
           }
+          if (session !== playbackSession) return
           for (const item of batch) item.status = 'done'
           sentenceQueue = sentenceQueue.filter(item => item.status !== 'done')
           queueLength.value = sentenceQueue.length
           continue
         }
 
-        // Nothing pending: exit once the scheduled audio has finished playing
         if (ctx.currentTime >= streamNextStartTime - 0.03) break
         await new Promise(resolve => setTimeout(resolve, 100))
       }
+
+      // Finish audio already scheduled before handing the remaining text to fallback.
+      while (session === playbackSession && ctx.currentTime < streamNextStartTime - 0.03) {
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
     } finally {
-      streamWorkerActive = false
+      if (session === playbackSession) streamWorkerActive = false
     }
 
+    if (session !== playbackSession) return
     isPlaying.value = false
-    // Catch sentences that arrived in the exit window
-    if (serverStreaming && sentenceQueue.some(item => item.status === 'pending')) {
-      runStreamWorker()
+    if (sentenceQueue.some(item => item.status === 'pending')) {
+      if (useStreaming()) runStreamWorker(session)
+      else processQueue(session)
     }
   }
 
@@ -531,6 +562,7 @@ export function useTtsPlayer() {
         signal: controller.signal
       })
 
+      controller.signal.throwIfAborted()
       if (!response.ok || !response.body) {
         throw new Error(`TTS stream failed: ${response.status}`)
       }
@@ -538,6 +570,7 @@ export function useTtsPlayer() {
       const reader = response.body.getReader()
       let wavFormat = null // { channels, sampleRate }
       let pending = new Uint8Array(0)
+      let scheduledAudio = false
 
       const scheduleSegment = (byteCount) => {
         const segBytes = pending.slice(0, byteCount)
@@ -559,12 +592,14 @@ export function useTtsPlayer() {
         const startTime = Math.max(streamNextStartTime, ctx.currentTime)
         source.start(startTime)
         streamNextStartTime = startTime + buffer.duration
+        scheduledAudio = true
         trackSource(source)
         currentPlaybackChain = source
       }
 
       while (true) {
         const { done, value } = await reader.read()
+        controller.signal.throwIfAborted()
         if (done) break
 
         const merged = new Uint8Array(pending.length + value.length)
@@ -596,6 +631,7 @@ export function useTtsPlayer() {
         const flushable = pending.length - (pending.length % frameBytes)
         if (flushable > 0) scheduleSegment(flushable)
       }
+      if (!scheduledAudio) throw new Error('TTS stream ended without audio')
     } finally {
       if (streamAbort === controller) streamAbort = null
     }
@@ -638,15 +674,17 @@ export function useTtsPlayer() {
       textBuffer = ''
     }
     // LLM finished: start now even if we never reached the sentence threshold (short reply).
-    if (serverStreaming && !streamWorkerActive && sentenceQueue.some(item => item.status === 'pending')) {
+    if (useStreaming() && !streamWorkerActive && sentenceQueue.some(item => item.status === 'pending')) {
       firstStreamBatchStarted = true
-      setTimeout(runStreamWorker, 0)
+      scheduleStreamWorker()
     }
   }
 
-  // Re-arm the wait-for-sentences hold at the start of a new response.
-  function resetFirstBatchGate() {
-    firstStreamBatchStarted = false
+  // Each new response gets a fresh streaming attempt.
+  function startResponse() {
+    stop()
+    responseFallback = false
+    playbackWarning.value = null
   }
 
   /**
@@ -660,8 +698,7 @@ export function useTtsPlayer() {
     if (!text || text.trim().length === 0) return
 
     try {
-      // Stop any current playback
-      stop()
+      startResponse()
 
       // Split into sentences and queue
       const sentences = splitIntoSentences(text)
@@ -671,9 +708,9 @@ export function useTtsPlayer() {
       }
 
       // Read-aloud has the whole text already, so there's no LLM to wait for — start now.
-      if (serverStreaming && !streamWorkerActive && sentenceQueue.some(item => item.status === 'pending')) {
+      if (useStreaming() && !streamWorkerActive && sentenceQueue.some(item => item.status === 'pending')) {
         firstStreamBatchStarted = true
-        setTimeout(runStreamWorker, 0)
+        scheduleStreamWorker()
       }
     } catch (error) {
       console.error('Failed to speak text:', error)
@@ -702,6 +739,8 @@ export function useTtsPlayer() {
    * Stop playback completely
    */
   function stop() {
+    playbackSession += 1
+    streamWorkerActive = false
     isPlaying.value = false
     isPaused.value = false
 
@@ -780,13 +819,14 @@ export function useTtsPlayer() {
     speed,
     availableVoices,
     queueLength,
+    playbackWarning,
 
     // Methods
     checkAvailability,
     speak,
     feedText,
     flushBuffer,
-    resetFirstBatchGate,
+    startResponse,
     pause,
     resume,
     stop,
