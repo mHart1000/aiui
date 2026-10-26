@@ -43,23 +43,30 @@ module Api
       render json: { voices: voice_list }
     rescue StandardError => e
       Rails.logger.error "Failed to fetch TTS voices: #{e.message}"
-      render json: { voices: [] }
+      Rails.logger.error e.backtrace.join("\n")
+      render json: { error: "Failed to fetch TTS voices" }, status: :internal_server_error
     end
 
     # GET /api/tts/status
     # Checks if TTS service is available and whether it streams
     #
-    # Returns: { available:, streaming:, first_batch_min_sentences: }
+    # Returns: { available:, streaming:, first_batch_min_sentences:, buffered_prefetch_ahead: }
     def status
       available = TextToSpeechService.available?
       render json: {
         available: available,
         streaming: TextToSpeechService.streaming?,
-        first_batch_min_sentences: TextToSpeechService.first_batch_min_sentences
+        first_batch_min_sentences: TextToSpeechService.first_batch_min_sentences,
+        buffered_prefetch_ahead: TextToSpeechService.buffered_prefetch_ahead
       }
     rescue StandardError => e
       Rails.logger.error "TTS status check failed: #{e.message}"
-      render json: { available: false, streaming: false, first_batch_min_sentences: 1 }
+      render json: {
+        available: false,
+        streaming: false,
+        first_batch_min_sentences: 1,
+        buffered_prefetch_ahead: TtsAdapters::BaseAdapter::DEFAULT_BUFFERED_PREFETCH_AHEAD
+      }
     end
 
     # POST /api/tts/warmup — throwaway synthesis to pay the engine's one-time cold start early.

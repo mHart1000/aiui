@@ -53,6 +53,14 @@ class TextToSpeechServiceTest < ActiveSupport::TestCase
     @mock_adapter.verify
   end
 
+  test "omnivoice adapter name resolves to OmnivoiceAdapter" do
+    @mock_adapter.expect(:available?, true)
+    TtsAdapters::OmnivoiceAdapter.stub(:new, @mock_adapter) do
+      assert TextToSpeechService.available?(adapter: "omnivoice")
+    end
+    @mock_adapter.verify
+  end
+
   test "TTS_ADAPTER env var selects the default adapter" do
     previous = ENV["TTS_ADAPTER"]
     ENV["TTS_ADAPTER"] = "qwen3"
@@ -82,18 +90,34 @@ class TextToSpeechServiceTest < ActiveSupport::TestCase
     assert TtsAdapters::ChatterboxAdapter.new.streaming?
     assert TtsAdapters::Qwen3Adapter.new.streaming?
     refute TtsAdapters::KokoroAdapter.new.streaming?
+    refute TtsAdapters::OmnivoiceAdapter.new.streaming?
   end
 
   test "first_batch_min_sentences is per engine" do
     assert_equal 5, TtsAdapters::Qwen3Adapter.new.first_batch_min_sentences
     assert_equal 1, TtsAdapters::ChatterboxAdapter.new.first_batch_min_sentences
     assert_equal 1, TtsAdapters::KokoroAdapter.new.first_batch_min_sentences
+    assert_equal 1, TtsAdapters::OmnivoiceAdapter.new.first_batch_min_sentences
   end
 
   test "first_batch_min_sentences delegates to adapter" do
     @mock_adapter.expect(:first_batch_min_sentences, 5)
     TtsAdapters::KokoroAdapter.stub(:new, @mock_adapter) do
       assert_equal 5, TextToSpeechService.first_batch_min_sentences
+    end
+    @mock_adapter.verify
+  end
+
+  test "buffered prefetch is limited per engine" do
+    assert_equal 3, TtsAdapters::ChatterboxAdapter.new.buffered_prefetch_ahead
+    assert_equal 3, TtsAdapters::KokoroAdapter.new.buffered_prefetch_ahead
+    assert_equal 1, TtsAdapters::OmnivoiceAdapter.new.buffered_prefetch_ahead
+  end
+
+  test "buffered_prefetch_ahead delegates to adapter" do
+    @mock_adapter.expect(:buffered_prefetch_ahead, 1)
+    TtsAdapters::KokoroAdapter.stub(:new, @mock_adapter) do
+      assert_equal 1, TextToSpeechService.buffered_prefetch_ahead
     end
     @mock_adapter.verify
   end

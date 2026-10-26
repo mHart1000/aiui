@@ -40,7 +40,7 @@ export function useTtsPlayer() {
   let streamAbort = null
   let activeSources = [] // Scheduled-ahead sources, silenced by stop()
 
-  const PREFETCH_AHEAD = 3 // Non-streaming engines only
+  let bufferedPrefetchAhead = 3 // Per-engine, from /api/tts/status
   const STREAM_SEGMENT_SECONDS = 0.25 // Seconds of audio per scheduled segment
   let firstBatchMinSentences = 1 // Per-engine, from /api/tts/status
 
@@ -312,7 +312,7 @@ export function useTtsPlayer() {
     const synthesizingCount = sentenceQueue.filter(item => item.status === 'synthesizing').length
     const pendingItems = sentenceQueue.filter(item => item.status === 'pending')
 
-    const toSynthesize = Math.min(PREFETCH_AHEAD - synthesizingCount, pendingItems.length)
+    const toSynthesize = Math.min(bufferedPrefetchAhead - synthesizingCount, pendingItems.length)
 
     // Fire without awaiting: awaiting here serializes the pipeline
     for (let i = 0; i < toSynthesize; i++) {
@@ -408,6 +408,7 @@ export function useTtsPlayer() {
       isTtsAvailable.value = response.data.available
       serverStreaming = !!response.data.streaming
       firstBatchMinSentences = response.data.first_batch_min_sentences || 1
+      bufferedPrefetchAhead = response.data.buffered_prefetch_ahead || 3
 
       // Also fetch available voices if TTS is available
       if (isTtsAvailable.value) {
@@ -415,9 +416,7 @@ export function useTtsPlayer() {
         availableVoices.value = voicesResponse.data.voices || []
 
         // Persisted voice may belong to a different TTS engine
-        if (availableVoices.value.length > 0 && !availableVoices.value.includes(currentVoice.value)) {
-          currentVoice.value = availableVoices.value[0]
-        }
+        currentVoice.value = resolveVoice(currentVoice.value)
       }
 
       return isTtsAvailable.value
@@ -442,7 +441,7 @@ export function useTtsPlayer() {
     try {
       const response = await api.post('/api/tts/synthesize', {
         text: text.trim(),
-        voice: currentVoice.value,
+        voice: resolveVoice(currentVoice.value),
         speed: speed.value
       }, {
         responseType: 'arraybuffer'
@@ -556,7 +555,7 @@ export function useTtsPlayer() {
         headers,
         body: JSON.stringify({
           text,
-          voice: currentVoice.value,
+          voice: resolveVoice(currentVoice.value),
           speed: speed.value
         }),
         signal: controller.signal
@@ -779,13 +778,21 @@ export function useTtsPlayer() {
     streamNextStartTime = 0
   }
 
+  // A persisted voice may belong to a different engine; fall back to the active engine's first voice.
+  function resolveVoice(voiceId) {
+    if (availableVoices.value.length > 0 && !availableVoices.value.includes(voiceId)) {
+      return availableVoices.value[0]
+    }
+    return voiceId
+  }
+
   /**
    * Set the voice for synthesis
    *
    * @param {string} voiceId - Voice identifier
    */
   function setVoice(voiceId) {
-    currentVoice.value = voiceId
+    currentVoice.value = resolveVoice(voiceId)
   }
 
   /**

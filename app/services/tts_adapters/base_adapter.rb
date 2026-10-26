@@ -2,6 +2,8 @@
 
 module TtsAdapters
   class BaseAdapter
+    DEFAULT_BUFFERED_PREFETCH_AHEAD = 3
+
     # Synthesizes text to speech and returns raw audio bytes
     # @param text [String] The text to synthesize
     # @param voice [String, nil] The voice identifier to use
@@ -34,6 +36,12 @@ module TtsAdapters
     # @return [Integer]
     def first_batch_min_sentences
       1
+    end
+
+    # Maximum concurrent synthesis requests for buffered playback.
+    # @return [Integer]
+    def buffered_prefetch_ahead
+      DEFAULT_BUFFERED_PREFETCH_AHEAD
     end
 
     # Streams synthesized audio, yielding chunks as they arrive

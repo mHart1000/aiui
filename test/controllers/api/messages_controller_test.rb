@@ -171,6 +171,26 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
     assert_equal "The response could not be generated. Please retry.", event["error"]
   end
 
+  test "create_streaming reports a completed model stream with no content as a failure" do
+    controller = build_controller(@conversation)
+    empty_stream = lambda do |**_kwargs, &_block|
+      { finish_reason: "stop", tokens: { completion_tokens: 1 } }
+    end
+
+    ChatService.stub(:call, empty_stream) do
+      error = assert_raises(Api::MessagesController::EmptyStreamedResponseError) do
+        controller.create_streaming
+      end
+      assert_includes error.message, 'finish_reason="stop"'
+      assert_includes error.message, "completion_tokens=1"
+    end
+
+    event = controller.stream_writes.map { |write| JSON.parse(write.delete_prefix("data: ")) }.find { |data| data["type"] == "error" }
+    assert_equal "The model returned no response content. Please retry.", event["error"]
+    assert_not controller.stream_writes.any? { |event_data| event_data.include?('"type":"done"') }
+    assert_not @conversation.messages.where(role: "assistant").exists?
+  end
+
   test "persists the assistant before emitting done" do
     persisted_before_done = false
     controller = build_controller(@conversation) do |event|

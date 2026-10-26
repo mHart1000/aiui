@@ -154,7 +154,7 @@ The application reads the `multimodal` capability of the active model from the l
 
 ## TTS setup
 
-Select the TTS engine with `TTS_ADAPTER` in `.env`. The available values are `kokoro`, `qwen3`, and `chatterbox`. The default value is `kokoro`. Restart the backend after you change this value.
+Select the TTS engine with `TTS_ADAPTER` in `.env`. The available values are `kokoro`, `qwen3`, `chatterbox`, and `omnivoice`. The default value is `kokoro`. Restart the backend after you change this value.
 
 ### Kokoro (local CPU)
 
@@ -266,6 +266,17 @@ Then set these values in `.env`:
 ```bash
 TTS_ADAPTER=chatterbox
 CHATTERBOX_TTS_URL=http://localhost:8004
+```
+
+### OmniVoice
+
+Run [omnivoice-server](https://github.com/maemreyo/omnivoice-server) with MP3 support;
+the integration was developed against [PR #57](https://github.com/maemreyo/omnivoice-server/pull/57)
+at commit `c3bf8df9574f9e29050cfa8b6e75023dfd8e45dc`. Configure its URL in `.env`:
+
+```bash
+TTS_ADAPTER=omnivoice
+OMNIVOICE_TTS_URL=http://localhost:8882
 ```
 
 ## STT setup (Whisper)

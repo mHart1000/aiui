@@ -1,6 +1,7 @@
 module Api
   class MessagesController < ApplicationController
     MAX_ATTACHMENTS = 64
+    class EmptyStreamedResponseError < StandardError; end
 
     before_action :authenticate_api_user!
     include ActionController::Live
@@ -83,6 +84,12 @@ module Api
         end
 
         raise "Chat service failed: #{result[:error]}" if result&.dig(:error)
+        if reply_accumulator.blank? && thinking_accumulator.blank?
+          raise EmptyStreamedResponseError,
+            "Model stream completed without response content " \
+            "(finish_reason=#{result&.dig(:finish_reason).inspect}, " \
+            "completion_tokens=#{result&.dig(:tokens, :completion_tokens).inspect})"
+        end
 
         response_persisted = persist_streamed_response(
           conversation,
@@ -131,7 +138,12 @@ module Api
         ) unless response_persisted
       rescue StandardError => e
         Rails.logger.error("Streaming chat failed for conversation #{conversation.id}: #{e.full_message}")
-        response.stream.write("data: #{ { type: 'error', error: 'The response could not be generated. Please retry.' }.to_json }\n\n")
+        message = if e.is_a?(EmptyStreamedResponseError)
+          "The model returned no response content. Please retry."
+        else
+          "The response could not be generated. Please retry."
+        end
+        response.stream.write("data: #{ { type: 'error', error: message }.to_json }\n\n")
         raise
       ensure
         response.stream.close
