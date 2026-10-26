@@ -112,6 +112,8 @@ class TextToSpeechService
       TtsAdapters::ChatterboxAdapter.new
     when "omnivoice"
       TtsAdapters::OmnivoiceAdapter.new
+    when "breeze"
+      TtsAdapters::BreezeAdapter.new
     else
       Rails.logger.warn "Unknown TTS adapter #{name.inspect}, falling back to Kokoro"
       TtsAdapters::KokoroAdapter.new

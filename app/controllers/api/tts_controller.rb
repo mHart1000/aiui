@@ -25,7 +25,8 @@ module Api
         speed: params[:speed]&.to_f
       )
 
-      send_data audio, type: "audio/mpeg", disposition: "inline"
+      content_type = audio.start_with?("RIFF") ? "audio/wav" : "audio/mpeg"
+      send_data audio, type: content_type, disposition: "inline"
     rescue ActionController::ParameterMissing => e
       render json: { error: e.message }, status: :bad_request
     rescue StandardError => e
