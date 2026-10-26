@@ -291,6 +291,10 @@ BREEZE_TTS_VOICE=breeze_default
 BREEZE_TTS_INSTRUCTION=A warm, natural adult woman with clear conversational delivery.
 ```
 
+For stable identity across sentences, also set `BREEZE_TTS_REFERENCE_AUDIO` to a clean WAV
+and `BREEZE_TTS_REFERENCE_TEXT` to its exact complete transcript. Clone mode then replaces
+per-request voice design.
+
 See the [Breeze adapter specification](docs/breeze-tts-spec.md) for tuning, benchmark,
 license, and protocol details.
 

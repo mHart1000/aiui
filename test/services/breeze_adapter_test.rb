@@ -1,4 +1,5 @@
 require "test_helper"
+require "tempfile"
 
 class TtsAdapters::BreezeAdapterTest < ActiveSupport::TestCase
   class Response < Net::HTTPOK
@@ -36,13 +37,17 @@ class TtsAdapters::BreezeAdapterTest < ActiveSupport::TestCase
       "BREEZE_TTS_VOICE",
       "BREEZE_TTS_INSTRUCTION",
       "BREEZE_TTS_CFG_SCALE",
-      "BREEZE_TTS_SEED"
+      "BREEZE_TTS_SEED",
+      "BREEZE_TTS_REFERENCE_AUDIO",
+      "BREEZE_TTS_REFERENCE_TEXT"
     )
     ENV.delete("BREEZE_TTS_URL")
     ENV.delete("BREEZE_TTS_VOICE")
     ENV.delete("BREEZE_TTS_INSTRUCTION")
     ENV.delete("BREEZE_TTS_CFG_SCALE")
     ENV.delete("BREEZE_TTS_SEED")
+    ENV.delete("BREEZE_TTS_REFERENCE_AUDIO")
+    ENV.delete("BREEZE_TTS_REFERENCE_TEXT")
   end
 
   def teardown
@@ -52,6 +57,8 @@ class TtsAdapters::BreezeAdapterTest < ActiveSupport::TestCase
       BREEZE_TTS_INSTRUCTION
       BREEZE_TTS_CFG_SCALE
       BREEZE_TTS_SEED
+      BREEZE_TTS_REFERENCE_AUDIO
+      BREEZE_TTS_REFERENCE_TEXT
     ].each { |name| ENV.delete(name) }
     @previous_env.each { |name, value| ENV[name] = value }
   end
@@ -100,6 +107,40 @@ class TtsAdapters::BreezeAdapterTest < ActiveSupport::TestCase
     assert_equal "RIFF", chunks.first.byteslice(0, 4)
     assert_equal 0xffffffff, chunks.first.byteslice(40, 4).unpack1("V")
     assert_equal %w[ab cd], chunks.drop(1)
+  end
+
+  test "uses reference audio and exact transcript for stable voice cloning" do
+    Tempfile.create([ "breeze-reference", ".wav" ]) do |file|
+      file.binmode
+      file.write("RIFF-reference-audio".b)
+      file.flush
+      ENV["BREEZE_TTS_REFERENCE_AUDIO"] = file.path
+      ENV["BREEZE_TTS_REFERENCE_TEXT"] = "This is the exact reference transcript."
+      captured_request = nil
+      http = Object.new
+      http.define_singleton_method(:request) do |request|
+        captured_request = request
+        Response.new("pcm".b)
+      end
+
+      Net::HTTP.stub(:start, ->(*_args, **_kwargs, &block) { block.call(http) }) do
+        TtsAdapters::BreezeAdapter.new.synthesize(text: "A new sentence.")
+      end
+
+      assert_includes captured_request.body, "name=\"ref_text\"\r\n\r\nThis is the exact reference transcript."
+      assert_includes captured_request.body, "name=\"ref_audio\"; filename=\"#{File.basename(file.path)}\""
+      assert_includes captured_request.body, "RIFF-reference-audio".b
+      refute_includes captured_request.body, "name=\"instruction\""
+      refute_includes captured_request.body, "name=\"cfg_scale\""
+    end
+  end
+
+  test "requires reference audio and transcript together" do
+    ENV["BREEZE_TTS_REFERENCE_AUDIO"] = "/tmp/reference.wav"
+
+    error = assert_raises(ArgumentError) { TtsAdapters::BreezeAdapter.new }
+    assert_includes error.message,
+                    "BREEZE_TTS_REFERENCE_AUDIO and BREEZE_TTS_REFERENCE_TEXT must be provided together"
   end
 
   test "preserves streaming provider failure details before yielding audio" do

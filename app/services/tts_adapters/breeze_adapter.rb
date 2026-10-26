@@ -2,6 +2,7 @@
 
 require "json"
 require "net/http"
+require "pathname"
 require "securerandom"
 
 module TtsAdapters
@@ -27,6 +28,7 @@ module TtsAdapters
       @instruction = ENV.fetch("BREEZE_TTS_INSTRUCTION", DEFAULT_INSTRUCTION)
       @cfg_scale = Float(ENV.fetch("BREEZE_TTS_CFG_SCALE", DEFAULT_CFG_SCALE))
       @seed = Integer(ENV.fetch("BREEZE_TTS_SEED", DEFAULT_SEED))
+      configure_reference
 
       raise ArgumentError, "BREEZE_TTS_CFG_SCALE must be greater than 0" unless @cfg_scale.positive?
     end
@@ -104,24 +106,56 @@ module TtsAdapters
       request = Net::HTTP::Post.new(uri)
       boundary = "aiui-breeze-#{SecureRandom.hex(12)}"
       request["Content-Type"] = "multipart/form-data; boundary=#{boundary}"
-      request.body = multipart_body(boundary, {
-        text: text,
-        instruction: @instruction,
-        cfg_scale: @cfg_scale,
-        seed: @seed
-      })
+      fields = { text: text, seed: @seed }
+      file = nil
+      if @reference_audio
+        fields[:ref_text] = @reference_text
+        file = {
+          name: "ref_audio",
+          filename: @reference_audio_filename,
+          content_type: "audio/wav",
+          body: @reference_audio
+        }
+      else
+        fields[:instruction] = @instruction
+        fields[:cfg_scale] = @cfg_scale
+      end
+      request.body = multipart_body(boundary, fields, file)
       request
     end
 
-    def multipart_body(boundary, fields)
-      fields.flat_map do |name, value|
-        [
-          "--#{boundary}\r\n",
-          "Content-Disposition: form-data; name=\"#{name}\"\r\n\r\n",
-          value.to_s,
-          "\r\n"
-        ]
-      end.join + "--#{boundary}--\r\n"
+    def multipart_body(boundary, fields, file)
+      body = +"".b
+      fields.each do |name, value|
+        body << "--#{boundary}\r\n".b
+        body << "Content-Disposition: form-data; name=\"#{name}\"\r\n\r\n".b
+        body << value.to_s.b << "\r\n".b
+      end
+      if file
+        body << "--#{boundary}\r\n".b
+        body << "Content-Disposition: form-data; name=\"#{file[:name]}\"; " \
+                "filename=\"#{file[:filename]}\"\r\n".b
+        body << "Content-Type: #{file[:content_type]}\r\n\r\n".b
+        body << file[:body] << "\r\n".b
+      end
+      body << "--#{boundary}--\r\n".b
+    end
+
+    def configure_reference
+      reference_path = ENV["BREEZE_TTS_REFERENCE_AUDIO"].presence
+      @reference_text = ENV["BREEZE_TTS_REFERENCE_TEXT"].presence
+      if reference_path.present? != @reference_text.present?
+        raise ArgumentError,
+              "BREEZE_TTS_REFERENCE_AUDIO and BREEZE_TTS_REFERENCE_TEXT must be provided together"
+      end
+      return unless reference_path
+
+      path = Pathname.new(reference_path)
+      path = Rails.root.join(path) unless path.absolute?
+      raise ArgumentError, "Breeze reference audio not found: #{path}" unless path.file?
+
+      @reference_audio_filename = path.basename.to_s
+      @reference_audio = File.binread(path)
     end
 
     def perform_request(request)
