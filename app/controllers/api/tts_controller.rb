@@ -64,17 +64,21 @@ module Api
 
     # POST /api/tts/warmup — throwaway synthesis to pay the engine's one-time cold start early.
     def warmup
-      if TextToSpeechService.available?
-        if TextToSpeechService.streaming?
-          TextToSpeechService.stream(text: "Warming up.") { |_chunk| }
-        else
-          TextToSpeechService.call(text: "Warming up.")
-        end
+      unless TextToSpeechService.available?
+        return render json: { error: "TTS service is unavailable" }, status: :service_unavailable
       end
+
+      if TextToSpeechService.streaming?
+        TextToSpeechService.stream(text: "Warming up.") { |_chunk| }
+      else
+        TextToSpeechService.call(text: "Warming up.")
+      end
+
       head :no_content
     rescue StandardError => e
-      Rails.logger.warn "TTS warmup failed: #{e.message}"
-      head :no_content
+      Rails.logger.error "TTS warmup failed: #{e.message}"
+      Rails.logger.error e.backtrace.join("\n")
+      render json: { error: "TTS warmup failed; voice replies may start slowly" }, status: :bad_gateway
     end
   end
 end

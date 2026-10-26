@@ -25,7 +25,7 @@ module AiAdapters
         temperature: temperature,
         stream: stream
       }
-      payload[:reasoning_effort] = reasoning_effort if @model == "custom-llama" && reasoning_effort.present?
+      payload[:reasoning_effort] = reasoning_effort if reasoning_effort.present?
       payload[:max_tokens] = max_tokens if max_tokens
       payload[:tools] = tools if tools.present?
       payload[:tool_choice] = tool_choice if tool_choice.present?

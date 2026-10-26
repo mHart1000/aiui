@@ -506,6 +506,30 @@ import VoiceChatInput from 'components/VoiceChatInput.vue'
 import TtsControls from 'components/TtsControls.vue'
 import SkillsDialog from 'components/SkillsDialog.vue'
 
+let ttsWarmupPromise = null
+let ttsWarmupSucceeded = false
+let ttsWarmupFailureNotified = false
+
+function warmTtsForPageSession() {
+  if (ttsWarmupSucceeded) return Promise.resolve()
+  if (ttsWarmupPromise) return ttsWarmupPromise
+
+  ttsWarmupFailureNotified = false
+  ttsWarmupPromise = api.post('/api/tts/warmup')
+    .then(() => {
+      ttsWarmupSucceeded = true
+    })
+    .catch((error) => {
+      console.error('TTS warmup failed:', error)
+      throw error
+    })
+    .finally(() => {
+      ttsWarmupPromise = null
+    })
+
+  return ttsWarmupPromise
+}
+
 const codeRenderer = {
   code(token) {
     const rawLanguage = (token.lang || '').trim().toLowerCase()
@@ -738,12 +762,16 @@ export default {
     },
     'streamingChat.isStreaming.value'(isStreaming) {
       if (isStreaming) {
-        // New response: re-arm the wait-for-sentences hold.
-        this.ttsPlayer.resetFirstBatchGate()
+        // New response: retry streaming and reset playback state.
+        this.ttsPlayer.startResponse()
       } else if (this.ttsPlayer.isEnabled.value) {
         // Streaming ended: flush any remaining buffered text.
         this.ttsPlayer.flushBuffer()
       }
+    },
+
+    'ttsPlayer.playbackWarning.value'(message) {
+      if (message) this.$q.notify({ type: 'warning', message, timeout: 5000 })
     },
 
     'ttsPlayer.isPlaying.value'(playing) {
@@ -1505,6 +1533,10 @@ export default {
     toggleVoiceMode() {
       const next = !this.voiceChatMode
       this.voiceChatMode = next
+      if (next && this.webSearchMode !== 'off') {
+        this.webSearchMode = 'off'
+        this.updateWebSearchMode('off')
+      }
       this.handleVoiceModeChange(next)
     },
 
@@ -1512,7 +1544,14 @@ export default {
     async handleVoiceModeChange(value) {
       this.ttsPlayer.setEnabled(value)
       // Warm the TTS engine on entry so its one-time cold start doesn't delay the first reply.
-      if (value) api.post('/api/tts/warmup').catch(() => {})
+      if (value) {
+        warmTtsForPageSession().catch((error) => {
+          if (ttsWarmupFailureNotified || !this.voiceChatMode) return
+          ttsWarmupFailureNotified = true
+          const message = error.response?.data?.error || 'TTS warmup failed. Voice replies may start slowly.'
+          this.$q.notify({ type: 'warning', message, timeout: 4000 })
+        })
+      }
       await this.updateTtsPreference({ tts_enabled: value })
     },
 
