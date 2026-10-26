@@ -43,7 +43,8 @@ module Api
       render json: { voices: voice_list }
     rescue StandardError => e
       Rails.logger.error "Failed to fetch TTS voices: #{e.message}"
-      render json: { voices: [] }
+      Rails.logger.error e.backtrace.join("\n")
+      render json: { error: "Failed to fetch TTS voices" }, status: :internal_server_error
     end
 
     # GET /api/tts/status
