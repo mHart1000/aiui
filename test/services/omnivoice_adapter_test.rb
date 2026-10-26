@@ -104,4 +104,8 @@ class TtsAdapters::OmnivoiceAdapterTest < ActiveSupport::TestCase
       refute TtsAdapters::OmnivoiceAdapter.new.available?
     end
   end
+
+  test "serializes buffered prefetch" do
+    assert_equal 1, TtsAdapters::OmnivoiceAdapter.new.buffered_prefetch_ahead
+  end
 end

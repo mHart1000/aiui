@@ -73,6 +73,13 @@ class TextToSpeechService
     resolve_adapter(adapter).first_batch_min_sentences
   end
 
+  # Maximum concurrent synthesis requests for buffered playback
+  # @param adapter [String, Symbol, nil] Which TTS adapter to check
+  # @return [Integer]
+  def self.buffered_prefetch_ahead(adapter: nil)
+    resolve_adapter(adapter).buffered_prefetch_ahead
+  end
+
   # Checks if the TTS backend is available
   # @param adapter [String, Symbol, nil] Which TTS adapter to check
   # @return [Boolean] true if the adapter is available

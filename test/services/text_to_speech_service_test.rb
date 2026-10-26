@@ -108,6 +108,20 @@ class TextToSpeechServiceTest < ActiveSupport::TestCase
     @mock_adapter.verify
   end
 
+  test "buffered prefetch is limited per engine" do
+    assert_equal 3, TtsAdapters::ChatterboxAdapter.new.buffered_prefetch_ahead
+    assert_equal 3, TtsAdapters::KokoroAdapter.new.buffered_prefetch_ahead
+    assert_equal 1, TtsAdapters::OmnivoiceAdapter.new.buffered_prefetch_ahead
+  end
+
+  test "buffered_prefetch_ahead delegates to adapter" do
+    @mock_adapter.expect(:buffered_prefetch_ahead, 1)
+    TtsAdapters::KokoroAdapter.stub(:new, @mock_adapter) do
+      assert_equal 1, TextToSpeechService.buffered_prefetch_ahead
+    end
+    @mock_adapter.verify
+  end
+
   test "unknown adapter name falls back to KokoroAdapter" do
     @mock_adapter.expect(:available?, true)
     TtsAdapters::KokoroAdapter.stub(:new, @mock_adapter) do

@@ -11,6 +11,7 @@ module TtsAdapters
     DEFAULT_VOICE = "auto"
     OPEN_TIMEOUT_SECONDS = 5
     READ_TIMEOUT_SECONDS = 120
+    BUFFERED_PREFETCH_AHEAD = 1
 
     def initialize
       @base_url = ENV.fetch("OMNIVOICE_TTS_URL", DEFAULT_URL)
@@ -69,6 +70,11 @@ module TtsAdapters
     rescue StandardError => e
       Rails.logger.debug "OmniVoice TTS not available: #{e.message}"
       false
+    end
+
+    # Concurrent requests contend heavily on the OmniVoice runtime.
+    def buffered_prefetch_ahead
+      BUFFERED_PREFETCH_AHEAD
     end
 
     private
