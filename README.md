@@ -154,7 +154,7 @@ The application reads the `multimodal` capability of the active model from the l
 
 ## TTS setup
 
-Select the TTS engine with `TTS_ADAPTER` in `.env`. The available values are `kokoro`, `qwen3`, `chatterbox`, and `omnivoice`. The default value is `kokoro`. Restart the backend after you change this value.
+Select the TTS engine with `TTS_ADAPTER` in `.env`. The available values are `kokoro`, `qwen3`, `chatterbox`, `omnivoice`, and `breeze`. The default value is `kokoro`. Restart the backend after you change this value.
 
 ### Kokoro (local CPU)
 
@@ -278,6 +278,25 @@ at commit `c3bf8df9574f9e29050cfa8b6e75023dfd8e45dc`. Configure its URL in `.env
 TTS_ADAPTER=omnivoice
 OMNIVOICE_TTS_URL=http://localhost:8882
 ```
+
+### Breeze TTS 2
+
+Run the official [Breeze TTS 2 server](https://github.com/breezeblue-ai/breeze-tts)
+with `--fast-all`, then configure its locally forwarded URL and voice-design profile:
+
+```bash
+TTS_ADAPTER=breeze
+BREEZE_TTS_URL=http://localhost:7860
+BREEZE_TTS_VOICE=breeze_default
+BREEZE_TTS_INSTRUCTION=A warm, natural adult woman with clear conversational delivery.
+```
+
+For stable identity across sentences, also set `BREEZE_TTS_REFERENCE_AUDIO` to a clean WAV
+and `BREEZE_TTS_REFERENCE_TEXT` to its exact complete transcript. Clone mode then replaces
+per-request voice design.
+
+See the [Breeze adapter specification](docs/breeze-tts-spec.md) for tuning, benchmark,
+license, and protocol details.
 
 ## STT setup (Whisper)
 

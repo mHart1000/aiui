@@ -61,6 +61,14 @@ class TextToSpeechServiceTest < ActiveSupport::TestCase
     @mock_adapter.verify
   end
 
+  test "breeze adapter name resolves to BreezeAdapter" do
+    @mock_adapter.expect(:available?, true)
+    TtsAdapters::BreezeAdapter.stub(:new, @mock_adapter) do
+      assert TextToSpeechService.available?(adapter: "breeze")
+    end
+    @mock_adapter.verify
+  end
+
   test "TTS_ADAPTER env var selects the default adapter" do
     previous = ENV["TTS_ADAPTER"]
     ENV["TTS_ADAPTER"] = "qwen3"
@@ -89,6 +97,7 @@ class TextToSpeechServiceTest < ActiveSupport::TestCase
   test "adapter streaming capability flags" do
     assert TtsAdapters::ChatterboxAdapter.new.streaming?
     assert TtsAdapters::Qwen3Adapter.new.streaming?
+    assert TtsAdapters::BreezeAdapter.new.streaming?
     refute TtsAdapters::KokoroAdapter.new.streaming?
     refute TtsAdapters::OmnivoiceAdapter.new.streaming?
   end
@@ -98,6 +107,7 @@ class TextToSpeechServiceTest < ActiveSupport::TestCase
     assert_equal 1, TtsAdapters::ChatterboxAdapter.new.first_batch_min_sentences
     assert_equal 1, TtsAdapters::KokoroAdapter.new.first_batch_min_sentences
     assert_equal 1, TtsAdapters::OmnivoiceAdapter.new.first_batch_min_sentences
+    assert_equal 1, TtsAdapters::BreezeAdapter.new.first_batch_min_sentences
   end
 
   test "first_batch_min_sentences delegates to adapter" do
@@ -112,6 +122,7 @@ class TextToSpeechServiceTest < ActiveSupport::TestCase
     assert_equal 3, TtsAdapters::ChatterboxAdapter.new.buffered_prefetch_ahead
     assert_equal 3, TtsAdapters::KokoroAdapter.new.buffered_prefetch_ahead
     assert_equal 1, TtsAdapters::OmnivoiceAdapter.new.buffered_prefetch_ahead
+    assert_equal 1, TtsAdapters::BreezeAdapter.new.buffered_prefetch_ahead
   end
 
   test "buffered_prefetch_ahead delegates to adapter" do
