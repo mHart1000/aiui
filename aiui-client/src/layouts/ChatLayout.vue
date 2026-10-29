@@ -1,6 +1,15 @@
 <template>
   <q-layout view="hHh LpR fFf">
-    <q-drawer show-if-above :width="sidebarWidth" class="bg-panel">
+    <q-header v-if="$q.screen.lt.md" class="mobile-header bg-panel">
+      <q-toolbar>
+        <q-btn flat round dense icon="menu" aria-label="Open conversations" @click="drawerOpen = true" />
+        <q-toolbar-title>AIUI</q-toolbar-title>
+        <q-btn flat round dense icon="add" aria-label="New chat" @click="newChat()" />
+        <q-btn flat round dense icon="tune" aria-label="Chat settings" @click="toggleMobileSettings" />
+      </q-toolbar>
+    </q-header>
+
+    <q-drawer v-model="drawerOpen" show-if-above :width="sidebarWidth" class="bg-panel">
       <q-scroll-area
         class="drawer-scroll"
         :thumb-style="scrollThumbStyle"
@@ -94,11 +103,13 @@
     ></div>
 
     <q-page-container>
-      <router-view />
+      <router-view v-slot="{ Component }">
+        <component :is="Component" ref="page" />
+      </router-view>
     </q-page-container>
 
     <q-dialog v-model="projectEditorOpen" persistent>
-      <q-card style="width: 520px; max-width: 90vw">
+      <q-card class="responsive-dialog" style="width: 520px">
         <q-card-section class="text-h6">{{ editingProjectId ? 'Edit project' : 'New project' }}</q-card-section>
         <q-card-section class="q-gutter-md">
           <q-input v-model="projectDraft.name" outlined autofocus label="Project name" :maxlength="projectLimits.name" counter />
@@ -119,7 +130,7 @@
       @update:active-ids="projectDraft.skill_ids = $event"
     />
     <q-dialog :model-value="!!projectToDelete" @update:model-value="value => { if (!value) projectToDelete = null }" persistent>
-      <q-card style="width: 400px; max-width: 90vw">
+      <q-card class="responsive-dialog" style="width: 400px">
         <q-card-section class="text-h6">Delete project?</q-card-section>
         <q-card-section>Delete “{{ projectToDelete?.name }}” and its description? Its conversations will be kept.</q-card-section>
         <q-card-actions align="right">
@@ -129,7 +140,7 @@
       </q-card>
     </q-dialog>
     <q-dialog v-model="moveOpen" persistent>
-      <q-card style="width: 400px; max-width: 90vw">
+      <q-card class="responsive-dialog" style="width: 400px">
         <q-card-section class="text-h6">Move conversation</q-card-section>
         <q-card-section>
           <q-select v-model="moveProjectId" outlined label="Project" :options="projectOptions" emit-value map-options />
@@ -145,7 +156,7 @@
     <RagKnowledgeDialog v-model="knowledgeOpen" />
 
     <q-dialog v-model="renameOpen" @hide="renameConversation = null">
-      <q-card style="min-width: 360px">
+      <q-card class="responsive-dialog" style="width: 360px">
         <q-card-section class="text-h6">Rename conversation</q-card-section>
         <q-card-section>
           <q-input
@@ -166,7 +177,7 @@
     </q-dialog>
 
     <q-dialog v-model="deleteOpen" @hide="deleteConversation = null">
-      <q-card style="min-width: 360px">
+      <q-card class="responsive-dialog" style="width: 360px">
         <q-card-section class="text-h6">Delete conversation?</q-card-section>
         <q-card-section>
           “{{ deleteConversation?.title }}” and all of its messages will be permanently deleted.
@@ -209,6 +220,7 @@ export default {
   },
   data: () => ({
     conversations: [],
+    drawerOpen: false,
     projects: [],
     projectLimits: {},
     projectEditorOpen: false,
@@ -273,6 +285,9 @@ export default {
     }
   },
   watch: {
+    '$route.fullPath'() {
+      if (this.$q.screen.lt.md) this.drawerOpen = false
+    },
     searchQuery () {
       clearTimeout(this.searchTimer)
       this.searchTimer = setTimeout(this.runSearch, 200)
@@ -301,7 +316,11 @@ export default {
     },
     newChat(projectId = null, expandFolder = true) {
       if (projectId && expandFolder) this.expandProject(projectId)
+      if (this.$q.screen.lt.md) this.drawerOpen = false
       return this.$router.push({ path: '/chat', query: projectId ? { project: projectId } : {} })
+    },
+    toggleMobileSettings() {
+      this.$refs.page?.toggleMobileSettings?.()
     },
     editProject(project = null) {
       this.editingProjectId = project?.id || null
@@ -513,6 +532,14 @@ export default {
 .drawer-content {
   min-width: 0;
   overflow-x: hidden;
+}
+.mobile-header {
+  color: var(--text);
+}
+.responsive-dialog {
+  max-height: 90dvh;
+  max-width: 92vw;
+  overflow-y: auto;
 }
 .search-input {
   width: calc(100% - 14px);

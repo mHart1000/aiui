@@ -133,6 +133,13 @@ export default {
   visibility: visible;
   pointer-events: auto;
 }
+@media (max-width: 1023px) {
+  .conversation-actions {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+}
 /* 3-part snippet: keyword stays centered, text clips on both sides. */
 .snippet-line {
   display: flex;

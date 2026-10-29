@@ -641,6 +641,7 @@ export default {
     isSavingEdit: false,
     forkingIndex: null,
     voiceChatMode: false,
+    mobileSettingsOpen: false,
     readingAloudIndex: null,
     endOfUtteranceMs: 2500,
     inactivityTimeoutSec: 15,
@@ -796,6 +797,7 @@ export default {
       return this.atBottom && !this.streamingChat.isStreaming.value
     },
     toolbarExpanded() {
+      if (this.$q.screen.lt.md) return this.mobileSettingsOpen
       if (!this.hasMessages) return true
       return this.atTop
     },
@@ -936,6 +938,9 @@ export default {
     }
   },
   methods: {
+    toggleMobileSettings() {
+      this.mobileSettingsOpen = !this.mobileSettingsOpen
+    },
     handleSttError(error) {
       console.error('Speech recognition error:', error)
       this.$q?.notify?.({
@@ -1799,6 +1804,53 @@ export default {
 @media (prefers-reduced-motion: reduce) {
   .toolbar-wrap {
     transition: none;
+  }
+}
+@media (max-width: 1023px) {
+  .chat-page {
+    height: calc(100dvh - 50px);
+    min-height: 0 !important;
+  }
+  .toolbar-wrap {
+    max-height: 55dvh;
+    overflow-y: auto;
+    padding-top: 0;
+  }
+  .toolbar-controls {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px;
+  }
+  .toolbar-controls > :deep(.q-field),
+  .toolbar-controls > * {
+    max-width: 100% !important;
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+  .web-search-control {
+    white-space: normal;
+  }
+  .bubble {
+    max-width: 92%;
+  }
+  .chat-window {
+    padding: 8px;
+  }
+  .user,
+  .assistant {
+    margin-top: 16px;
+    margin-bottom: 16px;
+  }
+  .input-bar {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .message-input {
+    min-width: 0;
+    width: 100%;
+  }
+  .welcome-video {
+    max-width: 70vw;
   }
 }
 .web-search-control {

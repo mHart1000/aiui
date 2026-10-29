@@ -1,6 +1,6 @@
 <template>
   <q-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)">
-    <q-card style="min-width: 560px; max-width: 760px">
+    <q-card class="responsive-dialog">
       <q-card-section class="row items-center q-pb-none">
         <div class="text-h6">{{ editing ? editorTitle : (projectMode ? 'Project skills' : 'Skills') }}</div>
         <q-space />
@@ -209,6 +209,11 @@ export default {
 </script>
 
 <style scoped>
+.responsive-dialog {
+  width: min(760px, 92vw);
+  max-height: 90dvh;
+  overflow-y: auto;
+}
 .skills-off {
   opacity: 0.5;
 }
