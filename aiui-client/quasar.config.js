@@ -2,8 +2,11 @@
 // https://v2.quasar.dev/quasar-cli-vite/quasar-config-file
 
 import { defineConfig } from '#q-app/wrappers'
+import { loadEnv } from 'vite'
 
-export default defineConfig((/* ctx */) => {
+export default defineConfig((ctx) => {
+  const { CUSTOM_HOSTNAME } = loadEnv(ctx.dev ? 'development' : 'production', process.cwd(), '')
+
   return {
     // https://v2.quasar.dev/quasar-cli-vite/prefetch-feature
     // preFetch: true,
@@ -74,6 +77,7 @@ export default defineConfig((/* ctx */) => {
     devServer: {
       host: '0.0.0.0',
       port: 9100,
+      allowedHosts: CUSTOM_HOSTNAME ? [CUSTOM_HOSTNAME] : [],
       open: true, // opens browser window automatically
       proxy: {
         '/api': {
