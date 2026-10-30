@@ -223,6 +223,10 @@ export function useTtsPlayer() {
    * Initialize Audio Context (must be called after user interaction)
    */
   function initAudioContext() {
+    if ('audioSession' in navigator) {
+      navigator.audioSession.type = 'playback'
+    }
+
     if (!audioContext) {
       audioContext = new (window.AudioContext || window.webkitAudioContext)()
     }

@@ -275,6 +275,10 @@ export default {
           throw new Error('Microphone access not available. Please use HTTPS or localhost.')
         }
 
+        if ('audioSession' in navigator) {
+          navigator.audioSession.type = 'play-and-record'
+        }
+
         const mimeType = pickMimeType()
         if (!mimeType) {
           throw new Error('MediaRecorder is not supported in this browser.')
