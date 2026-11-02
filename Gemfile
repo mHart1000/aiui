@@ -60,4 +60,4 @@ gem "devise-jwt", "~> 0.13.0"
 # RAG: pgvector bindings, document extraction
 gem "neighbor", "~> 1.2"
 gem "pdf-reader", "~> 2.16"
-gem "docx", "~> 0.8"
+gem "docx", "~> 0.13"
