@@ -38,7 +38,8 @@ module WebResearch
       search_failures = 0
       skipped_engines = {}
       search_deadline_exhausted = false
-      AuditLog.info("research_started", CANDIDATE_QUERIES: @request.queries, direct_urls: @request.urls.map { |url| AuditLog.safe_url(url) })
+      AuditLog.info("research_started", CANDIDATE_QUERIES: @request.queries, time_range: @request.time_range,
+        direct_urls: @request.urls.map { |url| AuditLog.safe_url(url) })
       search_capacity = [ @max_fetch_attempts - @request.urls.length, 0 ].max
       @request.queries.each do |query|
         break if distinct_search_results(results).length >= search_capacity
@@ -55,7 +56,7 @@ module WebResearch
         AuditLog.info("search_started", query: query, queued_at: query_queued_at)
         response = nil
         begin
-          response = @adapter.search(query, deadline: search_deadline)
+          response = @adapter.search(query, deadline: search_deadline, time_range: @request.time_range)
           search_failures += 1 if response.respond_to?(:engine_failures) && response.engine_failures.any?
           skipped_engines.merge!(response.skipped_engines) if response.respond_to?(:skipped_engines)
           search_results = response.map { |result| result.merge(research_query: query) }
@@ -118,6 +119,7 @@ module WebResearch
       end
       metadata = { status: status, provider: PROVIDER, queries: executed_queries, searched_at: started_at.iso8601,
                    warning: warning, sources: sources }
+      metadata[:time_range] = @request.time_range if @request.time_range
       if skipped_engines.any?
         metadata[:skipped_engines] = skipped_engines.map do |engine, data|
           { engine: engine, reason: data.fetch("reason"), retry_at: Time.at(data.fetch("retry_at")).utc.iso8601 }

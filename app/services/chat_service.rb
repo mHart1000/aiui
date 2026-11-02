@@ -453,7 +453,10 @@ class ChatService
       tool_calls: [ {
         id: "research_web",
         type: "function",
-        function: { name: WebResearch::ToolRequest::TOOL_NAME, arguments: { queries: request.queries, urls: request.urls }.to_json }
+        function: {
+          name: WebResearch::ToolRequest::TOOL_NAME,
+          arguments: { queries: request.queries, urls: request.urls, time_range: request.time_range }.compact.to_json
+        }
       } ]
     }
   end
@@ -493,12 +496,13 @@ class ChatService
       type: "function",
       function: {
         name: WebResearch::ToolRequest::TOOL_NAME,
-        description: "Research current or niche information on the web before answering.",
+        description: "Research current or niche information on the web before answering. Set time_range when the user requests results from the past day, month, or year.",
         parameters: {
           type: "object",
           properties: {
             queries: { type: "array", items: { type: "string" }, maxItems: @web_search_query_count },
-            urls: { type: "array", items: { type: "string" }, maxItems: WebResearch::ToolRequest::MAX_URLS }
+            urls: { type: "array", items: { type: "string" }, maxItems: WebResearch::ToolRequest::MAX_URLS },
+            time_range: { type: "string", enum: WebResearch::ToolRequest::TIME_RANGES }
           },
           additionalProperties: false
         }

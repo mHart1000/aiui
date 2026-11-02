@@ -9,10 +9,11 @@ module WebResearch
     MAX_URLS = 3
     MAX_QUERY_LENGTH = 240
     MAX_URL_LENGTH = 2_048
+    TIME_RANGES = %w[day month year].freeze
 
     class InvalidRequest < StandardError; end
 
-    attr_reader :queries, :urls
+    attr_reader :queries, :urls, :time_range
 
     def self.parse!(tool_calls:, last_four_user_messages:, max_queries: MAX_QUERIES)
       calls = Array(tool_calls)
@@ -33,15 +34,24 @@ module WebResearch
     end
 
     def initialize(arguments, last_four_user_messages:, max_queries: MAX_QUERIES)
-      unknown_keys = arguments.keys.map(&:to_s) - %w[queries urls]
+      unknown_keys = arguments.keys.map(&:to_s) - %w[queries urls time_range]
       raise InvalidRequest, "tool arguments contained unknown fields" if unknown_keys.any?
 
       @queries = normalize_queries(arguments["queries"] || arguments[:queries], max_queries)
       @urls = normalize_urls(arguments["urls"] || arguments[:urls], last_four_user_messages)
+      @time_range = normalize_time_range(arguments["time_range"] || arguments[:time_range])
       raise InvalidRequest, "research request was empty" if @queries.empty? && @urls.empty?
     end
 
     private
+
+    def normalize_time_range(value)
+      return nil if value.nil?
+
+      raise InvalidRequest, "invalid search time range" unless value.is_a?(String) && TIME_RANGES.include?(value)
+
+      value
+    end
 
     def normalize_queries(values, max_queries)
       raise InvalidRequest, "queries must be an array" if values.present? && !values.is_a?(Array)

@@ -7,12 +7,32 @@ class WebResearch::ToolRequestTest < ActiveSupport::TestCase
 
   test "accepts bounded queries and a URL explicitly supplied by the user" do
     request = WebResearch::ToolRequest.parse!(
-      tool_calls: tool_call(queries: [ "latest local AI news" ], urls: [ "https://example.com/report#section" ]),
+      tool_calls: tool_call(queries: [ "latest local AI news" ], urls: [ "https://example.com/report#section" ], time_range: "year"),
       last_four_user_messages: "Please check https://example.com/report#section"
     )
 
     assert_equal [ "latest local AI news" ], request.queries
     assert_equal [ "https://example.com/report" ], request.urls
+    assert_equal "year", request.time_range
+  end
+
+  test "accepts documented time ranges and rejects other values" do
+    WebResearch::ToolRequest::TIME_RANGES.each do |time_range|
+      request = WebResearch::ToolRequest.parse!(
+        tool_calls: tool_call(queries: [ "recent changes" ], time_range: time_range),
+        last_four_user_messages: ""
+      )
+      assert_equal time_range, request.time_range
+    end
+
+    [ "week", "YEAR", "", 365 ].each do |time_range|
+      assert_raises(WebResearch::ToolRequest::InvalidRequest, time_range.inspect) do
+        WebResearch::ToolRequest.parse!(
+          tool_calls: tool_call(queries: [ "recent changes" ], time_range: time_range),
+          last_four_user_messages: ""
+        )
+      end
+    end
   end
 
   test "authorizes a direct URL found anywhere in the authorized user content" do

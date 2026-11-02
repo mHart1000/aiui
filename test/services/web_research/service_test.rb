@@ -1,6 +1,23 @@
 require "test_helper"
 
 class WebResearch::ServiceTest < ActiveSupport::TestCase
+  test "passes the requested time range to every search and records it in metadata" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "recent changes" ], "time_range" => "month" }, last_four_user_messages: "")
+    calls = []
+    adapter = Object.new
+    adapter.define_singleton_method(:search) do |query, **options|
+      calls << [ query, options[:time_range] ]
+      [ { url: "https://example.com", title: "Example", snippet: "" } ]
+    end
+    fetcher = Object.new
+    fetcher.define_singleton_method(:fetch) { |*, **| "Useful evidence" }
+
+    result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
+
+    assert_equal [ [ "recent changes", "month" ] ], calls
+    assert_equal "month", result[:metadata][:time_range]
+  end
+
   test "stops an empty failed batch but retains previous results and direct URLs" do
     request = WebResearch::ToolRequest.new({ "queries" => [ "first", "second", "third" ], "urls" => [ "https://direct.example" ] }, last_four_user_messages: "https://direct.example", max_queries: 3)
     calls = []
