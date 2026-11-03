@@ -308,7 +308,7 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
     request = WebResearch::ToolRequest.new({ "queries" => [ "example query" ] }, last_four_user_messages: "")
     adapter = Object.new
     adapter.define_singleton_method(:search) do |_query, **_options|
-      [ { title: "One", url: "https://example.com/one?tracking=secret", snippet: "", published_at: nil } ]
+      [ { title: "One", url: "https://example.com/one?tracking=secret", snippet: "", published_at: "2026-10-31" } ]
     end
     fetcher = Object.new
     fetcher.define_singleton_method(:fetch) { |_url, **| "Useful source text" }
@@ -319,6 +319,7 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
 
     assert_includes log_output, 'WEBRESEARCH EVENT=search_started data={"query":"example query"'
     assert_includes log_output, "https://example.com/one"
+    assert_includes log_output, '"published_at":"2026-10-31"'
     refute_includes log_output, "tracking=secret"
     assert_includes log_output, "WEBRESEARCH EVENT=page_extract_ready"
     assert_includes log_output, "Useful source text"

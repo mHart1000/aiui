@@ -77,7 +77,10 @@ module WebResearch
           search_results = []
         end
         AuditLog.info("search_completed", query: query, result_count: search_results.length,
-          urls: search_results.map { |result| AuditLog.safe_url(result[:url]) }, elapsed_ms: elapsed_ms(search_started))
+          urls: search_results.map { |result| AuditLog.safe_url(result[:url]) },
+          results: search_results.map { |result|
+            { url: AuditLog.safe_url(result[:url]), published_at: result[:published_at] }
+          }, elapsed_ms: elapsed_ms(search_started))
         results.concat(search_results)
         if search_results.empty? && response &&
             ((response.respond_to?(:engine_failures) && response.engine_failures.any?) ||
