@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_16_000000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_02_000000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "vector"
@@ -56,6 +56,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_16_000000) do
     t.string "web_search_level"
     t.string "web_search_mode"
     t.integer "web_search_query_count"
+    t.string "web_search_time_range"
     t.index ["project_id"], name: "index_conversations_on_project_id"
     t.index ["user_id"], name: "index_conversations_on_user_id"
   end

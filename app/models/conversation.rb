@@ -22,6 +22,7 @@ class Conversation < ApplicationRecord
   validates :web_search_mode, inclusion: { in: %w[off auto always], allow_nil: true }
   validates :web_search_level, inclusion: { in: WebResearch::Profile::LEVELS, allow_nil: true }
   validates :web_search_query_count, numericality: { only_integer: true, in: WebResearch::ToolRequest::QUERY_COUNT_RANGE, allow_nil: true }
+  validates :web_search_time_range, inclusion: { in: WebResearch::ToolRequest::TIME_RANGES, allow_nil: true }
 
   ENTITLE_DELAY = 30.seconds
 
@@ -52,6 +53,7 @@ class Conversation < ApplicationRecord
         web_search_mode: web_search_mode,
         web_search_level: web_search_level,
         web_search_query_count: web_search_query_count,
+        web_search_time_range: web_search_time_range,
         use_skills: use_skills,
         skill_ids: skill_ids
       )

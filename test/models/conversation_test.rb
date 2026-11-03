@@ -391,6 +391,17 @@ class ConversationTest < ActiveSupport::TestCase
     assert_includes @conversation.errors[:web_search_level], "is not included in the list"
   end
 
+  test "web_search_time_range accepts supported values or no restriction" do
+    [ nil, *WebResearch::ToolRequest::TIME_RANGES ].each do |time_range|
+      @conversation.web_search_time_range = time_range
+      assert @conversation.valid?, time_range.inspect
+    end
+
+    @conversation.web_search_time_range = "week"
+    refute @conversation.valid?
+    assert_includes @conversation.errors[:web_search_time_range], "is not included in the list"
+  end
+
   test "web search mode and level may be null to mean inherit" do
     @conversation.web_search_mode = nil
     @conversation.web_search_level = nil
@@ -402,6 +413,7 @@ class ConversationTest < ActiveSupport::TestCase
     @conversation.web_search_mode = "auto"
     @conversation.web_search_level = "high"
     @conversation.web_search_query_count = 1
+    @conversation.web_search_time_range = "month"
     @conversation.save!
     message = @conversation.messages.create!(role: "user", content: "one")
 
@@ -410,6 +422,7 @@ class ConversationTest < ActiveSupport::TestCase
     assert_equal "auto", forked.web_search_mode
     assert_equal "high", forked.web_search_level
     assert_equal 1, forked.web_search_query_count
+    assert_equal "month", forked.web_search_time_range
   end
 
   test "fork_at keeps a null override inheriting" do
@@ -423,6 +436,7 @@ class ConversationTest < ActiveSupport::TestCase
     assert_nil forked.web_search_mode
     assert_nil forked.web_search_level
     assert_nil forked.web_search_query_count
+    assert_nil forked.web_search_time_range
   end
 
   # truncate_from_message

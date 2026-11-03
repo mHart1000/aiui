@@ -12,10 +12,10 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
     fetcher = Object.new
     fetcher.define_singleton_method(:fetch) { |*, **| "Useful evidence" }
 
-    result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher).call
+    result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher, time_range: "year").call
 
-    assert_equal [ [ "recent changes", "month" ] ], calls
-    assert_equal "month", result[:metadata][:time_range]
+    assert_equal [ [ "recent changes", "year" ] ], calls
+    assert_equal "year", result[:metadata][:time_range]
   end
 
   test "stops an empty failed batch but retains previous results and direct URLs" do
