@@ -18,6 +18,40 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
     assert_equal "year", result[:metadata][:time_range]
   end
 
+  test "adds optional custom date operators to outbound queries" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "historical changes" ] }, last_four_user_messages: "")
+    calls = []
+    adapter = Object.new
+    adapter.define_singleton_method(:search) do |query, **options|
+      calls << [ query, options[:time_range] ]
+      []
+    end
+
+    result = WebResearch::Service.new(request: request, adapter: adapter, time_range: "custom",
+      start_date: Date.new(2019, 1, 1), end_date: Date.new(2023, 12, 31)).call
+
+    expected_query = "historical changes after:2019-01-01 before:2024-01-01"
+    assert_equal [ [ expected_query, nil ] ], calls
+    assert_equal [ expected_query ], result[:metadata][:queries]
+    assert_equal "custom", result[:metadata][:time_range]
+    assert_equal "2019-01-01", result[:metadata][:start_date]
+    assert_equal "2023-12-31", result[:metadata][:end_date]
+  end
+
+  test "supports either custom date independently" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "historical changes" ] }, last_four_user_messages: "")
+    calls = []
+    adapter = Object.new
+    adapter.define_singleton_method(:search) { |query, **| calls << query; [] }
+
+    WebResearch::Service.new(request: request, adapter: adapter, time_range: "custom",
+      start_date: Date.new(2019, 1, 1)).call
+    WebResearch::Service.new(request: request, adapter: adapter, time_range: "custom",
+      end_date: Date.new(2023, 12, 31)).call
+
+    assert_equal [ "historical changes after:2019-01-01", "historical changes before:2024-01-01" ], calls
+  end
+
   test "stops an empty failed batch but retains previous results and direct URLs" do
     request = WebResearch::ToolRequest.new({ "queries" => [ "first", "second", "third" ], "urls" => [ "https://direct.example" ] }, last_four_user_messages: "https://direct.example", max_queries: 3)
     calls = []

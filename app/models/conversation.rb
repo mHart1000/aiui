@@ -1,5 +1,6 @@
 class Conversation < ApplicationRecord
   PLACEHOLDER_TITLE = "New Chat".freeze
+  WEB_SEARCH_TIME_RANGES = [ *WebResearch::ToolRequest::TIME_RANGES, "custom" ].freeze
 
   # Message columns carried over by a fork. Explicit so new columns have to opt in.
   # Attached images are not columns; copy_attachments handles them.
@@ -22,7 +23,8 @@ class Conversation < ApplicationRecord
   validates :web_search_mode, inclusion: { in: %w[off auto always], allow_nil: true }
   validates :web_search_level, inclusion: { in: WebResearch::Profile::LEVELS, allow_nil: true }
   validates :web_search_query_count, numericality: { only_integer: true, in: WebResearch::ToolRequest::QUERY_COUNT_RANGE, allow_nil: true }
-  validates :web_search_time_range, inclusion: { in: WebResearch::ToolRequest::TIME_RANGES, allow_nil: true }
+  validates :web_search_time_range, inclusion: { in: WEB_SEARCH_TIME_RANGES, allow_nil: true }
+  validate :web_search_date_range_is_ordered
 
   ENTITLE_DELAY = 30.seconds
 
@@ -54,6 +56,8 @@ class Conversation < ApplicationRecord
         web_search_level: web_search_level,
         web_search_query_count: web_search_query_count,
         web_search_time_range: web_search_time_range,
+        web_search_start_date: web_search_start_date,
+        web_search_end_date: web_search_end_date,
         use_skills: use_skills,
         skill_ids: skill_ids
       )
@@ -91,6 +95,13 @@ class Conversation < ApplicationRecord
 
   def resolved_web_search_level
     web_search_level.presence || user.web_search_level.presence || WebResearch::Profile::DEFAULT_LEVEL
+  end
+
+  def web_search_date_range_is_ordered
+    return if web_search_start_date.blank? || web_search_end_date.blank?
+    return if web_search_start_date <= web_search_end_date
+
+    errors.add(:web_search_end_date, "must be on or after the start date")
   end
 
   def resolved_skills

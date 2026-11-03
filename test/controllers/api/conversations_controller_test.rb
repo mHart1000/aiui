@@ -214,16 +214,27 @@ module Api
 
     test "update persists and clears the conversation-only web search time range" do
       patch "/api/conversations/#{@conversation.id}",
-            params: { conversation: { web_search_time_range: "month" } }, headers: @headers, as: :json
+            params: { conversation: { web_search_time_range: "custom", web_search_start_date: "2019-01-01", web_search_end_date: "2023-12-31" } }, headers: @headers, as: :json
 
       assert_response :success
-      assert_equal "month", @conversation.reload.web_search_time_range
-      assert_equal "month", JSON.parse(response.body)["web_search_time_range"]
+      assert_equal "custom", @conversation.reload.web_search_time_range
+      body = JSON.parse(response.body)
+      assert_equal "custom", body["web_search_time_range"]
+      assert_equal "2019-01-01", body["web_search_start_date"]
+      assert_equal "2023-12-31", body["web_search_end_date"]
 
       patch "/api/conversations/#{@conversation.id}",
             params: { conversation: { web_search_time_range: nil } }, headers: @headers, as: :json
 
       assert_response :success
+      assert_nil @conversation.reload.web_search_time_range
+    end
+
+    test "update rejects reversed custom web search dates" do
+      patch "/api/conversations/#{@conversation.id}",
+            params: { conversation: { web_search_time_range: "custom", web_search_start_date: "2024-01-01", web_search_end_date: "2023-12-31" } }, headers: @headers, as: :json
+
+      assert_response :unprocessable_entity
       assert_nil @conversation.reload.web_search_time_range
     end
 

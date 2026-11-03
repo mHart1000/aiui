@@ -136,6 +136,26 @@
               borderless
               @update:model-value="updateWebSearchTimeRange"
             />
+            <template v-if="webSearchMode !== 'off' && webSearchTimeRange === 'custom'">
+              <q-input
+                :model-value="webSearchStartDate"
+                type="date"
+                label="Start date"
+                aria-label="Web search start date"
+                class="web-search-date"
+                borderless
+                @update:model-value="updateWebSearchDate('start', $event)"
+              />
+              <q-input
+                :model-value="webSearchEndDate"
+                type="date"
+                label="End date"
+                aria-label="Web search end date"
+                class="web-search-date"
+                borderless
+                @update:model-value="updateWebSearchDate('end', $event)"
+              />
+            </template>
           </div>
           <q-btn
             flat
@@ -646,8 +666,13 @@ export default {
       { label: 'No restriction', value: null },
       { label: 'Past day', value: 'day' },
       { label: 'Past month', value: 'month' },
-      { label: 'Past year', value: 'year' }
+      { label: 'Past year', value: 'year' },
+      { label: 'Custom', value: 'custom' }
     ],
+    webSearchStartDate: null,
+    persistedWebSearchStartDate: null,
+    webSearchEndDate: null,
+    persistedWebSearchEndDate: null,
     webSearchLevels: ['low', 'medium', 'high'],
     webSearchProfiles: {},
     webSearchSync: Promise.resolve(true),
@@ -740,6 +765,10 @@ export default {
           this.persistedWebSearchQueryCount = this.userWebSearchQueryCount
           this.webSearchTimeRange = null
           this.persistedWebSearchTimeRange = null
+          this.webSearchStartDate = null
+          this.persistedWebSearchStartDate = null
+          this.webSearchEndDate = null
+          this.persistedWebSearchEndDate = null
         }
       }
     },
@@ -1058,6 +1087,10 @@ export default {
         this.persistedWebSearchMode = 'off'
         this.webSearchTimeRange = null
         this.persistedWebSearchTimeRange = null
+        this.webSearchStartDate = null
+        this.persistedWebSearchStartDate = null
+        this.webSearchEndDate = null
+        this.persistedWebSearchEndDate = null
         this.webSearchSync = Promise.resolve(true)
       }
     },
@@ -1111,6 +1144,10 @@ export default {
         this.persistedWebSearchQueryCount = this.webSearchQueryCount
         this.webSearchTimeRange = res.data.web_search_time_range || null
         this.persistedWebSearchTimeRange = this.webSearchTimeRange
+        this.webSearchStartDate = res.data.web_search_start_date || null
+        this.persistedWebSearchStartDate = this.webSearchStartDate
+        this.webSearchEndDate = res.data.web_search_end_date || null
+        this.persistedWebSearchEndDate = this.webSearchEndDate
         this.skillsEnabled = res.data.use_skills || false
         this.activeSkillIds = res.data.skill_ids || []
         return true
@@ -1289,6 +1326,43 @@ export default {
       })
       return this.webSearchSync
     },
+    updateWebSearchDate(boundary, value) {
+      const conversationId = this.conversationId
+      const previousStart = this.persistedWebSearchStartDate
+      const previousEnd = this.persistedWebSearchEndDate
+      const startDate = boundary === 'start' ? value : this.webSearchStartDate
+      const endDate = boundary === 'end' ? value : this.webSearchEndDate
+      this.webSearchStartDate = startDate
+      this.webSearchEndDate = endDate
+
+      if (!conversationId) {
+        this.persistedWebSearchStartDate = startDate
+        this.persistedWebSearchEndDate = endDate
+        return Promise.resolve(true)
+      }
+
+      this.webSearchSync = this.webSearchSync.then(async () => {
+        await api.patch(`/api/conversations/${conversationId}`, {
+          conversation: {
+            web_search_start_date: startDate || null,
+            web_search_end_date: endDate || null
+          }
+        })
+        if (this.conversationId !== conversationId) return true
+        this.persistedWebSearchStartDate = startDate
+        this.persistedWebSearchEndDate = endDate
+        return true
+      }).catch((err) => {
+        console.error('Error updating custom web search dates:', err)
+        if (this.conversationId === conversationId) {
+          this.webSearchStartDate = previousStart
+          this.webSearchEndDate = previousEnd
+          this.$q.notify({ type: 'negative', message: 'Failed to update custom web search dates', position: 'top', timeout: 2000 })
+        }
+        return false
+      })
+      return this.webSearchSync
+    },
     async sendMessage() {
       const text = this.input.trim()
       const model = this.modelCode
@@ -1321,7 +1395,9 @@ export default {
         const initial = {
           use_skills: this.skillsEnabled,
           skill_ids: this.activeSkillIds,
-          web_search_time_range: this.webSearchTimeRange
+          web_search_time_range: this.webSearchTimeRange,
+          web_search_start_date: this.webSearchStartDate,
+          web_search_end_date: this.webSearchEndDate
         }
         if (this.ragEnabled) initial.rag_enabled = true
         await api.patch(`/api/conversations/${this.conversationId}`, { conversation: initial })
@@ -1932,6 +2008,10 @@ export default {
 }
 .web-search-time-range {
   min-width: 140px;
+  padding: 0 10px;
+}
+.web-search-date {
+  min-width: 145px;
   padding: 0 10px;
 }
 .web-search-mode {

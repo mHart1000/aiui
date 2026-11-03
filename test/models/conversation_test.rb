@@ -392,7 +392,7 @@ class ConversationTest < ActiveSupport::TestCase
   end
 
   test "web_search_time_range accepts supported values or no restriction" do
-    [ nil, *WebResearch::ToolRequest::TIME_RANGES ].each do |time_range|
+    [ nil, *Conversation::WEB_SEARCH_TIME_RANGES ].each do |time_range|
       @conversation.web_search_time_range = time_range
       assert @conversation.valid?, time_range.inspect
     end
@@ -400,6 +400,16 @@ class ConversationTest < ActiveSupport::TestCase
     @conversation.web_search_time_range = "week"
     refute @conversation.valid?
     assert_includes @conversation.errors[:web_search_time_range], "is not included in the list"
+  end
+
+  test "custom web search dates are optional and ordered" do
+    @conversation.web_search_time_range = "custom"
+    @conversation.web_search_start_date = Date.new(2019, 1, 1)
+    assert @conversation.valid?
+
+    @conversation.web_search_end_date = Date.new(2018, 12, 31)
+    refute @conversation.valid?
+    assert_includes @conversation.errors[:web_search_end_date], "must be on or after the start date"
   end
 
   test "web search mode and level may be null to mean inherit" do
@@ -414,6 +424,8 @@ class ConversationTest < ActiveSupport::TestCase
     @conversation.web_search_level = "high"
     @conversation.web_search_query_count = 1
     @conversation.web_search_time_range = "month"
+    @conversation.web_search_start_date = Date.new(2019, 1, 1)
+    @conversation.web_search_end_date = Date.new(2023, 12, 31)
     @conversation.save!
     message = @conversation.messages.create!(role: "user", content: "one")
 
@@ -423,6 +435,8 @@ class ConversationTest < ActiveSupport::TestCase
     assert_equal "high", forked.web_search_level
     assert_equal 1, forked.web_search_query_count
     assert_equal "month", forked.web_search_time_range
+    assert_equal Date.new(2019, 1, 1), forked.web_search_start_date
+    assert_equal Date.new(2023, 12, 31), forked.web_search_end_date
   end
 
   test "fork_at keeps a null override inheriting" do
@@ -437,6 +451,8 @@ class ConversationTest < ActiveSupport::TestCase
     assert_nil forked.web_search_level
     assert_nil forked.web_search_query_count
     assert_nil forked.web_search_time_range
+    assert_nil forked.web_search_start_date
+    assert_nil forked.web_search_end_date
   end
 
   # truncate_from_message

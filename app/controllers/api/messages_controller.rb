@@ -64,6 +64,8 @@ module Api
           web_search_level: conversation.resolved_web_search_level,
           web_search_query_count: conversation.resolved_web_search_query_count,
           web_search_time_range: conversation.web_search_time_range,
+          web_search_start_date: conversation.web_search_start_date,
+          web_search_end_date: conversation.web_search_end_date,
           time_zone: params[:time_zone],
           has_pdf_sources: conversation.messages.where("pdf_sources <> '[]'::jsonb").exists?
         ) do |chunk, phase|
