@@ -124,6 +124,38 @@
               @update:model-value="updateWebSearchQueryCount"
             >
             </q-select>
+            <q-select
+              v-if="webSearchMode !== 'off'"
+              :model-value="webSearchTimeRange"
+              :options="webSearchTimeRangeOptions"
+              label="Time range"
+              aria-label="Web search time range"
+              class="web-search-time-range"
+              emit-value
+              map-options
+              borderless
+              @update:model-value="updateWebSearchTimeRange"
+            />
+            <template v-if="webSearchMode !== 'off' && webSearchTimeRange === 'custom'">
+              <q-input
+                :model-value="webSearchStartDate"
+                type="date"
+                label="Start date"
+                aria-label="Web search start date"
+                class="web-search-date"
+                borderless
+                @update:model-value="updateWebSearchDate('start', $event)"
+              />
+              <q-input
+                :model-value="webSearchEndDate"
+                type="date"
+                label="End date"
+                aria-label="Web search end date"
+                class="web-search-date"
+                borderless
+                @update:model-value="updateWebSearchDate('end', $event)"
+              />
+            </template>
           </div>
           <q-btn
             flat
@@ -628,6 +660,19 @@ export default {
     webSearchQueryCount: 2,
     persistedWebSearchQueryCount: 2,
     userWebSearchQueryCount: 2,
+    webSearchTimeRange: null,
+    persistedWebSearchTimeRange: null,
+    webSearchTimeRangeOptions: [
+      { label: 'No restriction', value: null },
+      { label: 'Past day', value: 'day' },
+      { label: 'Past month', value: 'month' },
+      { label: 'Past year', value: 'year' },
+      { label: 'Custom', value: 'custom' }
+    ],
+    webSearchStartDate: null,
+    persistedWebSearchStartDate: null,
+    webSearchEndDate: null,
+    persistedWebSearchEndDate: null,
     webSearchLevels: ['low', 'medium', 'high'],
     webSearchProfiles: {},
     webSearchSync: Promise.resolve(true),
@@ -718,6 +763,12 @@ export default {
           this.persistedWebSearchLevel = this.userWebSearchLevel
           this.webSearchQueryCount = this.userWebSearchQueryCount
           this.persistedWebSearchQueryCount = this.userWebSearchQueryCount
+          this.webSearchTimeRange = null
+          this.persistedWebSearchTimeRange = null
+          this.webSearchStartDate = null
+          this.persistedWebSearchStartDate = null
+          this.webSearchEndDate = null
+          this.persistedWebSearchEndDate = null
         }
       }
     },
@@ -1034,6 +1085,12 @@ export default {
         this.activeSkillIds = this.defaultSkillIds
         this.webSearchMode = 'off'
         this.persistedWebSearchMode = 'off'
+        this.webSearchTimeRange = null
+        this.persistedWebSearchTimeRange = null
+        this.webSearchStartDate = null
+        this.persistedWebSearchStartDate = null
+        this.webSearchEndDate = null
+        this.persistedWebSearchEndDate = null
         this.webSearchSync = Promise.resolve(true)
       }
     },
@@ -1085,6 +1142,12 @@ export default {
         this.persistedWebSearchLevel = this.webSearchLevel
         this.webSearchQueryCount = res.data.web_search_query_count
         this.persistedWebSearchQueryCount = this.webSearchQueryCount
+        this.webSearchTimeRange = res.data.web_search_time_range || null
+        this.persistedWebSearchTimeRange = this.webSearchTimeRange
+        this.webSearchStartDate = res.data.web_search_start_date || null
+        this.persistedWebSearchStartDate = this.webSearchStartDate
+        this.webSearchEndDate = res.data.web_search_end_date || null
+        this.persistedWebSearchEndDate = this.webSearchEndDate
         this.skillsEnabled = res.data.use_skills || false
         this.activeSkillIds = res.data.skill_ids || []
         return true
@@ -1236,6 +1299,70 @@ export default {
       })
       return this.webSearchSync
     },
+    updateWebSearchTimeRange(value) {
+      const conversationId = this.conversationId
+      const previous = this.persistedWebSearchTimeRange
+      this.webSearchTimeRange = value
+
+      if (!conversationId) {
+        this.persistedWebSearchTimeRange = value
+        return Promise.resolve(true)
+      }
+
+      this.webSearchSync = this.webSearchSync.then(async () => {
+        await api.patch(`/api/conversations/${conversationId}`, {
+          conversation: { web_search_time_range: value }
+        })
+        if (this.conversationId !== conversationId) return true
+        this.persistedWebSearchTimeRange = value
+        return true
+      }).catch((err) => {
+        console.error('Error updating web search time range:', err)
+        if (this.conversationId === conversationId) {
+          this.webSearchTimeRange = previous
+          this.$q.notify({ type: 'negative', message: 'Failed to update web search time range', position: 'top', timeout: 2000 })
+        }
+        return false
+      })
+      return this.webSearchSync
+    },
+    updateWebSearchDate(boundary, value) {
+      const conversationId = this.conversationId
+      const previousStart = this.persistedWebSearchStartDate
+      const previousEnd = this.persistedWebSearchEndDate
+      const startDate = boundary === 'start' ? value : this.webSearchStartDate
+      const endDate = boundary === 'end' ? value : this.webSearchEndDate
+      this.webSearchStartDate = startDate
+      this.webSearchEndDate = endDate
+
+      if (!conversationId) {
+        this.persistedWebSearchStartDate = startDate
+        this.persistedWebSearchEndDate = endDate
+        return Promise.resolve(true)
+      }
+
+      this.webSearchSync = this.webSearchSync.then(async () => {
+        await api.patch(`/api/conversations/${conversationId}`, {
+          conversation: {
+            web_search_start_date: startDate || null,
+            web_search_end_date: endDate || null
+          }
+        })
+        if (this.conversationId !== conversationId) return true
+        this.persistedWebSearchStartDate = startDate
+        this.persistedWebSearchEndDate = endDate
+        return true
+      }).catch((err) => {
+        console.error('Error updating custom web search dates:', err)
+        if (this.conversationId === conversationId) {
+          this.webSearchStartDate = previousStart
+          this.webSearchEndDate = previousEnd
+          this.$q.notify({ type: 'negative', message: 'Failed to update custom web search dates', position: 'top', timeout: 2000 })
+        }
+        return false
+      })
+      return this.webSearchSync
+    },
     async sendMessage() {
       const text = this.input.trim()
       const model = this.modelCode
@@ -1265,7 +1392,13 @@ export default {
         this.conversationId = convRes.data.id
 
         // Toolbar settings chosen before the first send are applied here.
-        const initial = { use_skills: this.skillsEnabled, skill_ids: this.activeSkillIds }
+        const initial = {
+          use_skills: this.skillsEnabled,
+          skill_ids: this.activeSkillIds,
+          web_search_time_range: this.webSearchTimeRange,
+          web_search_start_date: this.webSearchStartDate,
+          web_search_end_date: this.webSearchEndDate
+        }
         if (this.ragEnabled) initial.rag_enabled = true
         await api.patch(`/api/conversations/${this.conversationId}`, { conversation: initial })
       }
@@ -1871,6 +2004,14 @@ export default {
 }
 .web-search-query-count {
   min-width: 100px;
+  padding: 0 10px;
+}
+.web-search-time-range {
+  min-width: 140px;
+  padding: 0 10px;
+}
+.web-search-date {
+  min-width: 145px;
   padding: 0 10px;
 }
 .web-search-mode {

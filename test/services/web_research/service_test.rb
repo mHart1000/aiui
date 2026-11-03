@@ -1,6 +1,57 @@
 require "test_helper"
 
 class WebResearch::ServiceTest < ActiveSupport::TestCase
+  test "passes the requested time range to every search and records it in metadata" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "recent changes" ], "time_range" => "month" }, last_four_user_messages: "")
+    calls = []
+    adapter = Object.new
+    adapter.define_singleton_method(:search) do |query, **options|
+      calls << [ query, options[:time_range] ]
+      [ { url: "https://example.com", title: "Example", snippet: "" } ]
+    end
+    fetcher = Object.new
+    fetcher.define_singleton_method(:fetch) { |*, **| "Useful evidence" }
+
+    result = WebResearch::Service.new(request: request, adapter: adapter, fetcher: fetcher, time_range: "year").call
+
+    assert_equal [ [ "recent changes", "year" ] ], calls
+    assert_equal "year", result[:metadata][:time_range]
+  end
+
+  test "adds optional custom date operators to outbound queries" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "historical changes" ] }, last_four_user_messages: "")
+    calls = []
+    adapter = Object.new
+    adapter.define_singleton_method(:search) do |query, **options|
+      calls << [ query, options[:time_range] ]
+      []
+    end
+
+    result = WebResearch::Service.new(request: request, adapter: adapter, time_range: "custom",
+      start_date: Date.new(2019, 1, 1), end_date: Date.new(2023, 12, 31)).call
+
+    expected_query = "historical changes after:2019-01-01 before:2024-01-01"
+    assert_equal [ [ expected_query, nil ] ], calls
+    assert_equal [ expected_query ], result[:metadata][:queries]
+    assert_equal "custom", result[:metadata][:time_range]
+    assert_equal "2019-01-01", result[:metadata][:start_date]
+    assert_equal "2023-12-31", result[:metadata][:end_date]
+  end
+
+  test "supports either custom date independently" do
+    request = WebResearch::ToolRequest.new({ "queries" => [ "historical changes" ] }, last_four_user_messages: "")
+    calls = []
+    adapter = Object.new
+    adapter.define_singleton_method(:search) { |query, **| calls << query; [] }
+
+    WebResearch::Service.new(request: request, adapter: adapter, time_range: "custom",
+      start_date: Date.new(2019, 1, 1)).call
+    WebResearch::Service.new(request: request, adapter: adapter, time_range: "custom",
+      end_date: Date.new(2023, 12, 31)).call
+
+    assert_equal [ "historical changes after:2019-01-01", "historical changes before:2024-01-01" ], calls
+  end
+
   test "stops an empty failed batch but retains previous results and direct URLs" do
     request = WebResearch::ToolRequest.new({ "queries" => [ "first", "second", "third" ], "urls" => [ "https://direct.example" ] }, last_four_user_messages: "https://direct.example", max_queries: 3)
     calls = []
@@ -257,7 +308,7 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
     request = WebResearch::ToolRequest.new({ "queries" => [ "example query" ] }, last_four_user_messages: "")
     adapter = Object.new
     adapter.define_singleton_method(:search) do |_query, **_options|
-      [ { title: "One", url: "https://example.com/one?tracking=secret", snippet: "", published_at: nil } ]
+      [ { title: "One", url: "https://example.com/one?tracking=secret", snippet: "", published_at: "2026-10-31" } ]
     end
     fetcher = Object.new
     fetcher.define_singleton_method(:fetch) { |_url, **| "Useful source text" }
@@ -268,6 +319,7 @@ class WebResearch::ServiceTest < ActiveSupport::TestCase
 
     assert_includes log_output, 'WEBRESEARCH EVENT=search_started data={"query":"example query"'
     assert_includes log_output, "https://example.com/one"
+    assert_includes log_output, '"published_at":"2026-10-31"'
     refute_includes log_output, "tracking=secret"
     assert_includes log_output, "WEBRESEARCH EVENT=page_extract_ready"
     assert_includes log_output, "Useful source text"

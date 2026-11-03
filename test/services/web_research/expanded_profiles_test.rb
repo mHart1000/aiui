@@ -4,6 +4,12 @@ require Rails.root.join("db/migrate/20261004000000_rename_high_web_search_level_
 require Rails.root.join("db/migrate/20261011000000_add_web_search_query_count")
 
 class ExpandedProfilesTest < ActiveSupport::TestCase
+  self.use_transactional_tests = false
+
+  teardown do
+    User.where(email: [ "query-migration@example.com", "migration@example.com" ]).destroy_all
+  end
+
   test "selector applies the requested query count within the level ceiling" do
     [ [ "high", 1, 1 ], [ "high", 5, 5 ], [ "low", 5, 2 ], [ "medium", 5, 3 ], [ "low", 1, 1 ], [ "medium", 1, 1 ] ].each do |level, count, effective_count|
       profile = WebResearch::Profile.for_level(level)
@@ -56,6 +62,10 @@ class ExpandedProfilesTest < ActiveSupport::TestCase
     migration.suppress_messages do
       migration.down
       migration.up
+    end
+    ActiveRecord::Base.connection_pool.connections.each do |connection|
+      connection.clear_cache!
+      connection.schema_cache.clear!
     end
     User.reset_column_information
     Conversation.reset_column_information

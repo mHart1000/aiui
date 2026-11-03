@@ -63,7 +63,7 @@ class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
     http = FakeHttp.new(response: ChunkedResponse.new(chunks: [ { "results" => results }.to_json ]))
 
     Net::HTTP.stub(:new, http) do
-      normalized = adapter.search("latest news", count: 10)
+      normalized = adapter.search("latest news", count: 10, time_range: "year")
 
       assert_equal WebResearch::SearxngAdapter::MAX_RESULTS, normalized.length
       assert_equal WebResearch::SearxngAdapter::MAX_TITLE_LENGTH, normalized.first[:title].length
@@ -74,7 +74,9 @@ class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
 
     assert_instance_of Net::HTTP::Post, http.last_request
     assert_equal "identity", http.last_request["Accept-Encoding"]
-    assert_includes http.last_request.body, "format=json"
+    params = URI.decode_www_form(http.last_request.body).to_h
+    assert_equal "json", params["format"]
+    assert_equal "year", params["time_range"]
   end
 
   test "discards malformed and unsafe provider results" do
@@ -167,6 +169,7 @@ class WebResearch::SearxngAdapterTest < ActiveSupport::TestCase
       assert_equal "google cse__general", params["disabled_engines"]
       assert_equal 'next "!goc"', params["q"]
       assert_equal "general", params["categories"]
+      refute params.key?("time_range")
       skip = logged.find { |event, _| event == "search_engine_skipped" }.last
       assert_equal "google cse", skip[:engine]
       assert_equal failures.first.last, skip[:reason]

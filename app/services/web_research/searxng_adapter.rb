@@ -30,7 +30,7 @@ module WebResearch
       @pacer = pacer || SearchPacer.new(interval: interval)
     end
 
-    def search(query, count: MAX_RESULTS, deadline: monotonic_now + 20)
+    def search(query, count: MAX_RESULTS, deadline: monotonic_now + 20, time_range: nil)
       raise Error, "SearXNG is not configured" unless @base_url
 
       @pacer.call(deadline: deadline) do |cooldowns|
@@ -40,13 +40,13 @@ module WebResearch
             remaining_seconds: (data.fetch("retry_at") - Time.now.to_f).ceil)
         end
         AuditLog.info("search_request_sent", query: query, sent_at: Time.current.iso8601(3))
-        perform_search(query, count: count, deadline: deadline, cooldowns: cooldowns)
+        perform_search(query, count: count, deadline: deadline, cooldowns: cooldowns, time_range: time_range)
       end
     end
 
     private
 
-    def perform_search(query, count:, deadline:, cooldowns:)
+    def perform_search(query, count:, deadline:, cooldowns:, time_range:)
       uri = URI.join(@base_url.end_with?("/") ? @base_url : "#{@base_url}/", "search")
       request = Net::HTTP::Post.new(uri)
       request["Content-Type"] = "application/x-www-form-urlencoded"
@@ -54,6 +54,7 @@ module WebResearch
       # Treat bang tokens as search text so they cannot override engine exclusions.
       search_text = query.gsub(/(?<!\S)![^\s]+/) { |token| %Q("#{token}") }
       params = { q: search_text, format: "json", categories: "general" }
+      params[:time_range] = time_range if time_range
       params[:disabled_engines] = cooldowns.keys.map { |engine| "#{engine}__general" }.join(",") if cooldowns.any?
       request.body = URI.encode_www_form(params)
 

@@ -187,11 +187,12 @@ module Api
       assert_equal @conversation.resolved_web_search_query_count, body["web_search_query_count"]
       assert_equal "always", body["web_search_mode"]
       assert_equal "high", body["web_search_level"]
+      assert_nil body["web_search_time_range"]
     end
 
     test "show uses the conversation override when set" do
       @user.update!(web_search_mode: "auto", web_search_level: "low")
-      @conversation.update!(web_search_mode: "always", web_search_level: "high")
+      @conversation.update!(web_search_mode: "always", web_search_level: "high", web_search_time_range: "year")
 
       get "/api/conversations/#{@conversation.id}", headers: @headers
 
@@ -199,6 +200,7 @@ module Api
       assert_equal @conversation.resolved_web_search_query_count, body["web_search_query_count"]
       assert_equal "always", body["web_search_mode"]
       assert_equal "high", body["web_search_level"]
+      assert_equal "year", body["web_search_time_range"]
     end
 
     test "update persists the web search level override" do
@@ -208,6 +210,32 @@ module Api
       assert_response :success
       assert_equal "high", @conversation.reload.web_search_level
       assert_equal "high", JSON.parse(response.body)["web_search_level"]
+    end
+
+    test "update persists and clears the conversation-only web search time range" do
+      patch "/api/conversations/#{@conversation.id}",
+            params: { conversation: { web_search_time_range: "custom", web_search_start_date: "2019-01-01", web_search_end_date: "2023-12-31" } }, headers: @headers, as: :json
+
+      assert_response :success
+      assert_equal "custom", @conversation.reload.web_search_time_range
+      body = JSON.parse(response.body)
+      assert_equal "custom", body["web_search_time_range"]
+      assert_equal "2019-01-01", body["web_search_start_date"]
+      assert_equal "2023-12-31", body["web_search_end_date"]
+
+      patch "/api/conversations/#{@conversation.id}",
+            params: { conversation: { web_search_time_range: nil } }, headers: @headers, as: :json
+
+      assert_response :success
+      assert_nil @conversation.reload.web_search_time_range
+    end
+
+    test "update rejects reversed custom web search dates" do
+      patch "/api/conversations/#{@conversation.id}",
+            params: { conversation: { web_search_time_range: "custom", web_search_start_date: "2024-01-01", web_search_end_date: "2023-12-31" } }, headers: @headers, as: :json
+
+      assert_response :unprocessable_entity
+      assert_nil @conversation.reload.web_search_time_range
     end
 
     test "web search settings atomically update the conversation and user default" do
@@ -253,6 +281,7 @@ module Api
       entry = JSON.parse(response.body).find { |c| c["id"] == @conversation.id }
       assert_equal "auto", entry["web_search_mode"]
       assert_equal "high", entry["web_search_level"]
+      assert_nil entry["web_search_time_range"]
     end
   end
 end

@@ -27,12 +27,12 @@ class ChatService
     6. Response Strategy: If answerable, how should the response be structured?
   PROMPT
 
-  def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil, rag_context: nil, project_description: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, has_pdf_sources: false, reasoning_effort: nil, time_zone: nil, log_stats: true, &block)
-    new(messages: messages, model: model, use_persona: use_persona, use_scaffolding: use_scaffolding, stream: stream, max_tokens: max_tokens, rag_context: rag_context, project_description: project_description, persona_id: persona_id, skills: skills, web_search_mode: web_search_mode, web_search_level: web_search_level, web_search_query_count: web_search_query_count, has_pdf_sources: has_pdf_sources, reasoning_effort: reasoning_effort, time_zone: time_zone, log_stats: log_stats).call(&block)
+  def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil, rag_context: nil, project_description: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, web_search_time_range: nil, web_search_start_date: nil, web_search_end_date: nil, has_pdf_sources: false, reasoning_effort: nil, time_zone: nil, log_stats: true, &block)
+    new(messages: messages, model: model, use_persona: use_persona, use_scaffolding: use_scaffolding, stream: stream, max_tokens: max_tokens, rag_context: rag_context, project_description: project_description, persona_id: persona_id, skills: skills, web_search_mode: web_search_mode, web_search_level: web_search_level, web_search_query_count: web_search_query_count, web_search_time_range: web_search_time_range, web_search_start_date: web_search_start_date, web_search_end_date: web_search_end_date, has_pdf_sources: has_pdf_sources, reasoning_effort: reasoning_effort, time_zone: time_zone, log_stats: log_stats).call(&block)
   end
 
   # skills is an array of { id:, name:, content:, version: } hashes resolved by the caller.
-  def initialize(messages:, model:, use_persona:, use_scaffolding:, stream:, max_tokens:, rag_context: nil, project_description: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, has_pdf_sources: false, reasoning_effort: nil, time_zone: nil, log_stats: true)
+  def initialize(messages:, model:, use_persona:, use_scaffolding:, stream:, max_tokens:, rag_context: nil, project_description: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, web_search_time_range: nil, web_search_start_date: nil, web_search_end_date: nil, has_pdf_sources: false, reasoning_effort: nil, time_zone: nil, log_stats: true)
     @messages = messages
     @model_id = model.presence || FALLBACK_MODEL
     @use_persona = use_persona
@@ -42,6 +42,9 @@ class ChatService
     @web_search_level = web_search_level.to_s.presence || WebResearch::Profile::DEFAULT_LEVEL
     @budgets = WebResearch::Profile.for_level(@web_search_level)
     @web_search_query_count = [ web_search_query_count, @budgets[:max_queries] ].min
+    @web_search_time_range = web_search_time_range
+    @web_search_start_date = web_search_start_date
+    @web_search_end_date = web_search_end_date
     @max_tokens = max_tokens || @budgets[:max_tokens]
     @project_description = project_description.presence
     @rag_context = rag_context.presence
@@ -432,12 +435,15 @@ class ChatService
     outcome = measure_web_stage(:research) do
       WebResearch::Service.new(
         request: request,
+        time_range: @web_search_time_range,
+        start_date: @web_search_start_date,
+        end_date: @web_search_end_date,
         budgets: @budgets,
         max_evidence_chars: @rag_context ? @budgets[:web_evidence_chars_with_rag] : @budgets[:web_evidence_chars],
         on_progress: ->(stage, data) { emit_research_event(block, stage, data) }
       ).call
     end
-    outcome.merge(tool_call: normalized_tool_call(request))
+    outcome.merge(tool_call: normalized_tool_call(request, time_range: @web_search_time_range))
   rescue WebResearch::ToolRequest::InvalidRequest, AiAdapters::LlamaAdapter::Error, JSON::ParserError, Net::OpenTimeout, Net::ReadTimeout, SocketError, EOFError, IOError => e
     Rails.logger.warn(web_selection_error_log(e, selection))
     Rails.logger.debug { "WebResearch selector model output #{web_selection_debug_dump(selection)}" }
@@ -447,13 +453,16 @@ class ChatService
     { metadata: metadata }
   end
 
-  def normalized_tool_call(request)
+  def normalized_tool_call(request, time_range:)
     {
       role: "assistant",
       tool_calls: [ {
         id: "research_web",
         type: "function",
-        function: { name: WebResearch::ToolRequest::TOOL_NAME, arguments: { queries: request.queries, urls: request.urls }.to_json }
+        function: {
+          name: WebResearch::ToolRequest::TOOL_NAME,
+          arguments: { queries: request.queries, urls: request.urls, time_range: time_range }.compact.to_json
+        }
       } ]
     }
   end
