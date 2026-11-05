@@ -685,6 +685,7 @@ export default {
     persistedWebSearchLevel: 'low',
     webSearchTiming: 'low',
     persistedWebSearchTiming: 'low',
+    webSearchTimingRevision: 0,
     userWebSearchMode: 'off',
     userWebSearchLevel: 'low',
     userWebSearchTiming: 'low',
@@ -1351,7 +1352,7 @@ export default {
     },
     updateWebSearchTiming(value) {
       const conversationId = this.conversationId
-      const previous = this.webSearchTiming
+      const revision = ++this.webSearchTimingRevision
       this.webSearchTiming = value
 
       this.webSearchSync = this.webSearchSync.then(async () => {
@@ -1369,7 +1370,9 @@ export default {
       }).catch((err) => {
         console.error('Error updating web search timing:', err)
         if (this.conversationId === conversationId) {
-          this.webSearchTiming = previous
+          if (this.webSearchTimingRevision === revision) {
+            this.webSearchTiming = this.persistedWebSearchTiming
+          }
           this.$q.notify({ type: 'negative', message: 'Failed to update web research setting', position: 'top', timeout: 2000 })
         }
         return false
