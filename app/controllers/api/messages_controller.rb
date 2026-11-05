@@ -62,6 +62,7 @@ module Api
           skills: fetch_skills(conversation),
           web_search_mode: conversation.resolved_web_search_mode,
           web_search_level: conversation.resolved_web_search_level,
+          web_search_timing: conversation.resolved_web_search_timing,
           web_search_query_count: conversation.resolved_web_search_query_count,
           web_search_time_range: conversation.web_search_time_range,
           web_search_start_date: conversation.web_search_start_date,

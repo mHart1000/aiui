@@ -62,6 +62,14 @@ class UserTest < ActiveSupport::TestCase
     assert_includes @user.errors[:web_search_level], "is not included in the list"
   end
 
+  test "web_search_timing defaults to low and rejects unknown values" do
+    @user.save!
+    assert_equal "low", @user.reload.web_search_timing
+    @user.web_search_timing = "ultra"
+    assert_not @user.valid?
+    assert_includes @user.errors[:web_search_timing], "is not included in the list"
+  end
+
   # associations
   test "destroying a user destroys their conversations" do
     @user.save!

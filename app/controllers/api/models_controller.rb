@@ -6,7 +6,9 @@ module Api
       render json: {
         models: AI_MODELS,
         local_image_input: AiModels.local_image_input,
-        web_search_profiles: WebResearch::Profile::PROFILES
+        web_search_profiles: WebResearch::Profile::PROFILES,
+        web_search_timing_profiles: WebResearch::TimingProfile::PROFILES,
+        web_search_query_counts: WebResearch::ToolRequest::QUERY_COUNT_RANGE.to_a
       }
     end
 

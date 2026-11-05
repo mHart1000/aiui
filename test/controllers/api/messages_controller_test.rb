@@ -136,12 +136,13 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
   end
 
   test "create_streaming serializes web research events with their stage data" do
-    @conversation.update!(web_search_level: "high", web_search_query_count: 1, web_search_time_range: "custom",
+    @conversation.update!(web_search_level: "high", web_search_timing: "medium", web_search_query_count: 1, web_search_time_range: "custom",
       web_search_start_date: Date.new(2019, 1, 1), web_search_end_date: Date.new(2023, 12, 31))
     controller = build_controller(@conversation)
     research = { status: "complete", provider: "searxng", queries: [ "latest news" ], sources: [] }
     service = lambda do |**kwargs, &block|
       assert_equal "high", kwargs[:web_search_level]
+      assert_equal "medium", kwargs[:web_search_timing]
       assert_equal 1, kwargs[:web_search_query_count]
       assert_equal "custom", kwargs[:web_search_time_range]
       assert_equal Date.new(2019, 1, 1), kwargs[:web_search_start_date]

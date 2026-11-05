@@ -27,12 +27,12 @@ class ChatService
     6. Response Strategy: If answerable, how should the response be structured?
   PROMPT
 
-  def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil, rag_context: nil, project_description: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, web_search_time_range: nil, web_search_start_date: nil, web_search_end_date: nil, has_pdf_sources: false, reasoning_effort: nil, time_zone: nil, log_stats: true, &block)
-    new(messages: messages, model: model, use_persona: use_persona, use_scaffolding: use_scaffolding, stream: stream, max_tokens: max_tokens, rag_context: rag_context, project_description: project_description, persona_id: persona_id, skills: skills, web_search_mode: web_search_mode, web_search_level: web_search_level, web_search_query_count: web_search_query_count, web_search_time_range: web_search_time_range, web_search_start_date: web_search_start_date, web_search_end_date: web_search_end_date, has_pdf_sources: has_pdf_sources, reasoning_effort: reasoning_effort, time_zone: time_zone, log_stats: log_stats).call(&block)
+  def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil, rag_context: nil, project_description: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_timing: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, web_search_time_range: nil, web_search_start_date: nil, web_search_end_date: nil, has_pdf_sources: false, reasoning_effort: nil, time_zone: nil, log_stats: true, &block)
+    new(messages: messages, model: model, use_persona: use_persona, use_scaffolding: use_scaffolding, stream: stream, max_tokens: max_tokens, rag_context: rag_context, project_description: project_description, persona_id: persona_id, skills: skills, web_search_mode: web_search_mode, web_search_level: web_search_level, web_search_timing: web_search_timing, web_search_query_count: web_search_query_count, web_search_time_range: web_search_time_range, web_search_start_date: web_search_start_date, web_search_end_date: web_search_end_date, has_pdf_sources: has_pdf_sources, reasoning_effort: reasoning_effort, time_zone: time_zone, log_stats: log_stats).call(&block)
   end
 
   # skills is an array of { id:, name:, content:, version: } hashes resolved by the caller.
-  def initialize(messages:, model:, use_persona:, use_scaffolding:, stream:, max_tokens:, rag_context: nil, project_description: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, web_search_time_range: nil, web_search_start_date: nil, web_search_end_date: nil, has_pdf_sources: false, reasoning_effort: nil, time_zone: nil, log_stats: true)
+  def initialize(messages:, model:, use_persona:, use_scaffolding:, stream:, max_tokens:, rag_context: nil, project_description: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_timing: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, web_search_time_range: nil, web_search_start_date: nil, web_search_end_date: nil, has_pdf_sources: false, reasoning_effort: nil, time_zone: nil, log_stats: true)
     @messages = messages
     @model_id = model.presence || FALLBACK_MODEL
     @use_persona = use_persona
@@ -41,7 +41,8 @@ class ChatService
     @web_search_mode = web_search_mode.to_s
     @web_search_level = web_search_level.to_s.presence || WebResearch::Profile::DEFAULT_LEVEL
     @budgets = WebResearch::Profile.for_level(@web_search_level)
-    @web_search_query_count = [ web_search_query_count, @budgets[:max_queries] ].min
+    @timing_budgets = WebResearch::TimingProfile.for_level(web_search_timing.presence || WebResearch::TimingProfile::DEFAULT_LEVEL)
+    @web_search_query_count = web_search_query_count
     @web_search_time_range = web_search_time_range
     @web_search_start_date = web_search_start_date
     @web_search_end_date = web_search_end_date
@@ -439,6 +440,7 @@ class ChatService
         start_date: @web_search_start_date,
         end_date: @web_search_end_date,
         budgets: @budgets,
+        timing_budgets: @timing_budgets,
         max_evidence_chars: @rag_context ? @budgets[:web_evidence_chars_with_rag] : @budgets[:web_evidence_chars],
         on_progress: ->(stage, data) { emit_research_event(block, stage, data) }
       ).call

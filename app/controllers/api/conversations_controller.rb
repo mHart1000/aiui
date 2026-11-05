@@ -14,6 +14,7 @@ module Api
           rag_enabled: c.rag_enabled,
           web_search_mode: c.resolved_web_search_mode,
           web_search_level: c.resolved_web_search_level,
+          web_search_timing: c.resolved_web_search_timing,
           web_search_query_count: c.resolved_web_search_query_count,
           web_search_time_range: c.web_search_time_range,
           web_search_start_date: c.web_search_start_date,
@@ -49,6 +50,7 @@ module Api
           rag_enabled: c.rag_enabled,
           web_search_mode: c.resolved_web_search_mode,
           web_search_level: c.resolved_web_search_level,
+          web_search_timing: c.resolved_web_search_timing,
           web_search_query_count: c.resolved_web_search_query_count,
           web_search_time_range: c.web_search_time_range,
           web_search_start_date: c.web_search_start_date,
@@ -70,6 +72,7 @@ module Api
         rag_enabled: conversation.rag_enabled,
         web_search_mode: conversation.resolved_web_search_mode,
         web_search_level: conversation.resolved_web_search_level,
+        web_search_timing: conversation.resolved_web_search_timing,
         web_search_query_count: conversation.resolved_web_search_query_count,
         web_search_time_range: conversation.web_search_time_range,
         web_search_start_date: conversation.web_search_start_date,
@@ -166,6 +169,7 @@ module Api
         rag_enabled: conversation.rag_enabled,
         web_search_mode: conversation.resolved_web_search_mode,
         web_search_level: conversation.resolved_web_search_level,
+        web_search_timing: conversation.resolved_web_search_timing,
         web_search_query_count: conversation.resolved_web_search_query_count,
         web_search_time_range: conversation.web_search_time_range,
         web_search_start_date: conversation.web_search_start_date,
@@ -194,11 +198,11 @@ module Api
     end
 
     def conversation_params
-      params.require(:conversation).permit(:project_id, :title, :rag_enabled, :web_search_mode, :web_search_level, :web_search_query_count, :web_search_time_range, :web_search_start_date, :web_search_end_date, :use_skills, skill_ids: [])
+      params.require(:conversation).permit(:project_id, :title, :rag_enabled, :web_search_mode, :web_search_level, :web_search_timing, :web_search_query_count, :web_search_time_range, :web_search_start_date, :web_search_end_date, :use_skills, skill_ids: [])
     end
 
     def web_search_settings_params
-      params.require(:web_search).permit(:web_search_mode, :web_search_level, :web_search_query_count)
+      params.require(:web_search).permit(:web_search_mode, :web_search_level, :web_search_timing, :web_search_query_count)
     end
   end
 end

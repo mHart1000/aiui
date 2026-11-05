@@ -114,8 +114,36 @@
                 </button>
               </div>
             </div>
+            <div class="web-search-field web-search-level">
+              <span class="text-caption text-grey-7">Search timing</span>
+              <q-slider
+                v-model="webSearchTimingIndex"
+                :min="0"
+                :max="webSearchTimingLevels.length - 1"
+                :step="1"
+                aria-label="Search timing"
+                :aria-valuetext="webSearchTimingLabels[webSearchTimingIndex]"
+                dense
+              />
+              <div class="web-search-level-options">
+                <button
+                  v-for="(level, index) in webSearchTimingLevels"
+                  :key="level"
+                  type="button"
+                  class="text-caption"
+                  :class="{ 'text-primary text-weight-bold': level === webSearchTiming }"
+                  :aria-pressed="level === webSearchTiming"
+                  @click="webSearchTimingIndex = index"
+                >
+                  {{ webSearchTimingLabels[index] }}
+                  <q-tooltip v-if="webSearchTimingProfiles[level]" anchor="bottom middle" self="top middle">
+                    Search: {{ webSearchTimingProfiles[level].search_deadline_seconds }}s · Overall retrieval: {{ webSearchTimingProfiles[level].research_deadline_seconds }}s (includes search)
+                  </q-tooltip>
+                </button>
+              </div>
+            </div>
             <q-select
-              :model-value="effectiveWebSearchQueryCount"
+              :model-value="webSearchQueryCount"
               :options="webSearchQueryOptions"
               label="Queries"
               aria-label="Maximum search queries"
@@ -655,8 +683,11 @@ export default {
     persistedWebSearchMode: 'off',
     webSearchLevel: 'low',
     persistedWebSearchLevel: 'low',
+    webSearchTiming: 'low',
+    persistedWebSearchTiming: 'low',
     userWebSearchMode: 'off',
     userWebSearchLevel: 'low',
+    userWebSearchTiming: 'low',
     webSearchQueryCount: 2,
     persistedWebSearchQueryCount: 2,
     userWebSearchQueryCount: 2,
@@ -675,6 +706,9 @@ export default {
     persistedWebSearchEndDate: null,
     webSearchLevels: ['low', 'medium', 'high'],
     webSearchProfiles: {},
+    webSearchTimingLevels: ['low', 'medium', 'high'],
+    webSearchTimingProfiles: {},
+    webSearchQueryOptions: [1, 2, 3, 4, 5],
     webSearchSync: Promise.resolve(true),
     skillsOpen: false,
     skillsEnabled: false,
@@ -698,6 +732,9 @@ export default {
     this.localImageInput = modelsRes.data.local_image_input
     this.webSearchProfiles = modelsRes.data.web_search_profiles
     this.webSearchLevels = Object.keys(this.webSearchProfiles)
+    this.webSearchTimingProfiles = modelsRes.data.web_search_timing_profiles
+    this.webSearchTimingLevels = Object.keys(this.webSearchTimingProfiles)
+    this.webSearchQueryOptions = modelsRes.data.web_search_query_counts
     if (!this.modelCode && this.models.length > 0) {
       this.modelCode = DEFAULT_MODEL_ID || String(this.models[0].id)
     }
@@ -715,6 +752,7 @@ export default {
     this.llamaContextWindow = userRes.data.llama_context_window || 8192
     this.userWebSearchMode = userRes.data.web_search_mode || 'off'
     this.userWebSearchLevel = userRes.data.web_search_level || 'low'
+    this.userWebSearchTiming = userRes.data.web_search_timing || 'low'
     this.userWebSearchQueryCount = userRes.data.web_search_query_count
     // A new chat starts from the user's defaults; an existing one is set by loadConversation.
     if (!this.conversationId) {
@@ -722,6 +760,8 @@ export default {
       this.persistedWebSearchMode = this.userWebSearchMode
       this.webSearchLevel = this.userWebSearchLevel
       this.persistedWebSearchLevel = this.userWebSearchLevel
+      this.webSearchTiming = this.userWebSearchTiming
+      this.persistedWebSearchTiming = this.userWebSearchTiming
       this.webSearchQueryCount = this.userWebSearchQueryCount
       this.persistedWebSearchQueryCount = this.userWebSearchQueryCount
     }
@@ -761,6 +801,8 @@ export default {
           this.persistedWebSearchMode = this.userWebSearchMode
           this.webSearchLevel = this.userWebSearchLevel
           this.persistedWebSearchLevel = this.userWebSearchLevel
+          this.webSearchTiming = this.userWebSearchTiming
+          this.persistedWebSearchTiming = this.userWebSearchTiming
           this.webSearchQueryCount = this.userWebSearchQueryCount
           this.persistedWebSearchQueryCount = this.userWebSearchQueryCount
           this.webSearchTimeRange = null
@@ -884,13 +926,6 @@ export default {
         }
       }
     },
-    webSearchQueryOptions() {
-      const limit = this.webSearchProfiles[this.webSearchLevel]?.max_queries ?? 2
-      return Array.from({ length: limit }, (_, index) => index + 1)
-    },
-    effectiveWebSearchQueryCount() {
-      return Math.min(this.webSearchQueryCount, this.webSearchQueryOptions.length)
-    },
     webSearchLevelLabels() {
       return this.webSearchLevels.map(level => level.charAt(0).toUpperCase() + level.slice(1))
     },
@@ -902,6 +937,19 @@ export default {
       set(value) {
         const level = this.webSearchLevels[value]
         if (level && level !== this.webSearchLevel) this.updateWebSearchLevel(level)
+      }
+    },
+    webSearchTimingLabels() {
+      return this.webSearchTimingLevels.map(level => level.charAt(0).toUpperCase() + level.slice(1))
+    },
+    webSearchTimingIndex: {
+      get() {
+        const index = this.webSearchTimingLevels.indexOf(this.webSearchTiming)
+        return index === -1 ? 0 : index
+      },
+      set(value) {
+        const level = this.webSearchTimingLevels[value]
+        if (level && level !== this.webSearchTiming) this.updateWebSearchTiming(level)
       }
     },
     newChatProjectName() {
@@ -1140,6 +1188,8 @@ export default {
         this.persistedWebSearchMode = this.webSearchMode
         this.webSearchLevel = res.data.web_search_level || 'low'
         this.persistedWebSearchLevel = this.webSearchLevel
+        this.webSearchTiming = res.data.web_search_timing || 'low'
+        this.persistedWebSearchTiming = this.webSearchTiming
         this.webSearchQueryCount = res.data.web_search_query_count
         this.persistedWebSearchQueryCount = this.webSearchQueryCount
         this.webSearchTimeRange = res.data.web_search_time_range || null
@@ -1293,6 +1343,33 @@ export default {
         console.error('Error updating web research query count:', err)
         if (this.conversationId === conversationId) {
           this.webSearchQueryCount = this.persistedWebSearchQueryCount
+          this.$q.notify({ type: 'negative', message: 'Failed to update web research setting', position: 'top', timeout: 2000 })
+        }
+        return false
+      })
+      return this.webSearchSync
+    },
+    updateWebSearchTiming(value) {
+      const conversationId = this.conversationId
+      const previous = this.webSearchTiming
+      this.webSearchTiming = value
+
+      this.webSearchSync = this.webSearchSync.then(async () => {
+        if (conversationId) {
+          await api.patch(`/api/conversations/${conversationId}/web_search_settings`, {
+            web_search: { web_search_timing: value }
+          })
+        } else {
+          await api.patch('/api/user', { user: { web_search_timing: value } })
+        }
+        this.userWebSearchTiming = value
+        if (this.conversationId !== conversationId) return true
+        this.persistedWebSearchTiming = value
+        return true
+      }).catch((err) => {
+        console.error('Error updating web search timing:', err)
+        if (this.conversationId === conversationId) {
+          this.webSearchTiming = previous
           this.$q.notify({ type: 'negative', message: 'Failed to update web research setting', position: 'top', timeout: 2000 })
         }
         return false
