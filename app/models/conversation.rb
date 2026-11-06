@@ -22,6 +22,7 @@ class Conversation < ApplicationRecord
 
   validates :web_search_mode, inclusion: { in: %w[off auto always], allow_nil: true }
   validates :web_search_level, inclusion: { in: WebResearch::Profile::LEVELS, allow_nil: true }
+  validates :web_search_timing, inclusion: { in: WebResearch::TimingProfile::LEVELS, allow_nil: true }
   validates :web_search_query_count, numericality: { only_integer: true, in: WebResearch::ToolRequest::QUERY_COUNT_RANGE, allow_nil: true }
   validates :web_search_time_range, inclusion: { in: WEB_SEARCH_TIME_RANGES, allow_nil: true }
   validate :web_search_date_range_is_ordered
@@ -54,6 +55,7 @@ class Conversation < ApplicationRecord
         rag_enabled: rag_enabled,
         web_search_mode: web_search_mode,
         web_search_level: web_search_level,
+        web_search_timing: web_search_timing,
         web_search_query_count: web_search_query_count,
         web_search_time_range: web_search_time_range,
         web_search_start_date: web_search_start_date,
@@ -95,6 +97,10 @@ class Conversation < ApplicationRecord
 
   def resolved_web_search_level
     web_search_level.presence || user.web_search_level.presence || WebResearch::Profile::DEFAULT_LEVEL
+  end
+
+  def resolved_web_search_timing
+    web_search_timing.presence || user.web_search_timing.presence || WebResearch::TimingProfile::DEFAULT_LEVEL
   end
 
   def web_search_date_range_is_ordered

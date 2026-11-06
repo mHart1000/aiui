@@ -391,6 +391,13 @@ class ConversationTest < ActiveSupport::TestCase
     assert_includes @conversation.errors[:web_search_level], "is not included in the list"
   end
 
+  test "resolved web search timing uses override then user default" do
+    @user.update!(web_search_timing: "medium")
+    assert_equal "medium", @conversation.resolved_web_search_timing
+    @conversation.update!(web_search_timing: "high")
+    assert_equal "high", @conversation.resolved_web_search_timing
+  end
+
   test "web_search_time_range accepts supported values or no restriction" do
     [ nil, *Conversation::WEB_SEARCH_TIME_RANGES ].each do |time_range|
       @conversation.web_search_time_range = time_range
@@ -412,9 +419,10 @@ class ConversationTest < ActiveSupport::TestCase
     assert_includes @conversation.errors[:web_search_end_date], "must be on or after the start date"
   end
 
-  test "web search mode and level may be null to mean inherit" do
+  test "web search mode, level, and timing may be null to mean inherit" do
     @conversation.web_search_mode = nil
     @conversation.web_search_level = nil
+    @conversation.web_search_timing = nil
 
     assert @conversation.valid?
   end
@@ -422,6 +430,7 @@ class ConversationTest < ActiveSupport::TestCase
   test "fork_at copies the web search mode and level overrides" do
     @conversation.web_search_mode = "auto"
     @conversation.web_search_level = "high"
+    @conversation.web_search_timing = "medium"
     @conversation.web_search_query_count = 1
     @conversation.web_search_time_range = "month"
     @conversation.web_search_start_date = Date.new(2019, 1, 1)
@@ -433,6 +442,7 @@ class ConversationTest < ActiveSupport::TestCase
 
     assert_equal "auto", forked.web_search_mode
     assert_equal "high", forked.web_search_level
+    assert_equal "medium", forked.web_search_timing
     assert_equal 1, forked.web_search_query_count
     assert_equal "month", forked.web_search_time_range
     assert_equal Date.new(2019, 1, 1), forked.web_search_start_date
@@ -442,6 +452,7 @@ class ConversationTest < ActiveSupport::TestCase
   test "fork_at keeps a null override inheriting" do
     @conversation.web_search_mode = nil
     @conversation.web_search_level = nil
+    @conversation.web_search_timing = nil
     @conversation.save!
     message = @conversation.messages.create!(role: "user", content: "one")
 
@@ -449,6 +460,7 @@ class ConversationTest < ActiveSupport::TestCase
 
     assert_nil forked.web_search_mode
     assert_nil forked.web_search_level
+    assert_nil forked.web_search_timing
     assert_nil forked.web_search_query_count
     assert_nil forked.web_search_time_range
     assert_nil forked.web_search_start_date

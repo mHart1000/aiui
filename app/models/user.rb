@@ -18,6 +18,7 @@ class User < ApplicationRecord
   validates :reasoning_effort, inclusion: { in: %w[none low medium high] }
   validates :web_search_mode, inclusion: { in: %w[off auto always] }
   validates :web_search_level, inclusion: { in: WebResearch::Profile::LEVELS }
+  validates :web_search_timing, inclusion: { in: WebResearch::TimingProfile::LEVELS }
   validates :web_search_query_count, numericality: { only_integer: true, in: WebResearch::ToolRequest::QUERY_COUNT_RANGE }
 
   after_create :seed_default_skills

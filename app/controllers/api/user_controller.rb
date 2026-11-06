@@ -33,6 +33,7 @@ module Api
         use_skills: current_api_user.use_skills,
         web_search_mode: current_api_user.web_search_mode,
         web_search_level: current_api_user.web_search_level,
+        web_search_timing: current_api_user.web_search_timing,
         web_search_query_count: current_api_user.web_search_query_count,
         default_skill_ids: current_api_user.skills.where(enabled_by_default: true).order(:id).pluck(:id),
         tts_enabled: current_api_user.tts_enabled,
@@ -43,7 +44,7 @@ module Api
     end
 
     def user_params
-      params.require(:user).permit(:reasoning_effort, :use_scaffolding, :use_persona, :persona_id, :use_skills, :web_search_mode, :web_search_level, :web_search_query_count, :tts_enabled, :tts_voice, :tts_speed, :llama_context_window)
+      params.require(:user).permit(:reasoning_effort, :use_scaffolding, :use_persona, :persona_id, :use_skills, :web_search_mode, :web_search_level, :web_search_timing, :web_search_query_count, :tts_enabled, :tts_voice, :tts_speed, :llama_context_window)
     end
   end
 end
