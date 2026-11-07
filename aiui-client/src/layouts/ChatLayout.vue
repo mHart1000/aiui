@@ -55,7 +55,7 @@
                 <q-icon name="search" />
               </template>
             </q-input>
-            <q-list dense>
+            <q-list ref="conversationList" dense>
               <q-item class="q-px-none q-mb-sm">
                 <q-item-section>
                   <div class="row items-center">
@@ -296,6 +296,11 @@ export default {
   mounted() {
     this.getUserConversations()
     this.getProjects()
+    this.$watch(() => [this.$route.params.id, this.conversationGroups], ([id]) => {
+      const list = this.$refs.conversationList.$el
+      list.querySelector('[aria-current="page"]')?.removeAttribute('aria-current')
+      list.querySelector(`[data-conversation-id="${CSS.escape(String(id))}"]`)?.setAttribute('aria-current', 'page')
+    }, { immediate: true, flush: 'post' })
   },
   beforeUnmount() {
     this.disposed = true

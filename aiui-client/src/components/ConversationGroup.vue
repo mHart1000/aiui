@@ -22,6 +22,7 @@
     v-for="c in group.conversations"
     v-show="!collapsed"
     :key="c.id"
+    :data-conversation-id="c.id"
     clickable
     class="conversation-row"
     @click="$router.push(`/chat/${c.id}`)"
@@ -117,6 +118,13 @@ export default {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 2px 1px;
   align-items: center;
+}
+.conversation-row[aria-current="page"] {
+  background-color: rgba(0, 0, 0, 0.12);
+  border-radius: 6px;
+}
+.body--dark .conversation-row[aria-current="page"] {
+  background-color: rgba(255, 255, 255, 0.12);
 }
 .conversation-actions {
   grid-column: 2;
