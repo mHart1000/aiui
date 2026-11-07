@@ -20,7 +20,7 @@
   </q-item>
   <q-item
     v-for="c in group.conversations"
-    v-show="!collapsed"
+    v-show="!group.project || !collapsed"
     :key="c.id"
     :data-conversation-id="c.id"
     clickable
@@ -85,7 +85,7 @@ export default {
     actionConversationId: { type: Number, default: null }
   },
   emits: ['new-chat', 'edit-project', 'delete-project', 'move', 'remove-from-project', 'rename', 'duplicate', 'delete-conversation'],
-  data: () => ({ collapsed: false }),
+  data: () => ({ collapsed: true }),
   methods: {
     selectProject() {
       this.collapsed = !this.collapsed
