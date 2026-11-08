@@ -1,9 +1,9 @@
 <template>
-  <q-item v-if="group.project" class="q-px-none">
+  <q-item v-if="group.project" class="q-px-none project-row">
     <q-item-section avatar>
       <q-btn flat round dense :icon="collapsed ? 'folder' : 'folder_open'" :aria-label="`Toggle ${group.project.name}`" :aria-expanded="!collapsed" @mousedown.left="collapsed = !collapsed" @click="$event.detail === 0 && (collapsed = !collapsed)" />
     </q-item-section>
-    <q-item-section>
+    <q-item-section class="project-name-section">
       <button type="button" class="project-name ellipsis" :aria-expanded="!collapsed" @click="selectProject">{{ group.project.name }}</button>
     </q-item-section>
     <q-item-section class="new-chat-btn">
@@ -21,7 +21,6 @@
       <q-btn flat round dense icon="more_vert" :aria-label="`Actions for ${group.project.name}`">
         <q-menu auto-close>
           <q-list dense>
-            <q-item clickable @click="$emit('new-chat', group.project.id)"><q-item-section>New chat</q-item-section></q-item>
             <q-item clickable @click="$emit('edit-project', group.project)"><q-item-section>Edit project</q-item-section></q-item>
             <q-item clickable @click="$emit('delete-project', group.project)"><q-item-section>Delete project</q-item-section></q-item>
           </q-list>
@@ -188,7 +187,24 @@ export default {
 }
 .new-chat-btn {
   flex: 0 0 auto;
-  margin-left: 4px;
   max-width: fit-content;
+  margin-right: -3px;
+}
+.project-row {
+  display: grid;
+  grid-template-columns:  auto minmax(0, 1fr) auto auto;
+  align-items: center;
+}
+.project-row > .q-item__section {
+  /* neutralize Quasar's flex helpers so the grid tracks win */
+  flex: none;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  padding: 0;
+}
+.project-name {
+  max-width: 100%;
+  padding: 0 3px;
 }
 </style>
