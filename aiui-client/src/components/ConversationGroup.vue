@@ -6,6 +6,17 @@
     <q-item-section>
       <button type="button" class="project-name ellipsis" :aria-expanded="!collapsed" @click="selectProject">{{ group.project.name }}</button>
     </q-item-section>
+    <q-item-section class="new-chat-btn">
+      <q-btn
+        flat
+        round
+        dense
+        size="sm"
+        icon="add_comment"
+        :aria-label="`New chat in ${group.project.name}`"
+        @click="$emit('new-chat', group.project.id)"
+      />
+    </q-item-section>
     <q-item-section side>
       <q-btn flat round dense icon="more_vert" :aria-label="`Actions for ${group.project.name}`">
         <q-menu auto-close>
@@ -89,7 +100,6 @@ export default {
   methods: {
     selectProject() {
       this.collapsed = !this.collapsed
-      this.$emit('new-chat', this.group.project.id, false)
     },
     expand() {
       this.collapsed = false
@@ -175,5 +185,10 @@ export default {
   color: inherit;
   border-radius: 2px;
   padding: 0 1px;
+}
+.new-chat-btn {
+  flex: 0 0 auto;
+  margin-left: 4px;
+  max-width: fit-content;
 }
 </style>
