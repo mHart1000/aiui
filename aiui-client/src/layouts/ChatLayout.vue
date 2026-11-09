@@ -55,8 +55,8 @@
                 <q-icon name="search" />
               </template>
             </q-input>
-            <q-list ref="conversationList" dense>
-              <q-item class="q-px-none q-mb-sm">
+            <q-list ref="conversationList" dense class="conversation-list">
+              <q-item class="q-pl-md q-mb-sm">
                 <q-item-section>
                   <div class="row items-center">
                     <span class="text-subtitle2">Projects</span>
@@ -546,6 +546,10 @@ export default {
 .drawer-content {
   min-width: 0;
   overflow-x: hidden;
+}
+/* Pull the list out of the container's q-pa-md so rows span the full drawer width. */
+.conversation-list {
+  margin: 0 -14px 0 -16px;
 }
 .mobile-header {
   color: var(--text);

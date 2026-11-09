@@ -1,5 +1,5 @@
 <template>
-  <q-item v-if="group.project" class="q-px-none project-row">
+  <q-item v-if="group.project" class="project-row">
     <q-item-section avatar>
       <q-btn flat round dense :icon="collapsed ? 'folder' : 'folder_open'" :aria-label="`Toggle ${group.project.name}`" :aria-expanded="!collapsed" @mousedown.left="collapsed = !collapsed" @click="$event.detail === 0 && (collapsed = !collapsed)" />
     </q-item-section>
@@ -122,6 +122,7 @@ export default {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  padding: 0 7px;
 }
 .conversation-row {
   display: grid;
