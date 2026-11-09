@@ -254,16 +254,16 @@ export default {
     resizeOffset: 0,
     scrollThumbStyle: {
       borderRadius: '5px',
-      backgroundColor: 'var(--border, #9e9e9e)',
+      backgroundColor: '#4c4b4b',
       width: '15px',
-      opacity: 0.9
+      opacity: 0.7
     },
     scrollBarStyle: {
       right: '2px',
       borderRadius: '5px',
       backgroundColor: 'var(--border, #9e9e9e)',
       width: '12px',
-      opacity: 0.45
+      opacity: 0.8
     }
   }),
   computed: {
