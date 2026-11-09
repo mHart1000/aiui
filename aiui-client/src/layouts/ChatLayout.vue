@@ -288,6 +288,9 @@ export default {
     '$route.fullPath'() {
       if (this.$q.screen.lt.md) this.drawerOpen = false
     },
+    '$route.params.id' () {
+      this.expandActiveConversation()
+    },
     searchQuery () {
       clearTimeout(this.searchTimer)
       this.searchTimer = setTimeout(this.runSearch, 200)
@@ -318,6 +321,12 @@ export default {
     },
     expandProject(projectId) {
       this.$refs.conversationGroupComponents?.find(component => component.group.project?.id === projectId)?.expand()
+    },
+    expandActiveConversation () {
+      const id = this.$route.params.id
+      if (!id) return
+      const group = this.conversationGroups.find(g => g.project && g.conversations.some(c => c.id === Number(id)))
+      if (group) this.expandProject(group.project.id)
     },
     newChat(projectId = null) {
       if (this.$q.screen.lt.md) this.drawerOpen = false
@@ -435,6 +444,7 @@ export default {
       return api.get('/api/conversations')
         .then(response => {
           this.conversations = response.data.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+          this.expandActiveConversation()
           const pending = this.conversations.find(c => String(c.id) === String(this.pendingTitleId))
           if (pending && (!pending.title || pending.title === 'New Chat') && !this.disposed) {
             this.titleRefreshTimer = setTimeout(() => {
