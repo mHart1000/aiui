@@ -55,8 +55,8 @@
                 <q-icon name="search" />
               </template>
             </q-input>
-            <q-list dense>
-              <q-item class="q-px-none q-mb-sm">
+            <q-list ref="conversationList" dense class="conversation-list">
+              <q-item class="q-pl-md q-mb-sm">
                 <q-item-section>
                   <div class="row items-center">
                     <span class="text-subtitle2">Projects</span>
@@ -254,16 +254,16 @@ export default {
     resizeOffset: 0,
     scrollThumbStyle: {
       borderRadius: '5px',
-      backgroundColor: 'var(--border, #9e9e9e)',
+      backgroundColor: '#4c4b4b',
       width: '15px',
-      opacity: 0.9
+      opacity: 0.7
     },
     scrollBarStyle: {
       right: '2px',
       borderRadius: '5px',
       backgroundColor: 'var(--border, #9e9e9e)',
       width: '12px',
-      opacity: 0.45
+      opacity: 0.8
     }
   }),
   computed: {
@@ -288,6 +288,9 @@ export default {
     '$route.fullPath'() {
       if (this.$q.screen.lt.md) this.drawerOpen = false
     },
+    '$route.params.id' () {
+      this.expandActiveConversation()
+    },
     searchQuery () {
       clearTimeout(this.searchTimer)
       this.searchTimer = setTimeout(this.runSearch, 200)
@@ -296,6 +299,11 @@ export default {
   mounted() {
     this.getUserConversations()
     this.getProjects()
+    this.$watch(() => [this.$route.params.id, this.conversationGroups], ([id]) => {
+      const list = this.$refs.conversationList.$el
+      list.querySelector('[aria-current="page"]')?.removeAttribute('aria-current')
+      list.querySelector(`[data-conversation-id="${CSS.escape(String(id))}"]`)?.setAttribute('aria-current', 'page')
+    }, { immediate: true, flush: 'post' })
   },
   beforeUnmount() {
     this.disposed = true
@@ -314,8 +322,13 @@ export default {
     expandProject(projectId) {
       this.$refs.conversationGroupComponents?.find(component => component.group.project?.id === projectId)?.expand()
     },
-    newChat(projectId = null, expandFolder = true) {
-      if (projectId && expandFolder) this.expandProject(projectId)
+    expandActiveConversation () {
+      const id = this.$route.params.id
+      if (!id) return
+      const group = this.conversationGroups.find(g => g.project && g.conversations.some(c => c.id === Number(id)))
+      if (group) this.expandProject(group.project.id)
+    },
+    newChat(projectId = null) {
       if (this.$q.screen.lt.md) this.drawerOpen = false
       return this.$router.push({ path: '/chat', query: projectId ? { project: projectId } : {} })
     },
@@ -431,6 +444,7 @@ export default {
       return api.get('/api/conversations')
         .then(response => {
           this.conversations = response.data.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+          this.expandActiveConversation()
           const pending = this.conversations.find(c => String(c.id) === String(this.pendingTitleId))
           if (pending && (!pending.title || pending.title === 'New Chat') && !this.disposed) {
             this.titleRefreshTimer = setTimeout(() => {
@@ -532,6 +546,10 @@ export default {
 .drawer-content {
   min-width: 0;
   overflow-x: hidden;
+}
+/* Pull the list out of the container's q-pa-md so rows span the full drawer width. */
+.conversation-list {
+  margin: 0 -14px 0 -16px;
 }
 .mobile-header {
   color: var(--text);

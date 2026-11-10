@@ -1,16 +1,26 @@
 <template>
-  <q-item v-if="group.project" class="q-px-none">
+  <q-item v-if="group.project" class="project-row">
     <q-item-section avatar>
       <q-btn flat round dense :icon="collapsed ? 'folder' : 'folder_open'" :aria-label="`Toggle ${group.project.name}`" :aria-expanded="!collapsed" @mousedown.left="collapsed = !collapsed" @click="$event.detail === 0 && (collapsed = !collapsed)" />
     </q-item-section>
-    <q-item-section>
+    <q-item-section class="project-name-section">
       <button type="button" class="project-name ellipsis" :aria-expanded="!collapsed" @click="selectProject">{{ group.project.name }}</button>
+    </q-item-section>
+    <q-item-section class="new-chat-btn">
+      <q-btn
+        flat
+        round
+        dense
+        size="sm"
+        icon="add_comment"
+        :aria-label="`New chat in ${group.project.name}`"
+        @click="$emit('new-chat', group.project.id)"
+      />
     </q-item-section>
     <q-item-section side>
       <q-btn flat round dense icon="more_vert" :aria-label="`Actions for ${group.project.name}`">
         <q-menu auto-close>
           <q-list dense>
-            <q-item clickable @click="$emit('new-chat', group.project.id)"><q-item-section>New chat</q-item-section></q-item>
             <q-item clickable @click="$emit('edit-project', group.project)"><q-item-section>Edit project</q-item-section></q-item>
             <q-item clickable @click="$emit('delete-project', group.project)"><q-item-section>Delete project</q-item-section></q-item>
           </q-list>
@@ -20,8 +30,9 @@
   </q-item>
   <q-item
     v-for="c in group.conversations"
-    v-show="!collapsed"
+    v-show="!group.project || !collapsed"
     :key="c.id"
+    :data-conversation-id="c.id"
     clickable
     class="conversation-row"
     @click="$router.push(`/chat/${c.id}`)"
@@ -84,11 +95,10 @@ export default {
     actionConversationId: { type: Number, default: null }
   },
   emits: ['new-chat', 'edit-project', 'delete-project', 'move', 'remove-from-project', 'rename', 'duplicate', 'delete-conversation'],
-  data: () => ({ collapsed: false }),
+  data: () => ({ collapsed: true }),
   methods: {
     selectProject() {
       this.collapsed = !this.collapsed
-      this.$emit('new-chat', this.group.project.id, false)
     },
     expand() {
       this.collapsed = false
@@ -112,11 +122,19 @@ export default {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  padding: 0 7px;
 }
 .conversation-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 2px 1px;
   align-items: center;
+}
+.conversation-row[aria-current="page"] {
+  background-color: rgba(0, 0, 0, 0.12);
+  border-radius: 6px;
+}
+.body--dark .conversation-row[aria-current="page"] {
+  background-color: rgba(255, 255, 255, 0.12);
 }
 .conversation-actions {
   grid-column: 2;
@@ -167,5 +185,27 @@ export default {
   color: inherit;
   border-radius: 2px;
   padding: 0 1px;
+}
+.new-chat-btn {
+  flex: 0 0 auto;
+  max-width: fit-content;
+  margin-right: -3px;
+}
+.project-row {
+  display: grid;
+  grid-template-columns:  auto minmax(0, 1fr) auto auto;
+  align-items: center;
+}
+.project-row > .q-item__section {
+  /* neutralize Quasar's flex helpers so the grid tracks win */
+  flex: none;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  padding: 0;
+}
+.project-name {
+  max-width: 100%;
+  padding: 0 3px;
 }
 </style>
