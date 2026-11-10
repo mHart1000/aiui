@@ -61,6 +61,47 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
     controller
   end
 
+  def assert_search_mode(conversation, content, regenerating: false, expected: nil)
+    seen = nil
+    service = lambda do |**kwargs, &block|
+      seen = kwargs[:web_search_mode]
+      block.call("ok", :response)  # required so create_streaming doesn't raise EmptyStreamedResponseError
+      {}
+    end
+    params = { regenerating: regenerating.to_s }
+    params[:content] = content unless regenerating
+    ChatService.stub(:call, service) do
+      build_controller(conversation, params).create_streaming
+    end
+    assert_equal expected, seen
+  end
+
+  test "create_streaming forces web search when the message includes the @search trigger" do
+    @conversation.update!(web_search_mode: "off")
+    assert_search_mode(@conversation, "Please @search the latest news", expected: "always")
+  end
+
+  test "create_streaming keeps the resolved web search mode without the trigger" do
+    @conversation.update!(web_search_mode: "off")
+    assert_search_mode(@conversation, "hello", expected: "off")
+    @conversation.update!(web_search_mode: "auto")
+    assert_search_mode(@conversation, "hello", expected: "auto")
+    @conversation.update!(web_search_mode: "always")
+    assert_search_mode(@conversation, "hello", expected: "always")
+  end
+
+  test "create_streaming ignores @search lookalikes" do
+    @conversation.update!(web_search_mode: "off")
+    assert_search_mode(@conversation, "@searching the issue", expected: "off")
+    assert_search_mode(@conversation, "contact user@search.com", expected: "off")
+  end
+
+  test "create_streaming forces web search when regenerating a message with the trigger" do
+    @conversation.update!(web_search_mode: "off")
+    @conversation.messages.create!(role: "user", content: "@search weather")
+    assert_search_mode(@conversation, nil, regenerating: true, expected: "always")
+  end
+
   test "each request resolves current project description without sharing sibling messages" do
     project = @user.projects.create!(name: "AIUI", description: "Original context")
     @conversation.update!(project: project)

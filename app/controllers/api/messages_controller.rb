@@ -66,7 +66,7 @@ module Api
           rag_context: rag_context,
           project_description: conversation.project&.description,
           skills: fetch_skills(conversation),
-          web_search_mode: conversation.resolved_web_search_mode,
+          web_search_mode: web_search_mode,
           web_search_level: conversation.resolved_web_search_level,
           web_search_timing: conversation.resolved_web_search_timing,
           web_search_query_count: conversation.resolved_web_search_query_count,
