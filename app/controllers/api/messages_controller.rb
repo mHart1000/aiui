@@ -1,6 +1,7 @@
 module Api
   class MessagesController < ApplicationController
     MAX_ATTACHMENTS = 64
+    SEARCH_TRIGGER = /(?<!\w)@search\b/i
     class EmptyStreamedResponseError < StandardError; end
 
     before_action :authenticate_api_user!
@@ -49,6 +50,11 @@ module Api
       begin
         current_api_user.reload
         rag_context = fetch_rag_context(conversation, answering_message.content)
+        web_search_mode = if answering_message.content.to_s.match?(SEARCH_TRIGGER)
+          "always"
+        else
+          conversation.resolved_web_search_mode
+        end
         result = ChatService.call(
           messages: conversation.messages_for_ai(multimodal: images_allowed),
           model: safe_model_code,
