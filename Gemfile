@@ -27,6 +27,7 @@ gem "bootsnap", require: false
 
 # Image resizing for chat attachments (libvips backend) [docs/image-attachments-spec.md]
 gem "image_processing", "~> 2.2"
+gem "ruby-vips", ">= 2.0.17", "< 3"
 
 # CORS handling for Vue frontend
 gem "rack-cors"
