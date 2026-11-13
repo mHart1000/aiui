@@ -20,7 +20,7 @@ class ChatStreamingServiceTest < ActiveSupport::TestCase
     User.delete_all
   end
 
-  def build_service(conversation, answering_message, sink)
+  def build_service(conversation = @conversation, answering_message = @answering, sink = ->(_event) {})
     ChatStreamingService.new(
       user: @user,
       conversation: conversation,
@@ -45,8 +45,7 @@ class ChatStreamingServiceTest < ActiveSupport::TestCase
       {}
     end
     ChatService.stub(:call, service) do
-      sink, = capturing_sink
-      build_service(conversation, answering, sink).call
+      build_service(conversation, answering).call
     end
     assert_equal expected, seen
   end
@@ -84,14 +83,11 @@ class ChatStreamingServiceTest < ActiveSupport::TestCase
       {}
     end
     ChatService.stub(:call, service) do
-      sink, = capturing_sink
-      build_service(@conversation, @answering, sink).call
+      build_service.call
       project.update!(description: "Updated context")
-      sink, = capturing_sink
-      build_service(@conversation, @answering, sink).call
+      build_service.call
       @conversation.update!(project: nil)
-      sink, = capturing_sink
-      build_service(@conversation, @answering, sink).call
+      build_service.call
     end
     assert_equal [ "Original context", "Updated context", nil ], descriptions
   end
@@ -103,11 +99,7 @@ class ChatStreamingServiceTest < ActiveSupport::TestCase
       raise ActionController::Live::ClientDisconnected
     end
 
-    result = nil
-    sink, = capturing_sink
-    ChatService.stub(:call, disconnecting_service) do
-      result = build_service(@conversation, @answering, sink).call
-    end
+    result = ChatService.stub(:call, disconnecting_service) { build_service.call }
     assert_equal :disconnected, result[:status]
     assert result[:persisted]
 
@@ -118,11 +110,7 @@ class ChatStreamingServiceTest < ActiveSupport::TestCase
   test "does not save when nothing was streamed before disconnect" do
     empty_disconnect = lambda { |**_kwargs, &block| raise ActionController::Live::ClientDisconnected }
 
-    result = nil
-    sink, = capturing_sink
-    ChatService.stub(:call, empty_disconnect) do
-      result = build_service(@conversation, @answering, sink).call
-    end
+    result = ChatService.stub(:call, empty_disconnect) { build_service.call }
     assert_equal :disconnected, result[:status]
     assert_not result[:persisted]
     assert_nil @conversation.messages.where(role: "assistant").last
@@ -136,11 +124,7 @@ class ChatStreamingServiceTest < ActiveSupport::TestCase
       { persona_version: nil }
     end
 
-    result = nil
-    sink, = capturing_sink
-    ChatService.stub(:call, full_stream) do
-      result = build_service(@conversation, @answering, sink).call
-    end
+    result = ChatService.stub(:call, full_stream) { build_service.call }
     assert_equal :done, result[:status]
 
     saved = @conversation.messages.where(role: "assistant").last
@@ -179,10 +163,7 @@ class ChatStreamingServiceTest < ActiveSupport::TestCase
     end
 
     sink, events = capturing_sink
-    result = nil
-    ChatService.stub(:call, failing_service) do
-      result = build_service(@conversation, @answering, sink).call
-    end
+    result = ChatService.stub(:call, failing_service) { build_service(@conversation, @answering, sink).call }
 
     assert_equal :failed, result[:status]
     assert_kind_of AiAdapters::LlamaAdapter::Error, result[:error]
@@ -196,10 +177,7 @@ class ChatStreamingServiceTest < ActiveSupport::TestCase
     end
 
     sink, events = capturing_sink
-    result = nil
-    ChatService.stub(:call, empty_stream) do
-      result = build_service(@conversation, @answering, sink).call
-    end
+    result = ChatService.stub(:call, empty_stream) { build_service(@conversation, @answering, sink).call }
 
     assert_equal :failed, result[:status]
     error = result[:error]
@@ -226,10 +204,7 @@ class ChatStreamingServiceTest < ActiveSupport::TestCase
     end
 
     sink, events = capturing_sink
-    result = nil
-    ChatService.stub(:call, service) do
-      result = build_service(@conversation, @answering, sink).call
-    end
+    result = ChatService.stub(:call, service) { build_service(@conversation, @answering, sink).call }
     assert_equal :done, result[:status]
 
     types = events.map { |e| e[:type] }
@@ -267,10 +242,7 @@ class ChatStreamingServiceTest < ActiveSupport::TestCase
       { persona_version: nil }
     end
 
-    result = nil
-    ChatService.stub(:call, service) do
-      result = build_service(@conversation, @answering, sink).call
-    end
+    result = ChatService.stub(:call, service) { build_service(@conversation, @answering, sink).call }
 
     assert_equal :disconnected, result[:status]
     assert result[:persisted]
@@ -285,10 +257,7 @@ class ChatStreamingServiceTest < ActiveSupport::TestCase
     end
     sink = ->(event) { raise "sink blew up" if event[:type] == "done" }
 
-    result = nil
-    ChatService.stub(:call, service) do
-      result = build_service(@conversation, @answering, sink).call
-    end
+    result = ChatService.stub(:call, service) { build_service(@conversation, @answering, sink).call }
 
     assert_equal :failed, result[:status]
     assert result[:persisted]
@@ -303,10 +272,7 @@ class ChatStreamingServiceTest < ActiveSupport::TestCase
     end
 
     sink, events = capturing_sink
-    result = nil
-    ChatService.stub(:call, service) do
-      result = build_service(@conversation, @answering, sink).call
-    end
+    result = ChatService.stub(:call, service) { build_service(@conversation, @answering, sink).call }
 
     assert_equal :stale, result[:status]
     refute events.any? { |e| e[:type] == "done" }
