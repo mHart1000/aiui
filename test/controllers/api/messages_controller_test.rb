@@ -1,12 +1,16 @@
 require "test_helper"
 
-# Tests for the streaming accumulation and save logic in create_streaming.
+# Tests for create_streaming's controller-level wiring: turn setup, error
+# propagation, and the edit-vs-persist race against update.
 #
 # ActionController::Live runs the action in a child thread that commits the
 # response before the action body finishes, so post(...) returns before the
 # DB write happens. Testing through the HTTP stack produces a race condition.
-# Instead we test the controller's private logic directly by calling the method
-# on a minimal controller instance with all I/O stubbed out.
+# Instead we test the controller directly by calling the method on a minimal
+# controller instance with all I/O stubbed out.
+#
+# Turn orchestration (accumulation, event protocol, persistence) is covered in
+# ChatStreamingServiceTest, which tests the service against a plain sink.
 class Api::MessagesControllerTest < ActiveSupport::TestCase
   self.use_transactional_tests = false
 
@@ -61,144 +65,30 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
     controller
   end
 
-  def assert_search_mode(conversation, content, regenerating: false, expected: nil)
-    seen = nil
-    service = lambda do |**kwargs, &block|
-      seen = kwargs[:web_search_mode]
-      block.call("ok", :response)  # required so create_streaming doesn't raise EmptyStreamedResponseError
-      {}
-    end
-    params = { regenerating: regenerating.to_s }
-    params[:content] = content unless regenerating
-    ChatService.stub(:call, service) do
-      build_controller(conversation, params).create_streaming
-    end
-    assert_equal expected, seen
-  end
-
-  test "create_streaming forces web search when the message includes the @search trigger" do
-    @conversation.update!(web_search_mode: "off")
-    assert_search_mode(@conversation, "Please @search the latest news", expected: "always")
-  end
-
-  test "create_streaming keeps the resolved web search mode without the trigger" do
-    @conversation.update!(web_search_mode: "off")
-    assert_search_mode(@conversation, "hello", expected: "off")
-    @conversation.update!(web_search_mode: "auto")
-    assert_search_mode(@conversation, "hello", expected: "auto")
-    @conversation.update!(web_search_mode: "always")
-    assert_search_mode(@conversation, "hello", expected: "always")
-  end
-
-  test "create_streaming ignores @search lookalikes" do
-    @conversation.update!(web_search_mode: "off")
-    assert_search_mode(@conversation, "@searching the issue", expected: "off")
-    assert_search_mode(@conversation, "contact user@search.com", expected: "off")
+  def build_service(conversation, answering_message)
+    ChatStreamingService.new(
+      user: @user,
+      conversation: conversation,
+      answering_message: answering_message,
+      model: conversation.model_code,
+      images_allowed: false,
+      sink: ->(_event) { }
+    )
   end
 
   test "create_streaming forces web search when regenerating a message with the trigger" do
     @conversation.update!(web_search_mode: "off")
     @conversation.messages.create!(role: "user", content: "@search weather")
-    assert_search_mode(@conversation, nil, regenerating: true, expected: "always")
-  end
-
-  test "each request resolves current project description without sharing sibling messages" do
-    project = @user.projects.create!(name: "AIUI", description: "Original context")
-    @conversation.update!(project: project)
-    sibling = @user.conversations.create!(project: project)
-    sibling.messages.create!(role: "user", content: "Private sibling history")
-    descriptions = []
+    seen = nil
     service = lambda do |**kwargs, &block|
-      descriptions << kwargs[:project_description]
-      refute_includes kwargs[:messages].map { |message| message[:content] }, "Private sibling history"
-      block.call("Answer", :response)
+      seen = kwargs[:web_search_mode]
+      block.call("ok", :response)
       {}
     end
     ChatService.stub(:call, service) do
-      build_controller(@conversation).create_streaming
-      project.update!(description: "Updated context")
-      build_controller(@conversation).create_streaming
-      @conversation.update!(project: nil)
-      build_controller(@conversation).create_streaming
+      build_controller(@conversation, regenerating: true).create_streaming
     end
-    assert_equal [ "Original context", "Updated context", nil ], descriptions
-  end
-
-  test "create_streaming saves partial content when client disconnects" do
-    controller = build_controller(@conversation)
-
-    partial_chunks = [ "Hello", " world", " partial" ]
-    disconnecting_service = lambda do |**_kwargs, &block|
-      partial_chunks.each { |chunk| block.call(chunk, :response) }
-      raise ActionController::Live::ClientDisconnected
-    end
-
-    ChatService.stub(:call, disconnecting_service) do
-      assert_difference "@conversation.messages.reload.count", 1 do
-        controller.create_streaming
-      end
-    end
-
-    saved = @conversation.messages.where(role: "assistant").last
-    assert_equal "Hello world partial", saved.content
-  end
-
-  test "create_streaming does not save when nothing was streamed before disconnect" do
-    controller = build_controller(@conversation)
-
-    empty_disconnect = lambda { |**_kwargs, &block| raise ActionController::Live::ClientDisconnected }
-
-    ChatService.stub(:call, empty_disconnect) do
-      assert_no_difference "@conversation.messages.reload.count" do
-        controller.create_streaming
-      end
-    end
-  end
-
-  test "create_streaming saves full content on normal completion" do
-    controller = build_controller(@conversation)
-
-    chunks = [ "Full", " response", " here" ]
-    full_stream = lambda do |**_kwargs, &block|
-      chunks.each { |chunk| block.call(chunk, :response) }
-      @conversation.messages.find_by!(role: "user").touch
-      { persona_version: nil }
-    end
-
-    ChatService.stub(:call, full_stream) do
-      assert_difference "@conversation.messages.reload.count", 1 do
-        controller.create_streaming
-      end
-    end
-
-    saved = @conversation.messages.where(role: "assistant").last
-    assert_equal "Full response here", saved.content
-    assert_match(/"type":"done"/, controller.stream_writes.last)
-  end
-
-  test "create_streaming serializes web research events with their stage data" do
-    @conversation.update!(web_search_level: "high", web_search_timing: "medium", web_search_query_count: 1, web_search_time_range: "custom",
-      web_search_start_date: Date.new(2019, 1, 1), web_search_end_date: Date.new(2023, 12, 31))
-    controller = build_controller(@conversation)
-    research = { status: "complete", provider: "searxng", queries: [ "latest news" ], sources: [] }
-    service = lambda do |**kwargs, &block|
-      assert_equal "high", kwargs[:web_search_level]
-      assert_equal "medium", kwargs[:web_search_timing]
-      assert_equal 1, kwargs[:web_search_query_count]
-      assert_equal "custom", kwargs[:web_search_time_range]
-      assert_equal Date.new(2019, 1, 1), kwargs[:web_search_start_date]
-      assert_equal Date.new(2023, 12, 31), kwargs[:web_search_end_date]
-      block.call({ stage: :searching, queries: research[:queries] }, :web_search)
-      block.call("Answer", :response)
-      { persona_version: nil, web_search_data: research }
-    end
-
-    ChatService.stub(:call, service) { controller.create_streaming }
-
-    event = controller.stream_writes.map { |write| JSON.parse(write.delete_prefix("data: ")) }.find { |data| data["type"] == "web_search" }
-    assert_equal "searching", event["stage"]
-    assert_equal [ "latest news" ], event["queries"]
-    assert_equal research, @conversation.messages.where(role: "assistant").last.web_search_data.symbolize_keys
+    assert_equal "always", seen
   end
 
   test "create_streaming sends an error event and re-raises an unexpected streaming failure" do
@@ -217,78 +107,10 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
     assert_equal "The response could not be generated. Please retry.", event["error"]
   end
 
-  test "create_streaming reports a completed model stream with no content as a failure" do
-    controller = build_controller(@conversation)
-    empty_stream = lambda do |**_kwargs, &_block|
-      { finish_reason: "stop", tokens: { completion_tokens: 1 } }
-    end
-
-    ChatService.stub(:call, empty_stream) do
-      error = assert_raises(Api::MessagesController::EmptyStreamedResponseError) do
-        controller.create_streaming
-      end
-      assert_includes error.message, 'finish_reason="stop"'
-      assert_includes error.message, "completion_tokens=1"
-    end
-
-    event = controller.stream_writes.map { |write| JSON.parse(write.delete_prefix("data: ")) }.find { |data| data["type"] == "error" }
-    assert_equal "The model returned no response content. Please retry.", event["error"]
-    assert_not controller.stream_writes.any? { |event_data| event_data.include?('"type":"done"') }
-    assert_not @conversation.messages.where(role: "assistant").exists?
-  end
-
-  test "persists the assistant before emitting done" do
-    persisted_before_done = false
-    controller = build_controller(@conversation) do |event|
-      if event.include?('"type":"done"')
-        persisted_before_done = @conversation.messages.where(role: "assistant").exists?
-      end
-    end
-    service = lambda do |**_kwargs, &block|
-      block.call("saved first", :response)
-      { persona_version: nil }
-    end
-
-    ChatService.stub(:call, service) { controller.create_streaming }
-
-    assert persisted_before_done
-  end
-
-  test "disconnect after persistence does not create a duplicate assistant" do
-    controller = build_controller(@conversation) do |event|
-      raise ActionController::Live::ClientDisconnected if event.include?('"type":"done"')
-    end
-    service = lambda do |**_kwargs, &block|
-      block.call("one copy", :response)
-      { persona_version: nil }
-    end
-
-    ChatService.stub(:call, service) { controller.create_streaming }
-
-    assert_equal 1, @conversation.messages.where(role: "assistant").count
-    assert_equal "one copy", @conversation.messages.find_by!(role: "assistant").content
-  end
-
-  test "does not save an answer after the user turn changes during generation" do
-    controller = build_controller(@conversation)
-    service = lambda do |**_kwargs, &block|
-      block.call("stale answer", :response)
-      @conversation.messages.find_by!(role: "user").update!(content: "Edited prompt")
-      { persona_version: nil }
-    end
-
-    ChatService.stub(:call, service) do
-      assert_no_difference "@conversation.messages.reload.where(role: 'assistant').count" do
-        controller.create_streaming
-      end
-    end
-    assert_not controller.stream_writes.any? { |event| event.include?('"type":"done"') }
-  end
-
   test "does not save a streamed answer when an edit commits first" do
     message = @conversation.messages.find_by!(role: "user")
     controller = build_controller(@conversation, id: message.id, content: "Edited prompt")
-    signature = controller.send(:message_signature, message)
+    signature = ChatStreamingService.message_signature(message)
     errors = Queue.new
 
     edit = Thread.new do
@@ -298,10 +120,10 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
     end
     edit.join
 
+    service = build_service(@conversation, message)
     stream = Thread.new do
       ActiveRecord::Base.connection_pool.with_connection do
-        controller.send(
-          :persist_streamed_response,
+        service.persist_streamed_response(
           Conversation.find(@conversation.id),
           message.id,
           signature,
@@ -323,12 +145,13 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
   test "edit removes an assistant persisted while it waits for the conversation lock" do
     message = @conversation.messages.find_by!(role: "user")
     controller = build_controller(@conversation, id: message.id, content: "Edited prompt")
-    signature = controller.send(:message_signature, message)
+    signature = ChatStreamingService.message_signature(message)
     assistant_insert_started = Queue.new
     release_assistant_insert = Queue.new
     edit_finished = Queue.new
     errors = Queue.new
 
+    service = build_service(@conversation, message)
     stream = Thread.new do
       ActiveRecord::Base.connection_pool.with_connection do
         conversation = Conversation.find(@conversation.id)
@@ -337,8 +160,8 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
           release_assistant_insert.pop
           super(**attributes)
         end
-        controller.send(
-          :persist_streamed_response, conversation, message.id, signature,
+        service.persist_streamed_response(
+          conversation, message.id, signature,
           reply: "old answer", thinking: "", entitle: false
         )
       end
