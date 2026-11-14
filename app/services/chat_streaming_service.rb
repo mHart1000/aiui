@@ -32,52 +32,72 @@ class ChatStreamingService
     thinking_accumulator = ""
     reply_accumulator = ""
     research_metadata = nil
+    pi_data = nil
     @persisted = false
+
+    pi_mode = @conversation.project&.repo_path.present?
 
     begin
       @user.reload
-      rag_context = fetch_rag_context
-      web_search_mode = if @answering_message.content.to_s.match?(SEARCH_TRIGGER)
-        "always"
-      else
-        @conversation.resolved_web_search_mode
-      end
-      result = ChatService.call(
-        messages: @conversation.messages_for_ai(multimodal: @images_allowed),
-        model: @model,
-        reasoning_effort: @user.reasoning_effort,
-        use_persona: @user.use_persona,
-        persona_id: @user.persona_id,
-        use_scaffolding: @user.use_scaffolding,
-        stream: true,
-        rag_context: rag_context,
-        project_description: @conversation.project&.description,
-        skills: fetch_skills,
-        web_search_mode: web_search_mode,
-        web_search_level: @conversation.resolved_web_search_level,
-        web_search_timing: @conversation.resolved_web_search_timing,
-        web_search_query_count: @conversation.resolved_web_search_query_count,
-        web_search_time_range: @conversation.web_search_time_range,
-        web_search_start_date: @conversation.web_search_start_date,
-        web_search_end_date: @conversation.web_search_end_date,
-        time_zone: @time_zone,
-        has_pdf_sources: @conversation.messages.where("pdf_sources <> '[]'::jsonb").exists?
-      ) do |chunk, phase|
-        if phase == :thinking
-          thinking_accumulator += chunk
-        elsif phase == :response
-          reply_accumulator += chunk
-        end
 
-        event_data = if phase == :web_search
-          research_metadata = chunk if chunk[:status].present?
-          { type: "web_search", **chunk }
-        elsif phase == :phase_change
-          { type: "phase_change", phase: "responding" }
-        else
-          { type: phase.to_s, content: chunk }
+      if pi_mode
+        result = ChatService.call(
+          messages: @conversation.messages_for_ai(multimodal: false),
+          model: @model,
+          stream: true,
+          repo_path: @conversation.project.repo_path,
+          session_id: @conversation.id
+        ) do |chunk, phase|
+          if phase == :response
+            reply_accumulator += chunk
+          end
+          @sink.call({ type: phase.to_s, content: chunk })
         end
-        @sink.call(event_data)
+        pi_data = result&.dig(:pi_data)
+      else
+        rag_context = fetch_rag_context
+        web_search_mode = if @answering_message.content.to_s.match?(SEARCH_TRIGGER)
+          "always"
+        else
+          @conversation.resolved_web_search_mode
+        end
+        result = ChatService.call(
+          messages: @conversation.messages_for_ai(multimodal: @images_allowed),
+          model: @model,
+          reasoning_effort: @user.reasoning_effort,
+          use_persona: @user.use_persona,
+          persona_id: @user.persona_id,
+          use_scaffolding: @user.use_scaffolding,
+          stream: true,
+          rag_context: rag_context,
+          project_description: @conversation.project&.description,
+          skills: fetch_skills,
+          web_search_mode: web_search_mode,
+          web_search_level: @conversation.resolved_web_search_level,
+          web_search_timing: @conversation.resolved_web_search_timing,
+          web_search_query_count: @conversation.resolved_web_search_query_count,
+          web_search_time_range: @conversation.web_search_time_range,
+          web_search_start_date: @conversation.web_search_start_date,
+          web_search_end_date: @conversation.web_search_end_date,
+          time_zone: @time_zone,
+          has_pdf_sources: @conversation.messages.where("pdf_sources <> '[]'::jsonb").exists?
+        ) do |chunk, phase|
+          if phase == :thinking
+            thinking_accumulator += chunk
+          elsif phase == :response
+            reply_accumulator += chunk
+          end
+
+          event_data = if phase == :web_search
+            research_metadata = chunk if chunk[:status].present?
+            { type: "web_search", **chunk }
+          elsif phase == :phase_change
+            { type: "phase_change", phase: "responding" }
+          else
+            { type: phase.to_s, content: chunk }
+          end
+          @sink.call(event_data)
+        end
       end
 
       raise "Chat service failed: #{result[:error]}" if result&.dig(:error)
@@ -101,6 +121,7 @@ class ChatStreamingService
         persona_version: result&.dig(:persona_version),
         skill_versions: result&.dig(:skill_versions),
         web_search_data: result&.dig(:web_search_data) || research_metadata || {},
+        pi_data: pi_data,
         entitle: true
       )
       return { status: :stale, persisted: false } unless @persisted
@@ -151,7 +172,7 @@ class ChatStreamingService
 
   # Public because the controller test exercises the edit-vs-persist race
   # directly against it.
-  def persist_streamed_response(conversation, answering_id, answering_signature, reply:, thinking:, tokens: nil, stats: nil, model_label: nil, persona_label: nil, persona_version: nil, skill_versions: nil, web_search_data: {}, entitle:)
+  def persist_streamed_response(conversation, answering_id, answering_signature, reply:, thinking:, tokens: nil, stats: nil, model_label: nil, persona_label: nil, persona_version: nil, skill_versions: nil, web_search_data: {}, pi_data: nil, entitle:)
     return false if reply.blank? && thinking.blank?
 
     conversation.with_lock do
@@ -167,7 +188,8 @@ class ChatStreamingService
         persona_label: persona_label,
         persona_version: persona_version,
         skill_versions: skill_versions,
-        web_search_data: web_search_data
+        web_search_data: web_search_data,
+        pi_data: pi_data
       )
       conversation.entitle_async(answering_message.content) if entitle && answering_message.content.present?
       true
