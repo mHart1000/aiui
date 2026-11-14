@@ -20,7 +20,7 @@ class ChatStreamingServiceTest < ActiveSupport::TestCase
     User.delete_all
   end
 
-  def build_service(conversation = @conversation, answering_message = @answering, sink = ->(_event) {})
+  def build_service(conversation = @conversation, answering_message = @answering, sink = ->(_event) { })
     ChatStreamingService.new(
       user: @user,
       conversation: conversation,
