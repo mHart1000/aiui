@@ -146,13 +146,18 @@ module AiModels
   end
 
   def self.local_image_input
+    JSON.parse(fetch_local_models_body).dig("models", 0, "capabilities")&.include?("multimodal")
+  rescue Errno::ECONNREFUSED, Errno::ETIMEDOUT, SocketError, Net::OpenTimeout, Net::ReadTimeout
+    nil
+  end
+
+  # Raw /models body from the local llama.cpp server. Separate from
+  # #local_image_input so tests can stub the transport without a live server.
+  def self.fetch_local_models_body
     url = "#{ENV.fetch("LLAMA_API_URL", "http://localhost:8080/v1")}/models"
     uri = URI(url)
     request = Net::HTTP::Get.new(uri)
     LlamaCredentials.authorize(request)
-    http = Net::HTTP.new(uri.host, uri.port)
-    JSON.parse(http.request(request).body).dig("models", 0, "capabilities")&.include?("multimodal")
-  rescue Errno::ECONNREFUSED, Errno::ETIMEDOUT, SocketError, Net::OpenTimeout, Net::ReadTimeout
-    nil
+    Net::HTTP.new(uri.host, uri.port).request(request).body
   end
 end
