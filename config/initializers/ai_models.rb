@@ -147,7 +147,11 @@ module AiModels
 
   def self.local_image_input
     url = "#{ENV.fetch("LLAMA_API_URL", "http://localhost:8080/v1")}/models"
-    JSON.parse(Net::HTTP.get(URI(url))).dig("models", 0, "capabilities")&.include?("multimodal")
+    uri = URI(url)
+    request = Net::HTTP::Get.new(uri)
+    LlamaCredentials.authorize(request)
+    http = Net::HTTP.new(uri.host, uri.port)
+    JSON.parse(http.request(request).body).dig("models", 0, "capabilities")&.include?("multimodal")
   rescue Errno::ECONNREFUSED, Errno::ETIMEDOUT, SocketError, Net::OpenTimeout, Net::ReadTimeout
     nil
   end
