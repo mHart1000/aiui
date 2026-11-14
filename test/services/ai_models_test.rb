@@ -19,18 +19,18 @@ class AiModelsTest < ActiveSupport::TestCase
   test "local image input reads llama.cpp's model capabilities" do
     response = { models: [ { capabilities: [ "completion", "multimodal" ] } ] }.to_json
 
-    Net::HTTP.stub(:get, response) do
+    AiModels.stub(:fetch_local_models_body, response) do
       assert AiModels.local_image_input
     end
   end
 
   test "missing or unavailable capabilities fail open" do
-    Net::HTTP.stub(:get, { models: [ {} ] }.to_json) do
+    AiModels.stub(:fetch_local_models_body, { models: [ {} ] }.to_json) do
       assert_nil AiModels.local_image_input
       assert AiModels.images_allowed?("local-llama")
     end
 
-    Net::HTTP.stub(:get, ->(*) { raise Errno::ECONNREFUSED }) do
+    AiModels.stub(:fetch_local_models_body, ->(*) { raise Errno::ECONNREFUSED }) do
       assert_nil AiModels.local_image_input
       assert AiModels.images_allowed?("local-llama")
     end

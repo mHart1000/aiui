@@ -1,8 +1,6 @@
 module Api
   class MessagesController < ApplicationController
     MAX_ATTACHMENTS = 64
-    SEARCH_TRIGGER = /(?<!\w)@search\b/i
-    class EmptyStreamedResponseError < StandardError; end
 
     before_action :authenticate_api_user!
     include ActionController::Live
@@ -36,125 +34,22 @@ module Api
         processed_attachments.filter_map(&:image).each(&:close!)
       end
 
-      answering_id = answering_message.id
-      answering_signature = message_signature(answering_message)
       response.headers["Content-Type"] = "text/event-stream"
       response.headers["Cache-Control"] = "no-cache"
       response.headers["X-Accel-Buffering"] = "no"
 
-      thinking_accumulator = ""
-      reply_accumulator = ""
-      research_metadata = nil
-      response_persisted = false
-
+      sink = ->(event) { response.stream.write("data: #{event.to_json}\n\n") }
       begin
-        current_api_user.reload
-        rag_context = fetch_rag_context(conversation, answering_message.content)
-        web_search_mode = if answering_message.content.to_s.match?(SEARCH_TRIGGER)
-          "always"
-        else
-          conversation.resolved_web_search_mode
-        end
-        result = ChatService.call(
-          messages: conversation.messages_for_ai(multimodal: images_allowed),
+        outcome = ChatStreamingService.call(
+          user: current_api_user,
+          conversation: conversation,
+          answering_message: answering_message,
           model: safe_model_code,
-          reasoning_effort: current_api_user.reasoning_effort,
-          use_persona: current_api_user.use_persona,
-          persona_id: current_api_user.persona_id,
-          use_scaffolding: current_api_user.use_scaffolding,
-          stream: true,
-          rag_context: rag_context,
-          project_description: conversation.project&.description,
-          skills: fetch_skills(conversation),
-          web_search_mode: web_search_mode,
-          web_search_level: conversation.resolved_web_search_level,
-          web_search_timing: conversation.resolved_web_search_timing,
-          web_search_query_count: conversation.resolved_web_search_query_count,
-          web_search_time_range: conversation.web_search_time_range,
-          web_search_start_date: conversation.web_search_start_date,
-          web_search_end_date: conversation.web_search_end_date,
+          images_allowed: images_allowed,
           time_zone: params[:time_zone],
-          has_pdf_sources: conversation.messages.where("pdf_sources <> '[]'::jsonb").exists?
-        ) do |chunk, phase|
-          if phase == :thinking
-            thinking_accumulator += chunk
-          elsif phase == :response
-            reply_accumulator += chunk
-          end
-
-          event_data = if phase == :web_search
-            research_metadata = chunk if chunk[:status].present?
-            { type: "web_search", **chunk }
-          elsif phase == :phase_change
-            { type: "phase_change", phase: "responding" }
-          else
-            { type: phase.to_s, content: chunk }
-          end
-          response.stream.write("data: #{event_data.to_json}\n\n")
-        end
-
-        raise "Chat service failed: #{result[:error]}" if result&.dig(:error)
-        if reply_accumulator.blank? && thinking_accumulator.blank?
-          raise EmptyStreamedResponseError,
-            "Model stream completed without response content " \
-            "(finish_reason=#{result&.dig(:finish_reason).inspect}, " \
-            "completion_tokens=#{result&.dig(:tokens, :completion_tokens).inspect})"
-        end
-
-        response_persisted = persist_streamed_response(
-          conversation,
-          answering_id,
-          answering_signature,
-          reply: reply_accumulator,
-          thinking: thinking_accumulator,
-          tokens: result&.dig(:tokens),
-          stats: result&.dig(:stats),
-          model_label: result&.dig(:model_label),
-          persona_label: result&.dig(:persona_label),
-          persona_version: result&.dig(:persona_version),
-          skill_versions: result&.dig(:skill_versions),
-          web_search_data: result&.dig(:web_search_data) || research_metadata || {},
-          entitle: true
+          sink: sink
         )
-        return unless response_persisted
-
-        if result&.dig(:stats)
-          stats_event = {
-            type: "stats",
-            generation_ms: result[:stats][:elapsed_ms],
-            tokens_per_second: result[:stats][:tokens_per_second],
-            total_tokens: result.dig(:tokens, :total_tokens) || result.dig(:tokens, :total)
-          }
-          response.stream.write("data: #{stats_event.to_json}\n\n")
-        end
-
-        metadata_event = {
-          type: "metadata",
-          model_label: result&.dig(:model_label),
-          persona_label: result&.dig(:persona_label)
-        }
-        response.stream.write("data: #{metadata_event.to_json}\n\n")
-
-        response.stream.write("data: #{({ type: 'done' }).to_json}\n\n")
-      rescue ActionController::Live::ClientDisconnected
-        persist_streamed_response(
-          conversation,
-          answering_id,
-          answering_signature,
-          reply: reply_accumulator,
-          thinking: thinking_accumulator,
-          entitle: false,
-          web_search_data: research_metadata || {}
-        ) unless response_persisted
-      rescue StandardError => e
-        Rails.logger.error("Streaming chat failed for conversation #{conversation.id}: #{e.full_message}")
-        message = if e.is_a?(EmptyStreamedResponseError)
-          "The model returned no response content. Please retry."
-        else
-          "The response could not be generated. Please retry."
-        end
-        response.stream.write("data: #{ { type: 'error', error: message }.to_json }\n\n")
-        raise
+        raise outcome[:error] if outcome[:status] == :failed
       ensure
         response.stream.close
       end
@@ -210,61 +105,6 @@ module Api
 
     def attachment_uploads
       Array(params[:attachments]).reject(&:blank?)
-    end
-
-    def persist_streamed_response(conversation, answering_id, answering_signature, reply:, thinking:, tokens: nil, stats: nil, model_label: nil, persona_label: nil, persona_version: nil, skill_versions: nil, web_search_data: {}, entitle:)
-      return false if reply.blank? && thinking.blank?
-
-      conversation.with_lock do
-        answering_message = conversation.messages.find_by(id: answering_id)
-        next false unless answering_message && message_signature(answering_message) == answering_signature
-
-        conversation.add_assistant_message(
-          reply: reply,
-          thinking: thinking,
-          tokens: tokens,
-          stats: stats,
-          model_label: model_label,
-          persona_label: persona_label,
-          persona_version: persona_version,
-          skill_versions: skill_versions,
-          web_search_data: web_search_data
-        )
-        conversation.entitle_async(answering_message.content) if entitle && answering_message.content.present?
-        true
-      end
-    end
-
-    def message_signature(message)
-      [ message.content, message.images.attachments.order(:id).pluck(:blob_id), message.pdf_sources ]
-    end
-
-    def fetch_skills(conversation)
-      conversation.resolved_skills.map do |skill|
-        { id: skill.id, name: skill.name, content: skill.body, version: skill.version }
-      end
-    end
-
-    def fetch_rag_context(conversation, query)
-      unless conversation.rag_enabled
-        Rails.logger.info("[RAG] skipped: rag_enabled is false on conversation #{conversation.id}")
-        return nil
-      end
-      return nil if query.blank?
-
-      Rails.logger.info("[RAG] query: #{query.to_s[0, 200]}")
-      chunks = Rag::Retriever.call(user: current_api_user, query: query)
-      Rails.logger.info("[RAG] retrieved #{chunks.length} chunks")
-      chunks.each_with_index do |chunk, index|
-        label = chunk.rag_document&.original_filename || chunk.rag_document&.title || "doc##{chunk.rag_document_id}"
-        preview = chunk.content.to_s.gsub(/\s+/, " ")[0, 140]
-        Rails.logger.info("[RAG]   #{index + 1}. #{label} chunk##{chunk.chunk_index}: #{preview}")
-      end
-      return nil if chunks.blank?
-
-      context = Rag::ContextFormatter.format(chunks, budgets: WebResearch::Profile.for_level(conversation.resolved_web_search_level))
-      Rails.logger.info("[RAG] injected context: #{context.to_s.length} chars")
-      context
     end
   end
 end

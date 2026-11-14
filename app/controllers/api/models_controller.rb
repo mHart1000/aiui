@@ -18,7 +18,9 @@ module Api
       http = Net::HTTP.new(uri.host, uri.port)
       http.open_timeout = 2
       http.read_timeout = 3
-      data = JSON.parse(http.get(uri.request_uri).body)
+      request = Net::HTTP::Get.new(uri.request_uri)
+      LlamaCredentials.authorize(request)
+      data = JSON.parse(http.request(request).body)
       meta = data.dig("data", 0, "meta") || {}
       render json: { n_ctx: meta["n_ctx"], n_ctx_train: meta["n_ctx_train"] }
     rescue => e

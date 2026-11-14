@@ -95,7 +95,7 @@ module EmbeddingAdapters
 
         request = Net::HTTP::Post.new(uri)
         request["Content-Type"] = "application/json"
-        request["Authorization"] = "Bearer unused"
+        LlamaCredentials.authorize(request)
         request.body = payload.to_json
 
         http.request(request)
@@ -143,7 +143,7 @@ module EmbeddingAdapters
       http.read_timeout = 10
       http.open_timeout = 5
       request = Net::HTTP::Get.new(uri)
-      request["Authorization"] = "Bearer unused"
+      LlamaCredentials.authorize(request)
       response = http.request(request)
       return nil unless response.is_a?(Net::HTTPSuccess)
 

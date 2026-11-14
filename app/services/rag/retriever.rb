@@ -118,7 +118,7 @@ module Rag
 
     # Cross-encoder reranker pass. Gated by the RERANKER_ENABLED env var so
     # the user can toggle it at will. When enabled, errors propagate — the
-    # higher-level rescue in Api::MessagesController#fetch_rag_context catches
+    # higher-level rescue in ChatStreamingService#fetch_rag_context catches
     # them and continues the chat without RAG context, so reranker outages
     # surface cleanly instead of silently degrading to unreranked results.
     def rerank_candidates(chunks)

@@ -55,7 +55,7 @@ module AiAdapters
 
       request = Net::HTTP::Post.new(uri)
       request["Content-Type"] = "application/json"
-      request["Authorization"] = "Bearer unused" # deeply mandated by some clients, often ignored by llama.cpp
+      LlamaCredentials.authorize(request)
       request.body = payload.to_json
 
       started_at = monotonic_now
@@ -121,7 +121,7 @@ module AiAdapters
         connected_at = monotonic_now
         request = Net::HTTP::Post.new(uri)
         request["Content-Type"] = "application/json"
-        request["Authorization"] = "Bearer unused"
+        LlamaCredentials.authorize(request)
         request.body = payload.to_json
 
         http.request(request) do |response|
