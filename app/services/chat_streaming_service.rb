@@ -46,7 +46,8 @@ class ChatStreamingService
           model: @model,
           stream: true,
           repo_path: @conversation.project.repo_path,
-          session_id: @conversation.id
+          session_id: @conversation.id,
+          pi_model: @conversation.project.pi_model
         ) do |chunk, phase|
           if phase == :response
             reply_accumulator += chunk

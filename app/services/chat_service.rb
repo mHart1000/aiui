@@ -27,12 +27,12 @@ class ChatService
     6. Response Strategy: If answerable, how should the response be structured?
   PROMPT
 
-  def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil, rag_context: nil, project_description: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_timing: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, web_search_time_range: nil, web_search_start_date: nil, web_search_end_date: nil, has_pdf_sources: false, reasoning_effort: nil, time_zone: nil, log_stats: true, repo_path: nil, session_id: nil, &block)
-    new(messages: messages, model: model, use_persona: use_persona, use_scaffolding: use_scaffolding, stream: stream, max_tokens: max_tokens, rag_context: rag_context, project_description: project_description, persona_id: persona_id, skills: skills, web_search_mode: web_search_mode, web_search_level: web_search_level, web_search_timing: web_search_timing, web_search_query_count: web_search_query_count, web_search_time_range: web_search_time_range, web_search_start_date: web_search_start_date, web_search_end_date: web_search_end_date, has_pdf_sources: has_pdf_sources, reasoning_effort: reasoning_effort, time_zone: time_zone, log_stats: log_stats).call(&block)
+  def self.call(messages:, model: nil, use_persona: false, use_scaffolding: false, stream: false, max_tokens: nil, rag_context: nil, project_description: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_timing: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, web_search_time_range: nil, web_search_start_date: nil, web_search_end_date: nil, has_pdf_sources: false, reasoning_effort: nil, time_zone: nil, log_stats: true, repo_path: nil, session_id: nil, pi_model: nil, &block)
+    new(messages: messages, model: model, use_persona: use_persona, use_scaffolding: use_scaffolding, stream: stream, max_tokens: max_tokens, rag_context: rag_context, project_description: project_description, persona_id: persona_id, skills: skills, web_search_mode: web_search_mode, web_search_level: web_search_level, web_search_timing: web_search_timing, web_search_query_count: web_search_query_count, web_search_time_range: web_search_time_range, web_search_start_date: web_search_start_date, web_search_end_date: web_search_end_date, has_pdf_sources: has_pdf_sources, reasoning_effort: reasoning_effort, time_zone: time_zone, log_stats: log_stats, repo_path: repo_path, session_id: session_id, pi_model: pi_model).call(&block)
   end
 
   # skills is an array of { id:, name:, content:, version: } hashes resolved by the caller.
-  def initialize(messages:, model:, use_persona:, use_scaffolding:, stream:, max_tokens:, rag_context: nil, project_description: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_timing: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, web_search_time_range: nil, web_search_start_date: nil, web_search_end_date: nil, has_pdf_sources: false, reasoning_effort: nil, time_zone: nil, log_stats: true, repo_path: nil, session_id: nil)
+  def initialize(messages:, model:, use_persona:, use_scaffolding:, stream:, max_tokens:, rag_context: nil, project_description: nil, persona_id: nil, skills: [], web_search_mode: "off", web_search_level: nil, web_search_timing: nil, web_search_query_count: WebResearch::ToolRequest::MAX_QUERIES, web_search_time_range: nil, web_search_start_date: nil, web_search_end_date: nil, has_pdf_sources: false, reasoning_effort: nil, time_zone: nil, log_stats: true, repo_path: nil, session_id: nil, pi_model: nil)
     @messages = messages
     @model_id = model.presence || FALLBACK_MODEL
     @use_persona = use_persona
@@ -55,6 +55,7 @@ class ChatService
     @log_stats = log_stats
     @repo_path = repo_path.presence
     @session_id = session_id
+    @pi_model = pi_model.presence
     @adapter = @repo_path ? build_pi_adapter : select_adapter(@model_id)
     @reasoning_options = @model_id == "custom-llama" && reasoning_effort.present? ? { reasoning_effort: reasoning_effort } : {}
     @time_zone = Time.find_zone(time_zone) || Time.zone
@@ -107,7 +108,7 @@ class ChatService
   end
 
   def build_pi_adapter
-    AiAdapters::PiAdapter.new(repo_path: @repo_path, session_id: @session_id.to_s)
+    AiAdapters::PiAdapter.new(repo_path: @repo_path, session_id: @session_id.to_s, model: @pi_model)
   end
 
   def pi_call(&block)

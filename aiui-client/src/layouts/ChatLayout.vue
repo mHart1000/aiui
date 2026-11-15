@@ -116,6 +116,8 @@
           <q-input v-model="projectDraft.description" outlined type="textarea" label="Project description" :maxlength="projectLimits.description" counter hint="Shared with every conversation in this project on subsequent turns." />
           <q-input v-model="projectDraft.repo_path" outlined icon="folder" label="Repo path" hint="Local directory for Pi repo Q&A. Leave empty to disable."
             placeholder="/home/user/dev/myproject" />
+          <q-input v-model="projectDraft.pi_model" outlined icon="memory" label="Pi model" hint="Model ID for Pi (e.g. Qwen3.8-27B-UD-Q4_K_M). Leave empty to use Pi's default."
+            placeholder="Qwen3.8-27B-UD-Q4_K_M" />
           <q-btn outline icon="extension" :label="`Project skills (${projectDraft.skill_ids.length})`" :disable="savingProject" @click="projectSkillsOpen = true" />
           <div v-if="projectError" class="text-negative" role="alert">{{ projectError }}</div>
         </q-card-section>
@@ -227,7 +229,7 @@ export default {
     projectLimits: {},
     projectEditorOpen: false,
     editingProjectId: null,
-    projectDraft: { name: '', description: '', repo_path: '', skill_ids: [] },
+    projectDraft: { name: '', description: '', repo_path: '', pi_model: '', skill_ids: [] },
     projectSkillsOpen: false,
     projectError: '',
     savingProject: false,
@@ -339,7 +341,7 @@ export default {
     },
     editProject(project = null) {
       this.editingProjectId = project?.id || null
-      this.projectDraft = { name: project?.name || '', description: project?.description || '', repo_path: project?.repo_path || '', skill_ids: [...(project?.skill_ids || [])] }
+      this.projectDraft = { name: project?.name || '', description: project?.description || '', repo_path: project?.repo_path || '', pi_model: project?.pi_model || '', skill_ids: [...(project?.skill_ids || [])] }
       this.projectError = ''
       this.projectEditorOpen = true
     },

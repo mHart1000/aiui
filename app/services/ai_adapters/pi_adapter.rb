@@ -5,10 +5,11 @@ module AiAdapters
   class PiAdapter < BaseAdapter
     class Error < StandardError; end
 
-    def initialize(repo_path:, session_id:, pi_bin: nil)
+    def initialize(repo_path:, session_id:, model: nil, pi_bin: nil)
       super(model: "pi")
       @repo_path = repo_path
       @session_id = session_id
+      @model = model
       @pi_bin = pi_bin || ENV.fetch("PI_BIN", "pi")
     end
 
@@ -24,6 +25,7 @@ module AiAdapters
       activities = []
       message_usages = []
       final_stop_reason = nil
+      last_assistant_content = nil
 
       started_at = monotonic_now
 
@@ -40,30 +42,37 @@ module AiAdapters
           event = JSON.parse(json_line)
           process_event(event, full_content: full_content, segment_breaks: segment_breaks,
                         activities: activities, message_usages: message_usages, &block)
-          final_stop_reason = event.dig("message", "stopReason") if event["type"] == "message_end" && event.dig("message", "role") == "assistant"
+          if event["type"] == "message_end" && event.dig("message", "role") == "assistant"
+            final_stop_reason = event.dig("message", "stopReason")
+            last_assistant_content = extract_text_content(event["message"]["content"])
+          end
         end
       end
       stdout.close
+      stderr_output = stderr.to_s.strip
+      stderr.close
 
       exit_status = wait_thr.value
       elapsed = monotonic_now - started_at
 
       # Check for no assistant messages produced
       if message_usages.empty? && full_content.empty?
-        raise Error, "Pi produced no output (exit #{exit_status.exitstatus})"
+        detail = stderr_output.present? ? stderr_output[-500..] : "no stderr output"
+        raise Error, "Pi produced no output (exit #{exit_status.exitstatus}): #{detail}"
       end
 
       # Check stop reason
       if final_stop_reason == "error"
-        raise Error, "Pi reported an error: #{final_stop_reason}"
+        detail = last_assistant_content.presence || stderr_output[-500..] || "no details"
+        raise Error, "Pi reported an error: #{detail}"
       elsif final_stop_reason == "aborted"
         raise Error, "Pi was aborted"
       end
 
       # Check process exit (non-zero with some output is still suspicious)
       unless exit_status.success?
-        stderr_tail = stderr.to_s[-500..]
-        raise Error, "Pi exited with code #{exit_status.exitstatus}: #{stderr_tail}"
+        detail = stderr_output.present? ? stderr_output[-500..] : "no stderr output"
+        raise Error, "Pi exited with code #{exit_status.exitstatus}: #{detail}"
       end
 
       tokens = aggregate_tokens(message_usages)
@@ -86,13 +95,20 @@ module AiAdapters
     private
 
     def build_command(prompt)
-      [
+      cmd = [
         @pi_bin, "--mode", "json",
         "--session-id", @session_id,
         "--tools", "read,bash",
-        "--thinking", "off",
-        "--", prompt
+        "--thinking", "off"
       ]
+      cmd += ["--model", "llama.cpp/#{@model}"] if @model
+      cmd += ["--", prompt]
+    end
+
+    def extract_text_content(content)
+      return content if content.is_a?(String)
+      return nil unless content.is_a?(Array)
+      content.select { |c| c["type"] == "text" }.pluck("text").join("\n").presence
     end
 
     def extract_prompt(messages)
