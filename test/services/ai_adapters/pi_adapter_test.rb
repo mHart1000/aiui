@@ -48,7 +48,7 @@ class AiAdapters::PiAdapterTest < ActiveSupport::TestCase
       { "type" => "session", "id" => "test" },
       { "type" => "message_update", "assistantMessageEvent" => { "type" => "text_delta", "delta" => "Let me check " } },
       { "type" => "message_update", "assistantMessageEvent" => { "type" => "text_delta", "delta" => "the auth file." } },
-      { "type" => "message_update", "assistantMessageEvent" => { "type" => "toolcall_end", "toolName" => "read", "args" => { "path" => "app/auth.rb" } } },
+      { "type" => "tool_execution_start", "toolCallId" => "call_1", "toolName" => "read", "args" => { "path" => "app/auth.rb" } },
       { "type" => "message_update", "assistantMessageEvent" => { "type" => "text_delta", "delta" => "The auth flow uses JWT." } },
       { "type" => "message_end", "message" => { "role" => "assistant", "stopReason" => "stop", "usage" => { "input" => 100, "output" => 50 } } },
       { "type" => "agent_settled" }
@@ -153,8 +153,7 @@ class AiAdapters::PiAdapterTest < ActiveSupport::TestCase
     adapter = AiAdapters::PiAdapter.new(repo_path: "/tmp", session_id: "123")
     long_cmd = "grep -rn --include='*.rb' 'very_long_search_pattern_that_goes_well_beyond_eighty_characters_here' app/"
     assert long_cmd.length > 80, "test command must be longer than 80 chars"
-    ame = { "toolName" => "bash", "args" => { "command" => long_cmd } }
-    desc = adapter.send(:activity_description, ame)
+    desc = adapter.send(:activity_description, "bash", { "command" => long_cmd })
     assert_equal "Running: #{long_cmd[0, 80]}...", desc
   end
 
@@ -162,7 +161,7 @@ class AiAdapters::PiAdapterTest < ActiveSupport::TestCase
     events = [
       { "type" => "message_update", "assistantMessageEvent" => { "type" => "text_delta", "delta" => "Hello " } },
       { "type" => "message_update", "assistantMessageEvent" => { "type" => "text_delta", "delta" => "world" } },
-      { "type" => "message_update", "assistantMessageEvent" => { "type" => "toolcall_end", "toolName" => "read", "args" => { "path" => "file.rb" } } },
+      { "type" => "tool_execution_start", "toolCallId" => "call_1", "toolName" => "read", "args" => { "path" => "file.rb" } },
       { "type" => "message_update", "assistantMessageEvent" => { "type" => "text_delta", "delta" => "Answer here" } },
       { "type" => "message_end", "message" => { "role" => "assistant", "stopReason" => "stop", "usage" => { "input" => 10, "output" => 5 } } },
       { "type" => "agent_settled" }
@@ -200,7 +199,8 @@ class AiAdapters::PiAdapterTest < ActiveSupport::TestCase
     fake_wait_thr = Object.new
     fake_wait_thr.define_singleton_method(:value) { FakeStatus.new(exit_status) }
 
-    Open3.stub(:popen3, ->(*_args, **_kwargs) { [fake_stdout, fake_stderr, fake_wait_thr] }) do
+    fake_stdin = StringIO.new
+    Open3.stub(:popen3, ->(*_args, **_kwargs) { [fake_stdin, fake_stdout, fake_stderr, fake_wait_thr] }) do
       yield
     end
   end

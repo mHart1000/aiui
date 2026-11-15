@@ -3,6 +3,7 @@ import { ref } from 'vue'
 export function useStreamingChat() {
   const thinkingText = ref('')
   const responseText = ref('')
+  const repoSegments = ref(null)
   const stats = ref(null)
   const metadata = ref(null)
   const isStreaming = ref(false)
@@ -29,6 +30,7 @@ export function useStreamingChat() {
 
     thinkingText.value = ''
     responseText.value = ''
+    repoSegments.value = null
     stats.value = null
     metadata.value = null
     error.value = null
@@ -113,7 +115,19 @@ export function useStreamingChat() {
             case 'response':
               if (loadingPhase.value !== 'responding') loadingPhase.value = 'responding'
               responseText.value += data.content
+              if (repoSegments.value) {
+                const segs = repoSegments.value
+                segs[segs.length - 1].text += data.content
+              }
               break
+            case 'repo_activity': {
+              if (loadingPhase.value !== 'responding') loadingPhase.value = 'responding'
+              if (!repoSegments.value) {
+                repoSegments.value = [{ text: responseText.value, activities: [] }]
+              }
+              repoSegments.value.push({ text: '', activities: [data.content] })
+              break
+            }
             case 'stats':
               stats.value = {
                 total_tokens: data.total_tokens,
@@ -186,6 +200,7 @@ export function useStreamingChat() {
   return {
     thinkingText,
     responseText,
+    repoSegments,
     stats,
     metadata,
     isStreaming,

@@ -27,7 +27,8 @@ module AiAdapters
 
       started_at = monotonic_now
 
-      stdout, stderr, wait_thr = Open3.popen3({ "HOME" => ENV["HOME"] }, *cmd, chdir: @repo_path)
+      _stdin, stdout, stderr, wait_thr = Open3.popen3({ "HOME" => ENV["HOME"] }, *cmd, chdir: @repo_path)
+      _stdin.close
 
       buffer = ""
       while (line = stdout.gets)
@@ -118,6 +119,13 @@ module AiAdapters
           usage = event.dig("message", "usage")
           message_usages << usage if usage
         end
+      when "tool_execution_start"
+        activity = activity_description(event["toolName"], event["args"])
+        if activity.present?
+          segment_breaks << full_content.length
+          activities << activity
+          block&.call(activity, :repo_activity)
+        end
       end
     end
 
@@ -132,20 +140,12 @@ module AiAdapters
 
         full_content << delta
         block&.call(delta, :response)
-      when "toolcall_end"
-        # Close the current segment
-        segment_breaks << full_content.length if full_content.length > 0
-        activity = activity_description(ame)
-        activities << activity
-        block&.call(activity, :repo_activity) if activity.present?
       end
     end
 
-    def activity_description(ame)
-      tool_name = ame["toolName"].to_s
-      args = ame["args"] || {}
-
-      case tool_name
+    def activity_description(tool_name, args)
+      args ||= {}
+      case tool_name.to_s
       when "read"
         "Reading #{args["path"]}"
       when "bash"
@@ -153,7 +153,7 @@ module AiAdapters
         cmd = "#{cmd[0, 80]}..." if cmd.length > 80
         "Running: #{cmd}"
       else
-        "#{tool_name.capitalize}"
+        "#{tool_name.to_s.capitalize}"
       end
     end
 
