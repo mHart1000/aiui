@@ -58,8 +58,8 @@ class AiAdapters::PiAdapterTest < ActiveSupport::TestCase
     received = []
     stub_process(stream_jsonl, exit_status: 0) do
       adapter = AiAdapters::PiAdapter.new(repo_path: "/tmp", session_id: "123")
-      result = adapter.chat(messages: [{ role: "user", content: "how does auth work?" }]) do |chunk, phase|
-        received << [phase, chunk]
+      result = adapter.chat(messages: [ { role: "user", content: "how does auth work?" } ]) do |chunk, phase|
+        received << [ phase, chunk ]
       end
 
       # Check streamed events
@@ -79,9 +79,9 @@ class AiAdapters::PiAdapterTest < ActiveSupport::TestCase
       assert_equal 100, result[:tokens][:prompt_tokens]
 
       # Check pi_data
-      assert_equal ["Reading app/auth.rb"], result[:pi_data][:activities]
+      assert_equal [ "Reading app/auth.rb" ], result[:pi_data][:activities]
       # "Let me check " (13) + "the auth file." (14) = 27
-      assert_equal [27], result[:pi_data][:segment_breaks]
+      assert_equal [ 27 ], result[:pi_data][:segment_breaks]
     end
   end
 
@@ -97,7 +97,7 @@ class AiAdapters::PiAdapterTest < ActiveSupport::TestCase
 
     stub_process(stream_jsonl, exit_status: 0) do
       adapter = AiAdapters::PiAdapter.new(repo_path: "/tmp", session_id: "123")
-      result = adapter.chat(messages: [{ role: "user", content: "test" }])
+      result = adapter.chat(messages: [ { role: "user", content: "test" } ])
 
       assert_equal 50, result[:tokens][:completion_tokens] # 20 + 30
       assert_equal 150, result[:tokens][:prompt_tokens] # last message input
@@ -116,7 +116,7 @@ class AiAdapters::PiAdapterTest < ActiveSupport::TestCase
     stub_process(stream_jsonl, exit_status: 0) do
       adapter = AiAdapters::PiAdapter.new(repo_path: "/tmp", session_id: "123")
       assert_raises(AiAdapters::PiAdapter::Error) do
-        adapter.chat(messages: [{ role: "user", content: "test" }])
+        adapter.chat(messages: [ { role: "user", content: "test" } ])
       end
     end
   end
@@ -132,7 +132,7 @@ class AiAdapters::PiAdapterTest < ActiveSupport::TestCase
     stub_process(stream_jsonl, exit_status: 1, stderr: "something went wrong") do
       adapter = AiAdapters::PiAdapter.new(repo_path: "/tmp", session_id: "123")
       error = assert_raises(AiAdapters::PiAdapter::Error) do
-        adapter.chat(messages: [{ role: "user", content: "test" }])
+        adapter.chat(messages: [ { role: "user", content: "test" } ])
       end
       assert_match(/exit.*code.*1/, error.message)
     end
@@ -144,7 +144,7 @@ class AiAdapters::PiAdapterTest < ActiveSupport::TestCase
     stub_process(stream_jsonl, exit_status: 0) do
       adapter = AiAdapters::PiAdapter.new(repo_path: "/tmp", session_id: "123")
       assert_raises(AiAdapters::PiAdapter::Error) do
-        adapter.chat(messages: [{ role: "user", content: "test" }])
+        adapter.chat(messages: [ { role: "user", content: "test" } ])
       end
     end
   end
@@ -170,10 +170,10 @@ class AiAdapters::PiAdapterTest < ActiveSupport::TestCase
 
     stub_process(stream_jsonl, exit_status: 0) do
       adapter = AiAdapters::PiAdapter.new(repo_path: "/tmp", session_id: "123")
-      result = adapter.chat(messages: [{ role: "user", content: "test" }])
+      result = adapter.chat(messages: [ { role: "user", content: "test" } ])
 
       # "Hello world" is 11 chars, so break at 11
-      assert_equal [11], result[:pi_data][:segment_breaks]
+      assert_equal [ 11 ], result[:pi_data][:segment_breaks]
     end
   end
 
@@ -200,7 +200,7 @@ class AiAdapters::PiAdapterTest < ActiveSupport::TestCase
     fake_wait_thr.define_singleton_method(:value) { FakeStatus.new(exit_status) }
 
     fake_stdin = StringIO.new
-    Open3.stub(:popen3, ->(*_args, **_kwargs) { [fake_stdin, fake_stdout, fake_stderr, fake_wait_thr] }) do
+    Open3.stub(:popen3, ->(*_args, **_kwargs) { [ fake_stdin, fake_stdout, fake_stderr, fake_wait_thr ] }) do
       yield
     end
   end

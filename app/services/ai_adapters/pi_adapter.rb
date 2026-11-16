@@ -101,8 +101,8 @@ module AiAdapters
         "--tools", "read,bash",
         "--thinking", "off"
       ]
-      cmd += ["--model", "llama.cpp/#{@model}"] if @model
-      cmd += ["--", prompt]
+      cmd += [ "--model", "llama.cpp/#{@model}" ] if @model
+      cmd += [ "--", prompt ]
     end
 
     def extract_text_content(content)
