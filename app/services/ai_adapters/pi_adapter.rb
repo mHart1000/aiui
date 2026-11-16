@@ -44,7 +44,7 @@ module AiAdapters
                         activities: activities, message_usages: message_usages, &block)
           if event["type"] == "message_end" && event.dig("message", "role") == "assistant"
             final_stop_reason = event.dig("message", "stopReason")
-            last_assistant_content = extract_text_content(event["message"]["content"])
+            last_assistant_content = event["message"].fetch("errorMessage", nil) || extract_text_content(event["message"]["content"])
           end
         end
       end
