@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+FILE=".pi/APPEND_SYSTEM.md"
+STASHED="${FILE}.disabled"
+
+cmd="${1:-help}"
+
+case "$cmd" in
+  on)
+    if [[ -f "$STASHED" ]]; then
+      mv "$STASHED" "$FILE"
+      echo "Custom prompt: on"
+    elif [[ -f "$FILE" ]]; then
+      echo "Custom prompt: already on"
+    else
+      echo "Error: $FILE not found" >&2
+      exit 1
+    fi
+    ;;
+  off)
+    if [[ -f "$FILE" ]]; then
+      mv "$FILE" "$STASHED"
+      echo "Custom prompt: off"
+    elif [[ -f "$STASHED" ]]; then
+      echo "Custom prompt: already off"
+    else
+      echo "Error: $FILE not found" >&2
+      exit 1
+    fi
+    ;;
+  status)
+    if [[ -f "$FILE" ]]; then
+      echo "Custom prompt: on"
+    else
+      echo "Custom prompt: off"
+    fi
+    ;;
+  *)
+    echo "Usage: $(basename "$0") {on|off|status}" >&2
+    exit 1
+    ;;
+esac

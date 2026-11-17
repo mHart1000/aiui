@@ -15,3 +15,4 @@ docs/* filter=git-crypt diff=git-crypt
 persona/*.md filter=git-crypt diff=git-crypt
 CLAUDE.md filter=git-crypt diff=git-crypt
 AGENTS.md filter=git-crypt diff=git-crypt
+.pi/*.md filter=git-crypt diff=git-crypt
