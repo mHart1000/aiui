@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+APPEND=".pi/APPEND_SYSTEM.md"
+APPEND_STASH="${APPEND}.disabled"
+OVERRIDE="AGENTS.override.md"
+OVERRIDE_STASH="${OVERRIDE}.disabled"
+
+cmd="${1:-help}"
+
+case "$cmd" in
+  on)
+    on=0
+    if [[ -f "$APPEND_STASH" ]]; then
+      mv "$APPEND_STASH" "$APPEND"
+      ((on++))
+    elif [[ -f "$APPEND" ]]; then
+      : # already on
+    else
+      echo "Warning: $APPEND not found" >&2
+    fi
+    if [[ -f "$OVERRIDE_STASH" ]]; then
+      mv "$OVERRIDE_STASH" "$OVERRIDE"
+      ((on++))
+    elif [[ -f "$OVERRIDE" ]]; then
+      : # already on
+    else
+      echo "Warning: $OVERRIDE not found" >&2
+    fi
+    echo "Voice mode: on"
+    ;;
+  off)
+    off=0
+    if [[ -f "$APPEND" ]]; then
+      mv "$APPEND" "$APPEND_STASH"
+      ((off++))
+    elif [[ -f "$APPEND_STASH" ]]; then
+      : # already off
+    else
+      echo "Warning: $APPEND not found" >&2
+    fi
+    if [[ -f "$OVERRIDE" ]]; then
+      mv "$OVERRIDE" "$OVERRIDE_STASH"
+      ((off++))
+    elif [[ -f "$OVERRIDE_STASH" ]]; then
+      : # already off
+    else
+      echo "Warning: $OVERRIDE not found" >&2
+    fi
+    echo "Voice mode: off"
+    ;;
+  status)
+    append_state="off"
+    [[ -f "$APPEND" ]] && append_state="on"
+    override_state="off"
+    [[ -f "$OVERRIDE" ]] && override_state="on"
+    echo "APPEND_SYSTEM.md: $append_state"
+    echo "AGENTS.override.md: $override_state"
+    ;;
+  *)
+    echo "Usage: $(basename "$0") {on|off|status}" >&2
+    exit 1
+    ;;
+esac
