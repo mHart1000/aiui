@@ -33,7 +33,7 @@ gem "ruby-vips", ">= 2.0.17", "< 3"
 gem "rack-cors"
 
 group :development, :test do
-  gem "minitest", "~> 5.22"
+  gem "minitest", "~> 6.1"
 
   # See https://guides.rubyonrails.org/debugging_rails_applications.html#debugging-with-the-debug-gem
   gem "debug", platforms: %i[ mri windows ], require: "debug/prelude"
