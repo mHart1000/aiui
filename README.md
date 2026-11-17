@@ -194,10 +194,6 @@ Register the clip in `voices.json`. The adapter sends `voice: "aiden"`, which mu
 { "aiden": { "ref_audio": "ref_aiden.wav", "ref_text": "Some clean, natural paragraph about ten seconds long when spoken aloud.", "language": "English", "chunk_size": 4 } }
 ```
 
-The `chunk_size` value for each voice sets the time to first audio. `N/12` is the number of seconds of audio for each flush. The default value, `12`, is approximately 520 ms. A value of `4` is approximately 297 ms. See [latency tuning](docs/qwen3-latency-optimization-spec.md).
-
-Start the server. The 0.6B model is the fast clone model. The weights download and the CUDA graph captures one time during the first run:
-
 ```bash
 source .venv/bin/activate
 python examples/openai_server.py --model Qwen/Qwen3-TTS-12Hz-0.6B-Base --voices voices.json --port 8881
