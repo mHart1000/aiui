@@ -4,6 +4,7 @@ require "json"
 module AiAdapters
   class PiAdapter < BaseAdapter
     class Error < StandardError; end
+    PROCESS_TERMINATION_GRACE_SECONDS = 2
 
     def initialize(repo_path:, session_id:, model: nil, pi_bin: nil)
       super(model: "pi")
@@ -28,71 +29,123 @@ module AiAdapters
       last_assistant_content = nil
 
       started_at = monotonic_now
+      stdin = nil
+      stdout = nil
+      stderr = nil
+      wait_thr = nil
+      begin
+        stdin, stdout, stderr, wait_thr = Open3.popen3(
+          { "HOME" => ENV["HOME"] },
+          *cmd,
+          chdir: @repo_path,
+          pgroup: true
+        )
+        stdin.close
 
-      _stdin, stdout, stderr, wait_thr = Open3.popen3({ "HOME" => ENV["HOME"] }, *cmd, chdir: @repo_path)
-      _stdin.close
+        buffer = ""
+        while (line = stdout.gets)
+          # Keep your existing JSONL parsing code here.
+        end
 
-      buffer = ""
-      while (line = stdout.gets)
-        buffer += line
-        while (line_end = buffer.index("\n"))
-          json_line = buffer.slice!(0, line_end + 1).strip
-          next if json_line.empty?
+        stderr_output = stderr.to_s.strip
 
-          event = JSON.parse(json_line)
-          process_event(event, full_content: full_content, segment_breaks: segment_breaks,
-                        activities: activities, message_usages: message_usages, &block)
-          if event["type"] == "message_end" && event.dig("message", "role") == "assistant"
-            final_stop_reason = event.dig("message", "stopReason")
-            last_assistant_content = event["message"].fetch("errorMessage", nil) || extract_text_content(event["message"]["content"])
+        exit_status = wait_thr.value
+        elapsed = monotonic_now - started_at
+
+        # Keep all your existing validation, token, stats,
+        # pi_data, and result-hash code here.
+
+        _stdin, stdout, stderr, wait_thr = Open3.popen3({ "HOME" => ENV["HOME"] }, *cmd, chdir: @repo_path, pgroup: true)
+        _stdin.close
+
+        buffer = ""
+        while (line = stdout.gets)
+          buffer += line
+          while (line_end = buffer.index("\n"))
+            json_line = buffer.slice!(0, line_end + 1).strip
+            next if json_line.empty?
+
+            event = JSON.parse(json_line)
+            process_event(event, full_content: full_content, segment_breaks: segment_breaks,
+                          activities: activities, message_usages: message_usages, &block)
+            if event["type"] == "message_end" && event.dig("message", "role") == "assistant"
+              final_stop_reason = event.dig("message", "stopReason")
+              last_assistant_content = event["message"].fetch("errorMessage", nil) || extract_text_content(event["message"]["content"])
+            end
           end
         end
+        stderr_output = stderr.to_s.strip
+
+        exit_status = wait_thr.value
+        elapsed = monotonic_now - started_at
+
+        # Check for no assistant messages produced
+        if message_usages.empty? && full_content.empty?
+          detail = stderr_output.present? ? stderr_output[-500..] : "no stderr output"
+          raise Error, "Pi produced no output (exit #{exit_status.exitstatus}): #{detail}"
+        end
+
+        # Check stop reason
+        if final_stop_reason == "error"
+          detail = last_assistant_content.presence || stderr_output[-500..] || "no details"
+          raise Error, "Pi reported an error: #{detail}"
+        elsif final_stop_reason == "aborted"
+          raise Error, "Pi was aborted"
+        end
+
+        # Check process exit (non-zero with some output is still suspicious)
+        unless exit_status.success?
+          detail = stderr_output.present? ? stderr_output[-500..] : "no stderr output"
+          raise Error, "Pi exited with code #{exit_status.exitstatus}: #{detail}"
+        end
+
+        tokens = aggregate_tokens(message_usages)
+        stats = build_stats(tokens: tokens, elapsed: elapsed)
+
+        pi_data = {
+          activities: activities,
+          segment_breaks: segment_breaks
+        }
+
+        {
+          finish_reason: final_stop_reason || "stop",
+          tokens: tokens,
+          stats: stats,
+          model_label: "Pi",
+          pi_data: pi_data
+        }
+      ensure
+        terminate_process_group(wait_thr) if wait_thr&.alive?
+        close_io(stdin)
+        close_io(stdout)
+        close_io(stderr)
       end
-      stdout.close
-      stderr_output = stderr.to_s.strip
-      stderr.close
-
-      exit_status = wait_thr.value
-      elapsed = monotonic_now - started_at
-
-      # Check for no assistant messages produced
-      if message_usages.empty? && full_content.empty?
-        detail = stderr_output.present? ? stderr_output[-500..] : "no stderr output"
-        raise Error, "Pi produced no output (exit #{exit_status.exitstatus}): #{detail}"
-      end
-
-      # Check stop reason
-      if final_stop_reason == "error"
-        detail = last_assistant_content.presence || stderr_output[-500..] || "no details"
-        raise Error, "Pi reported an error: #{detail}"
-      elsif final_stop_reason == "aborted"
-        raise Error, "Pi was aborted"
-      end
-
-      # Check process exit (non-zero with some output is still suspicious)
-      unless exit_status.success?
-        detail = stderr_output.present? ? stderr_output[-500..] : "no stderr output"
-        raise Error, "Pi exited with code #{exit_status.exitstatus}: #{detail}"
-      end
-
-      tokens = aggregate_tokens(message_usages)
-      stats = build_stats(tokens: tokens, elapsed: elapsed)
-
-      pi_data = {
-        activities: activities,
-        segment_breaks: segment_breaks
-      }
-
-      {
-        finish_reason: final_stop_reason || "stop",
-        tokens: tokens,
-        stats: stats,
-        model_label: "Pi",
-        pi_data: pi_data
-      }
     end
 
     private
+
+    def terminate_process_group(wait_thr)
+      process_group_id = -wait_thr.pid
+
+      Process.kill("TERM", process_group_id)
+      return if wait_thr.join(PROCESS_TERMINATION_GRACE_SECONDS)
+      Process.kill("KILL", process_group_id)
+      wait_thr.join
+    rescue Errno::ESRCH
+      # The process exited between the alive? check and the signal.
+    rescue SystemCallError => e
+      Rails.logger.error("Failed to terminate Pi process group #{wait_thr.pid}: #{e.full_message}")
+    end
+
+    def close_io(io)
+      io&.close unless io&.closed?
+    rescue IOError
+      # The stream was already closed during process shutdown.
+    end
+
+    def build_command(prompt)
+      # Existing method...
+    end
 
     def build_command(prompt)
       cmd = [
