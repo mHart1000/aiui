@@ -1,5 +1,7 @@
 require "test_helper"
+require "rbconfig"
 require "stringio"
+require "tmpdir"
 
 class AiAdapters::PiAdapterTest < ActiveSupport::TestCase
   test "extracts prompt from last user message" do
@@ -177,6 +179,47 @@ class AiAdapters::PiAdapterTest < ActiveSupport::TestCase
     end
   end
 
+  test "terminates the subprocess when the streaming callback disconnects" do
+    child_pid = nil
+
+    Dir.mktmpdir do |directory|
+      pid_path = File.join(directory, "child.pid")
+      child_script = <<~RUBY
+        require "json"
+
+        File.write(ARGV.fetch(0), Process.pid)
+        STDOUT.sync = true
+        puts({
+          type: "message_update",
+          assistantMessageEvent: { type: "text_delta", delta: "partial response" }
+        }.to_json)
+        sleep 30
+      RUBY
+
+      adapter = AiAdapters::PiAdapter.new(repo_path: "/tmp", session_id: "123")
+      command = [ RbConfig.ruby, "-e", child_script, pid_path ]
+
+      adapter.stub(:build_command, command) do
+        assert_raises(ActionController::Live::ClientDisconnected) do
+          adapter.chat(messages: [ { role: "user", content: "test" } ]) do
+            raise ActionController::Live::ClientDisconnected
+          end
+        end
+      end
+
+      child_pid = File.read(pid_path).to_i
+      assert_raises(Errno::ESRCH) { Process.kill(0, child_pid) }
+    end
+  ensure
+    if child_pid
+      begin
+        Process.kill("KILL", child_pid)
+      rescue Errno::ESRCH
+        nil
+      end
+    end
+  end
+
   private
 
   class FakeStatus
@@ -198,6 +241,7 @@ class AiAdapters::PiAdapterTest < ActiveSupport::TestCase
     fake_stderr = StringIO.new(stderr)
     fake_wait_thr = Object.new
     fake_wait_thr.define_singleton_method(:value) { FakeStatus.new(exit_status) }
+    fake_wait_thr.define_singleton_method(:alive?) { false }
 
     fake_stdin = StringIO.new
     Open3.stub(:popen3, ->(*_args, **_kwargs) { [ fake_stdin, fake_stdout, fake_stderr, fake_wait_thr ] }) do
