@@ -3,7 +3,7 @@ require "pdf/reader"
 
 class PdfAttachmentProcessor
   MAX_BYTES = 8.megabytes
-  MAX_PAGES = 100
+  MAX_PAGES = 300
   MIN_TEXT_CHARS = 1_000
   DEFAULT_TEXT_CHARS = 128_000
   MAX_TEXT_CHARS = 512_000
