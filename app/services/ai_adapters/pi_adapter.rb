@@ -33,6 +33,7 @@ module AiAdapters
       stdout = nil
       stderr = nil
       wait_thr = nil
+
       begin
         stdin, stdout, stderr, wait_thr = Open3.popen3(
           { "HOME" => ENV["HOME"] },
@@ -41,22 +42,6 @@ module AiAdapters
           pgroup: true
         )
         stdin.close
-
-        buffer = ""
-        while (line = stdout.gets)
-          # Keep your existing JSONL parsing code here.
-        end
-
-        stderr_output = stderr.to_s.strip
-
-        exit_status = wait_thr.value
-        elapsed = monotonic_now - started_at
-
-        # Keep all your existing validation, token, stats,
-        # pi_data, and result-hash code here.
-
-        _stdin, stdout, stderr, wait_thr = Open3.popen3({ "HOME" => ENV["HOME"] }, *cmd, chdir: @repo_path, pgroup: true)
-        _stdin.close
 
         buffer = ""
         while (line = stdout.gets)
@@ -141,10 +126,6 @@ module AiAdapters
       io&.close unless io&.closed?
     rescue IOError
       # The stream was already closed during process shutdown.
-    end
-
-    def build_command(prompt)
-      # Existing method...
     end
 
     def build_command(prompt)

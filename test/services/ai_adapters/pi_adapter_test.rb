@@ -26,7 +26,7 @@ class AiAdapters::PiAdapterTest < ActiveSupport::TestCase
   end
 
   test "builds correct command" do
-    adapter = AiAdapters::PiAdapter.new(repo_path: "/tmp", session_id: "conv-42")
+    adapter = AiAdapters::PiAdapter.new(repo_path: "/tmp", session_id: "conv-42", pi_bin: "pi")
     cmd = adapter.send(:build_command, "hello world")
     assert_equal [
       "pi", "--mode", "json",
