@@ -615,7 +615,26 @@ const codeRenderer = {
   }
 }
 
+// common in gemma output
+const inlineLatexArrow = {
+  name: 'inlineLatexArrow',
+  level: 'inline',
+  start(src) {
+    return src.indexOf('$\\')
+  },
+  tokenizer(src) {
+    const match = /^\$\s*\\(?:rightarrow|to)\s*\$/.exec(src)
+    if (!match) return undefined
+
+    return { type: 'inlineLatexArrow', raw: match[0], text: '→' }
+  },
+  renderer(token) {
+    return token.text
+  }
+}
+
 const marked = new Marked({ renderer: codeRenderer })
+marked.use({ extensions: [inlineLatexArrow] })
 
 // User messages reuse the same renderer but disable indented code blocks, so
 // pasted prose with indented paragraphs isn't mistaken for a code block.
@@ -626,6 +645,7 @@ const markedUser = new Marked({
     code() { return undefined }
   }
 })
+markedUser.use({ extensions: [inlineLatexArrow] })
 import { useStreamingChat } from 'src/composables/useStreamingChat'
 import { useTtsPlayer } from 'src/composables/useTtsPlayer'
 import { onBeforeUnmount, onMounted} from 'vue'
