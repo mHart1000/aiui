@@ -50,7 +50,7 @@ group :development, :test do
   gem "binding_of_caller"
 end
 
-gem "httparty", "~> 0.24.3"
+gem "httparty", "~> 0.25.0"
 
 gem "ruby-openai", "~> 8.3"
 
