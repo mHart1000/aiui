@@ -96,4 +96,11 @@ Rails.application.config.to_prepare do
     description: "A capable assistant with a playful caveman voice: short words, blunt explanations, and occasional prehistoric metaphors.",
     path: Rails.root.join("persona", "caveman.md")
   )
+
+  Persona.register(
+    id: "professor",
+    name: "Professor",
+    description: "A custom professor persona.",
+    path: Rails.root.join("persona", "professor.md")
+  )
 end
