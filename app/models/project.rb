@@ -9,4 +9,5 @@ class Project < ApplicationRecord
   normalizes :description, with: ->(description) { description.to_s }, apply_to_nil: true
   validates :name, presence: true, length: { maximum: MAX_NAME_LENGTH }
   validates :description, length: { maximum: MAX_DESCRIPTION_LENGTH }
+  validates :repo_path, presence: true, if: :pi_mode?
 end

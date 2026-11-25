@@ -35,7 +35,8 @@ class ChatStreamingService
     pi_data = nil
     @persisted = false
 
-    pi_mode = @conversation.project&.repo_path.present?
+    project = @conversation.project
+    pi_mode = project&.pi_mode? && project.repo_path.present?
 
     begin
       @user.reload
@@ -45,9 +46,9 @@ class ChatStreamingService
           messages: @conversation.messages_for_ai(multimodal: false),
           model: @model,
           stream: true,
-          repo_path: @conversation.project.repo_path,
+          repo_path: project.repo_path,
           session_id: @conversation.id,
-          pi_model: @conversation.project.pi_model
+          pi_model: project.pi_model
         ) do |chunk, phase|
           if phase == :response
             reply_accumulator += chunk
