@@ -103,4 +103,11 @@ Rails.application.config.to_prepare do
     description: "A custom professor persona.",
     path: Rails.root.join("persona", "professor.md")
   )
+
+  Persona.register(
+    id: "asd-ste100",
+    name: "ASD-STE100",
+    description: "Answers in the controlled, concise style of ASD-STE100 Simplified Technical English.",
+    path: Rails.root.join("persona", "asd-ste100.md")
+  )
 end
