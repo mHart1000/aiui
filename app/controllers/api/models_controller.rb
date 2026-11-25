@@ -22,7 +22,8 @@ module Api
       LlamaCredentials.authorize(request)
       data = JSON.parse(http.request(request).body)
       meta = data.dig("data", 0, "meta") || {}
-      render json: { n_ctx: meta["n_ctx"], n_ctx_train: meta["n_ctx_train"] }
+      models = data.fetch("data", []).filter_map { |model| model["id"] }
+      render json: { models:, n_ctx: meta["n_ctx"], n_ctx_train: meta["n_ctx_train"] }
     rescue => e
       render json: { error: e.message }, status: :bad_gateway
     end

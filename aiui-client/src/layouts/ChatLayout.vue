@@ -114,11 +114,21 @@
         <q-card-section class="q-gutter-md">
           <q-input v-model="projectDraft.name" outlined autofocus label="Project name" :maxlength="projectLimits.name" counter />
           <q-input v-model="projectDraft.description" outlined type="textarea" label="Project description" :maxlength="projectLimits.description" counter hint="Shared with every conversation in this project on subsequent turns." />
-          <q-checkbox v-model="projectDraft.pi_mode" label="Pi mode" />
+          <q-checkbox v-model="projectDraft.pi_mode" label="Pi mode" @update:model-value="loadPiModels" />
           <q-input v-if="projectDraft.pi_mode" v-model="projectDraft.repo_path" outlined icon="folder" label="Repo path" hint="Local directory Pi can inspect for this project."
             placeholder="/home/user/dev/myproject" />
-          <q-input v-if="projectDraft.pi_mode" v-model="projectDraft.pi_model" outlined icon="memory" label="Pi model" hint="Model ID for Pi (e.g. Qwen3.8-27B-UD-Q4_K_M). Leave empty to use Pi's default."
-            placeholder="Qwen3.8-27B-UD-Q4_K_M" />
+          <q-select
+            v-if="projectDraft.pi_mode"
+            v-model="projectDraft.pi_model"
+            :options="piModels"
+            :loading="loadingPiModels"
+            outlined
+            clearable
+            label="Pi model"
+            hint="Choose a model loaded by llama.cpp. Leave empty to use Pi's default."
+          >
+            <template #prepend><q-icon name="memory" /></template>
+          </q-select>
           <q-btn outline icon="extension" :label="`Project skills (${projectDraft.skill_ids.length})`" :disable="savingProject" @click="projectSkillsOpen = true" />
           <div v-if="projectError" class="text-negative" role="alert">{{ projectError }}</div>
         </q-card-section>
@@ -231,6 +241,8 @@ export default {
     projectEditorOpen: false,
     editingProjectId: null,
     projectDraft: { name: '', description: '', pi_mode: false, repo_path: '', pi_model: '', skill_ids: [] },
+    piModels: [],
+    loadingPiModels: false,
     projectSkillsOpen: false,
     projectError: '',
     savingProject: false,
@@ -345,6 +357,19 @@ export default {
       this.projectDraft = { name: project?.name || '', description: project?.description || '', pi_mode: Boolean(project?.pi_mode), repo_path: project?.repo_path || '', pi_model: project?.pi_model || '', skill_ids: [...(project?.skill_ids || [])] }
       this.projectError = ''
       this.projectEditorOpen = true
+      if (this.projectDraft.pi_mode) this.loadPiModels(true)
+    },
+    async loadPiModels(enabled) {
+      if (!enabled || this.loadingPiModels) return
+      this.loadingPiModels = true
+      try {
+        const { data } = await api.get('/api/models/llama_context')
+        this.piModels = data.models
+      } catch (error) {
+        console.error('Unable to load llama.cpp models:', error)
+      } finally {
+        this.loadingPiModels = false
+      }
     },
     async saveProject() {
       if (this.savingProject || !this.projectDraft.name.trim()) return
