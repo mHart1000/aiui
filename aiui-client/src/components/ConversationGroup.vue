@@ -56,25 +56,40 @@
       :aria-label="`Actions for ${c.title}`"
       @click.stop
     >
-      <q-menu auto-close>
+      <q-menu>
         <q-list dense style="min-width: 140px">
-          <q-item clickable @click="$emit('move', c)">
+          <q-item clickable :disable="!projects.length || actionConversationId !== null">
             <q-item-section avatar><q-icon name="drive_file_move" /></q-item-section>
-            <q-item-section>Move to project</q-item-section>
+            <q-item-section>Add to project</q-item-section>
+            <q-item-section side><q-icon name="keyboard_arrow_right" /></q-item-section>
+            <q-menu anchor="top end" self="top start">
+              <q-list dense style="min-width: 160px">
+                <q-item
+                  v-for="project in projects"
+                  :key="project.id"
+                  clickable
+                  :disable="project.id === c.project_id"
+                  v-close-popup="2"
+                  @click="$emit('move', c, project.id)"
+                >
+                  <q-item-section>{{ project.name }}</q-item-section>
+                </q-item>
+              </q-list>
+            </q-menu>
           </q-item>
-          <q-item v-if="c.project_id" clickable :disable="actionConversationId !== null" @click="$emit('remove-from-project', c)">
+          <q-item v-if="c.project_id" clickable :disable="actionConversationId !== null" v-close-popup @click="$emit('remove-from-project', c)">
             <q-item-section avatar><q-icon name="folder_off" /></q-item-section>
             <q-item-section>Remove from project</q-item-section>
           </q-item>
-          <q-item clickable @click="$emit('rename', c)">
+          <q-item clickable v-close-popup @click="$emit('rename', c)">
             <q-item-section avatar><q-icon name="edit" /></q-item-section>
             <q-item-section>Rename</q-item-section>
           </q-item>
-          <q-item clickable :disable="actionConversationId === c.id" @click="$emit('duplicate', c)">
+          <q-item clickable :disable="actionConversationId === c.id" v-close-popup @click="$emit('duplicate', c)">
             <q-item-section avatar><q-icon name="content_copy" /></q-item-section>
             <q-item-section>Duplicate</q-item-section>
           </q-item>
-          <q-item clickable @click="$emit('delete-conversation', c)">
+          <q-item clickable v-close-popup @click="$emit('delete-conversation', c)">
             <q-item-section avatar><q-icon name="delete" /></q-item-section>
             <q-item-section>Delete</q-item-section>
           </q-item>
@@ -92,6 +107,7 @@ export default {
     titleMaxWidth: { type: String, required: true },
     searching: Boolean,
     projectNames: { type: Object, required: true },
+    projects: { type: Array, required: true },
     actionConversationId: { type: Number, default: null }
   },
   emits: ['new-chat', 'edit-project', 'delete-project', 'move', 'remove-from-project', 'rename', 'duplicate', 'delete-conversation'],
