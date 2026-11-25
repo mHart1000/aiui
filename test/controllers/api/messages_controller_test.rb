@@ -60,7 +60,8 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
 
     controller.define_singleton_method(:response) { fake_response }
     controller.define_singleton_method(:stream_writes) { writes }
-    controller.define_singleton_method(:render) { |json:| json }
+    controller.define_singleton_method(:render) { |json:, status: nil| { json: json, status: status } }
+    controller.define_singleton_method(:head) { |status| status }
 
     controller
   end
@@ -189,6 +190,29 @@ class Api::MessagesControllerTest < ActiveSupport::TestCase
 
     assert_equal "Edited prompt", @conversation.messages.find(message.id).content
     assert_equal 0, @conversation.messages.where(role: "assistant").count
+  end
+
+  test "destroy removes a user message and all messages after it" do
+    @conversation.messages.create!(role: "assistant", content: "First answer")
+    message = @conversation.messages.create!(role: "user", content: "Follow-up")
+    @conversation.messages.create!(role: "assistant", content: "Second answer")
+
+    result = build_controller(@conversation, id: message.id).destroy
+
+    assert_equal :no_content, result
+    assert_equal [ "Hello", "First answer" ],
+      @conversation.messages.reload.order(:created_at, :id).map(&:content)
+  end
+
+  test "destroy rejects assistant messages" do
+    message = @conversation.messages.create!(role: "assistant", content: "Answer")
+
+    result = build_controller(@conversation, id: message.id).destroy
+
+    assert_equal :unprocessable_entity, result[:status]
+    assert_equal [ "Only user messages can be deleted" ], result[:json][:errors]
+    assert_equal [ "Hello", "Answer" ],
+      @conversation.messages.reload.order(:created_at, :id).map(&:content)
   end
 
   test "regenerating with message_id truncates the conversation to that message" do

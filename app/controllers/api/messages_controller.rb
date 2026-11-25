@@ -16,6 +16,21 @@ module Api
       render json: { message: message }
     end
 
+    def destroy
+      conversation = current_api_user.conversations.find(params[:conversation_id])
+      deleted = conversation.with_lock do
+        message = conversation.messages.find(params[:id])
+        next false unless message.role == "user"
+
+        conversation.truncate_from_message(message)
+        true
+      end
+
+      return render json: { errors: [ "Only user messages can be deleted" ] }, status: :unprocessable_entity unless deleted
+
+      head :no_content
+    end
+
     def create_streaming
       conversation = current_api_user.conversations.find(params[:conversation_id])
       regenerating = ActiveModel::Type::Boolean.new.cast(params[:regenerating])

@@ -341,7 +341,7 @@
               @keydown.meta.enter="saveEdit"
               @keydown.esc="cancelEdit"
             />
-            <div class="row q-mt-sm q-gutter-sm">
+            <div class="row items-center q-mt-sm q-gutter-sm">
               <q-btn
                 size="sm"
                 color="primary"
@@ -356,6 +356,20 @@
                 :disable="isSavingEdit"
                 @click="cancelEdit"
               />
+              <q-space />
+              <q-btn
+                flat
+                dense
+                round
+                size="sm"
+                color="negative"
+                icon="delete"
+                aria-label="Delete message"
+                :disable="isSavingEdit || !msg.id"
+                @click="deletingMessageIndex = i; deleteMessageOpen = true"
+              >
+                <q-tooltip>Delete message and later messages</q-tooltip>
+              </q-btn>
             </div>
           </div>
           <div v-else-if="msg.failed && !msg.content" class="failed-message text-negative">
@@ -564,6 +578,19 @@
       @update:active-ids="updateActiveSkills"
       @update:enabled="updateSkillsEnabled"
     />
+
+    <q-dialog v-model="deleteMessageOpen" persistent @hide="deletingMessageIndex = null">
+      <q-card style="width: 380px; max-width: 90vw">
+        <q-card-section class="text-h6">Delete this message?</q-card-section>
+        <q-card-section>
+          This user message and all messages after it will be permanently deleted.
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" :disable="isDeletingMessage" v-close-popup />
+          <q-btn color="negative" label="Delete" :loading="isDeletingMessage" @click="deleteMessage" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </q-page>
 </template>
 
@@ -751,6 +778,9 @@ export default {
     editingMessageIndex: null,
     editingContent: '',
     isSavingEdit: false,
+    deleteMessageOpen: false,
+    deletingMessageIndex: null,
+    isDeletingMessage: false,
     forkingIndex: null,
     voiceChatMode: false,
     mobileSettingsOpen: false,
@@ -1902,6 +1932,28 @@ export default {
     cancelEdit() {
       this.editingMessageIndex = null
       this.editingContent = ''
+    },
+
+    async deleteMessage() {
+      if (this.deletingMessageIndex === null || this.isDeletingMessage) return
+
+      const messageIndex = this.deletingMessageIndex
+      const message = this.messages[messageIndex]
+      if (!message?.id) throw new Error('Cannot delete an unpersisted message')
+
+      if (this.streamingChat.isStreaming.value) this.streamingChat.stop()
+      this.isDeletingMessage = true
+
+      try {
+        await api.delete(`/api/conversations/${this.conversationId}/messages/${message.id}`)
+
+        this.messages = this.messages.slice(0, messageIndex)
+        this.cancelEdit()
+        this.deleteMessageOpen = false
+        await this.refreshConversations()
+      } finally {
+        this.isDeletingMessage = false
+      }
     },
 
     async saveEdit() {
