@@ -1655,13 +1655,13 @@ export default {
         }))
       }
       if (msg.pi_data && msg.pi_data.segment_breaks && msg.pi_data.segment_breaks.length) {
-        const content = msg.content || ''
+        const content = Array.from(msg.content || '')
         const breaks = [0, ...msg.pi_data.segment_breaks, content.length]
         const activities = msg.pi_data.activities || []
         const segments = []
         for (let i = 0; i < breaks.length - 1; i++) {
           segments.push({
-            text: content.slice(breaks[i], breaks[i + 1]),
+            text: content.slice(breaks[i], breaks[i + 1]).join(''),
             activities: i > 0 ? [activities[i - 1] || ''] : []
           })
         }
