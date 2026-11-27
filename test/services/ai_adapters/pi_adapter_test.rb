@@ -137,6 +137,59 @@ class AiAdapters::PiAdapterTest < ActiveSupport::TestCase
         adapter.chat(messages: [ { role: "user", content: "test" } ])
       end
       assert_match(/exit.*code.*1/, error.message)
+      assert_includes error.message, "something went wrong"
+    end
+  end
+
+  test "preserves short stderr diagnostics and truncates long stderr to last 500 characters" do
+    stream_jsonl = "{\"type\":\"session\",\"id\":\"test\"}\n"
+
+    stub_process(stream_jsonl, exit_status: 1, stderr: "short error") do
+      adapter = AiAdapters::PiAdapter.new(repo_path: "/tmp", session_id: "123")
+      error = assert_raises(AiAdapters::PiAdapter::Error) do
+        adapter.chat(messages: [ { role: "user", content: "test" } ])
+      end
+      assert_includes error.message, "short error"
+    end
+
+    long_stderr = ("a" * 600) + ("b" * 500)
+    stub_process(stream_jsonl, exit_status: 1, stderr: long_stderr) do
+      adapter = AiAdapters::PiAdapter.new(repo_path: "/tmp", session_id: "123")
+      error = assert_raises(AiAdapters::PiAdapter::Error) do
+        adapter.chat(messages: [ { role: "user", content: "test" } ])
+      end
+      assert_includes error.message, "b" * 500
+      refute_includes error.message, "a"
+    end
+  end
+
+  test "drains large stderr concurrently without hanging and keeps bounded tail" do
+    child_script = <<~RUBY
+      require "json"
+
+      STDERR.sync = true
+      STDOUT.sync = true
+      STDERR.write("x" * 131_072)
+      STDERR.write("tail-diagnostic-marker")
+      puts({
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", delta: "ok" }
+      }.to_json)
+      puts({
+        type: "message_end",
+        message: { role: "assistant", stopReason: "stop", usage: { input: 1, output: 1 } }
+      }.to_json)
+      exit 1
+    RUBY
+
+    adapter = AiAdapters::PiAdapter.new(repo_path: "/tmp", session_id: "123")
+    command = [ RbConfig.ruby, "-e", child_script ]
+
+    adapter.stub(:build_command, command) do
+      error = assert_raises(AiAdapters::PiAdapter::Error) do
+        adapter.chat(messages: [ { role: "user", content: "test" } ])
+      end
+      assert_includes error.message, "tail-diagnostic-marker"
     end
   end
 

@@ -5,6 +5,9 @@ module AiAdapters
   class PiAdapter < BaseAdapter
     class Error < StandardError; end
     PROCESS_TERMINATION_GRACE_SECONDS = 2
+    STDERR_BUFFER_LIMIT = 8192
+    STDERR_DETAIL_LIMIT = 500
+    STDERR_READ_CHUNK_SIZE = 4096
 
     def initialize(repo_path:, session_id:, model: nil, pi_bin: nil)
       super(model: "pi")
@@ -33,6 +36,7 @@ module AiAdapters
       stdout = nil
       stderr = nil
       wait_thr = nil
+      stderr_thread = nil
 
       begin
         stdin, stdout, stderr, wait_thr = Open3.popen3(
@@ -42,6 +46,7 @@ module AiAdapters
           pgroup: true
         )
         stdin.close
+        stderr_thread = start_stderr_reader(stderr)
 
         buffer = ""
         while (line = stdout.gets)
@@ -59,20 +64,20 @@ module AiAdapters
             end
           end
         end
-        stderr_output = stderr.to_s.strip
+        stderr_output = stderr_thread.value
 
         exit_status = wait_thr.value
         elapsed = monotonic_now - started_at
 
         # Check for no assistant messages produced
         if message_usages.empty? && full_content.empty?
-          detail = stderr_output.present? ? stderr_output[-500..] : "no stderr output"
+          detail = stderr_tail(stderr_output) || "no stderr output"
           raise Error, "Pi produced no output (exit #{exit_status.exitstatus}): #{detail}"
         end
 
         # Check stop reason
         if final_stop_reason == "error"
-          detail = last_assistant_content.presence || stderr_output[-500..] || "no details"
+          detail = last_assistant_content.presence || stderr_tail(stderr_output) || "no details"
           raise Error, "Pi reported an error: #{detail}"
         elsif final_stop_reason == "aborted"
           raise Error, "Pi was aborted"
@@ -80,7 +85,7 @@ module AiAdapters
 
         # Check process exit (non-zero with some output is still suspicious)
         unless exit_status.success?
-          detail = stderr_output.present? ? stderr_output[-500..] : "no stderr output"
+          detail = stderr_tail(stderr_output) || "no stderr output"
           raise Error, "Pi exited with code #{exit_status.exitstatus}: #{detail}"
         end
 
@@ -104,10 +109,45 @@ module AiAdapters
         close_io(stdin)
         close_io(stdout)
         close_io(stderr)
+        cleanup_stderr_reader(stderr_thread)
       end
     end
 
     private
+
+    def start_stderr_reader(stderr)
+      Thread.new do
+        buffer = +"".b
+        begin
+          loop do
+            chunk = stderr.readpartial(STDERR_READ_CHUNK_SIZE)
+            buffer << chunk.b
+            if buffer.bytesize > STDERR_BUFFER_LIMIT
+              buffer.slice!(0, buffer.bytesize - STDERR_BUFFER_LIMIT)
+            end
+          end
+        rescue EOFError, IOError
+          # Stream closed or reached EOF.
+        end
+        buffer.force_encoding("UTF-8").scrub.strip
+      end
+    end
+
+    def cleanup_stderr_reader(thread)
+      return unless thread
+
+      unless thread.join(PROCESS_TERMINATION_GRACE_SECONDS)
+        thread.kill
+        thread.join
+      end
+    end
+
+    def stderr_tail(stderr_output)
+      return nil if stderr_output.blank?
+      return stderr_output if stderr_output.length <= STDERR_DETAIL_LIMIT
+
+      stderr_output[-STDERR_DETAIL_LIMIT..]
+    end
 
     def terminate_process_group(wait_thr)
       process_group_id = -wait_thr.pid
