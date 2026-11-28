@@ -73,11 +73,12 @@
                   :title-max-width="titleMaxWidth"
                   :searching="!!searchQuery.trim()"
                   :project-names="projectNames"
+                  :projects="projects"
                   :action-conversation-id="actionConversationId"
                   @new-chat="newChat"
                   @edit-project="editProject"
                   @delete-project="projectToDelete = $event"
-                  @move="openMove"
+                  @move="moveConversation"
                   @remove-from-project="removeFromProject"
                   @rename="openRename"
                   @duplicate="duplicateConversation"
@@ -114,12 +115,27 @@
         <q-card-section class="q-gutter-md">
           <q-input v-model="projectDraft.name" outlined autofocus label="Project name" :maxlength="projectLimits.name" counter />
           <q-input v-model="projectDraft.description" outlined type="textarea" label="Project description" :maxlength="projectLimits.description" counter hint="Shared with every conversation in this project on subsequent turns." />
+          <q-checkbox v-model="projectDraft.pi_mode" label="Pi mode" @update:model-value="loadPiModels" />
+          <q-input v-if="projectDraft.pi_mode" v-model="projectDraft.repo_path" outlined icon="folder" label="Repo path" hint="Local directory Pi can inspect for this project."
+            placeholder="/home/user/dev/myproject" />
+          <q-select
+            v-if="projectDraft.pi_mode"
+            v-model="projectDraft.pi_model"
+            :options="piModels"
+            :loading="loadingPiModels"
+            outlined
+            clearable
+            label="Pi model"
+            hint="Choose a model loaded by llama.cpp. Leave empty to use Pi's default."
+          >
+            <template #prepend><q-icon name="memory" /></template>
+          </q-select>
           <q-btn outline icon="extension" :label="`Project skills (${projectDraft.skill_ids.length})`" :disable="savingProject" @click="projectSkillsOpen = true" />
           <div v-if="projectError" class="text-negative" role="alert">{{ projectError }}</div>
         </q-card-section>
         <q-card-actions align="right">
           <q-btn flat label="Cancel" :disable="savingProject" v-close-popup />
-          <q-btn color="primary" label="Save" :loading="savingProject" :disable="!projectDraft.name.trim()" @click="saveProject" />
+          <q-btn color="primary" label="Save" :loading="savingProject" :disable="!projectDraft.name.trim() || (projectDraft.pi_mode && !projectDraft.repo_path.trim())" @click="saveProject" />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -139,20 +155,6 @@
         </q-card-actions>
       </q-card>
     </q-dialog>
-    <q-dialog v-model="moveOpen" persistent>
-      <q-card class="responsive-dialog" style="width: 400px">
-        <q-card-section class="text-h6">Move conversation</q-card-section>
-        <q-card-section>
-          <q-select v-model="moveProjectId" outlined label="Project" :options="projectOptions" emit-value map-options />
-          <div v-if="moveError" class="text-negative q-mt-sm" role="alert">{{ moveError }}</div>
-        </q-card-section>
-        <q-card-actions align="right">
-          <q-btn flat label="Cancel" :disable="movingConversation" v-close-popup />
-          <q-btn color="primary" label="Move" :disable="!moveProjectId" :loading="movingConversation" @click="moveConversation" />
-        </q-card-actions>
-      </q-card>
-    </q-dialog>
-
     <RagKnowledgeDialog v-model="knowledgeOpen" />
 
     <q-dialog v-model="renameOpen" @hide="renameConversation = null">
@@ -225,16 +227,13 @@ export default {
     projectLimits: {},
     projectEditorOpen: false,
     editingProjectId: null,
-    projectDraft: { name: '', description: '', skill_ids: [] },
+    projectDraft: { name: '', description: '', pi_mode: false, repo_path: '', pi_model: '', skill_ids: [] },
+    piModels: [],
+    loadingPiModels: false,
     projectSkillsOpen: false,
     projectError: '',
     savingProject: false,
     projectToDelete: null,
-    moveOpen: false,
-    movingConversation: false,
-    moveTarget: null,
-    moveProjectId: null,
-    moveError: '',
     pendingTitleId: null,
     titleRefreshTimer: null,
     disposed: false,
@@ -269,9 +268,6 @@ export default {
   computed: {
     projectNames () {
       return Object.fromEntries(this.projects.map(project => [project.id, project.name]))
-    },
-    projectOptions () {
-      return this.projects.map(p => ({ label: p.name, value: p.id }))
     },
     conversationGroups () {
       if (this.searchQuery.trim()) return [{ key: 'search', conversations: this.searchResults }]
@@ -337,9 +333,22 @@ export default {
     },
     editProject(project = null) {
       this.editingProjectId = project?.id || null
-      this.projectDraft = { name: project?.name || '', description: project?.description || '', skill_ids: [...(project?.skill_ids || [])] }
+      this.projectDraft = { name: project?.name || '', description: project?.description || '', pi_mode: Boolean(project?.pi_mode), repo_path: project?.repo_path || '', pi_model: project?.pi_model || '', skill_ids: [...(project?.skill_ids || [])] }
       this.projectError = ''
       this.projectEditorOpen = true
+      if (this.projectDraft.pi_mode) this.loadPiModels(true)
+    },
+    async loadPiModels(enabled) {
+      if (!enabled || this.loadingPiModels) return
+      this.loadingPiModels = true
+      try {
+        const { data } = await api.get('/api/models/llama_context')
+        this.piModels = data.models
+      } catch (error) {
+        console.error('Unable to load llama.cpp models:', error)
+      } finally {
+        this.loadingPiModels = false
+      }
     },
     async saveProject() {
       if (this.savingProject || !this.projectDraft.name.trim()) return
@@ -373,12 +382,6 @@ export default {
         this.savingProject = false
       }
     },
-    openMove(conversation) {
-      this.moveTarget = conversation
-      this.moveProjectId = conversation.project_id
-      this.moveError = ''
-      this.moveOpen = true
-    },
     async removeFromProject(conversation) {
       if (!conversation.project_id || this.actionConversationId !== null) return
 
@@ -390,21 +393,15 @@ export default {
         this.actionConversationId = null
       }
     },
-    async moveConversation() {
-      if (this.movingConversation || !this.moveTarget || !this.moveProjectId) return
-      this.movingConversation = true
-      this.moveError = ''
+    async moveConversation(conversation, projectId) {
+      if (this.actionConversationId !== null || !projectId || conversation.project_id === projectId) return
+      this.actionConversationId = conversation.id
       try {
-        const { data } = await api.patch(`/api/conversations/${this.moveTarget.id}`, { conversation: { project_id: this.moveProjectId } })
+        const { data } = await api.patch(`/api/conversations/${conversation.id}`, { conversation: { project_id: projectId } })
         this.replaceConversation(data)
         if (data.project_id) this.expandProject(data.project_id)
-        this.moveOpen = false
-      } catch (error) {
-        if (error.response?.status !== 422) throw error
-        console.error('Conversation move validation failed:', error)
-        this.moveError = error.response.data.errors.join(', ')
       } finally {
-        this.movingConversation = false
+        this.actionConversationId = null
       }
     },
     toggleDark() {

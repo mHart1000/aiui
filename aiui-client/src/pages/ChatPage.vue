@@ -341,7 +341,7 @@
               @keydown.meta.enter="saveEdit"
               @keydown.esc="cancelEdit"
             />
-            <div class="row q-mt-sm q-gutter-sm">
+            <div class="row items-center q-mt-sm q-gutter-sm">
               <q-btn
                 size="sm"
                 color="primary"
@@ -356,12 +356,38 @@
                 :disable="isSavingEdit"
                 @click="cancelEdit"
               />
+              <q-space />
+              <q-btn
+                flat
+                dense
+                round
+                size="sm"
+                color="negative"
+                icon="delete"
+                aria-label="Delete message"
+                :disable="isSavingEdit || isDeletingMessage || !msg.id"
+                @click="deletingMessageIndex = i; deleteMessageOpen = true"
+              >
+                <q-tooltip>Delete message and later messages</q-tooltip>
+              </q-btn>
             </div>
           </div>
           <div v-else-if="msg.failed && !msg.content" class="failed-message text-negative">
             <q-icon name="error_outline" size="18px" class="q-mr-xs" />
             Failed to generate a response.
           </div>
+          <template v-else-if="msg.role === 'assistant' && getPiDisplaySegments(msg)">
+            <div class="pi-segments">
+              <template v-for="(seg, si) in getPiDisplaySegments(msg)" :key="si">
+                <div v-if="si > 0" class="pi-segment-divider">
+                  <div v-for="(act, ai) in seg.activities" :key="ai" class="pi-activity text-caption text-grey-6">
+                    <q-icon name="fiber_manual_record" size="12px" class="q-mr-xs" />{{ act }}
+                  </div>
+                </div>
+                <div :class="si === getPiDisplaySegments(msg).length - 1 ? 'pi-segment-final' : 'pi-segment-mid'" v-html="formatMessage(seg.text)" @click="handleMessageContentClick" />
+              </template>
+            </div>
+          </template>
           <div v-else v-html="msg.role === 'user' ? formatUserMessage(msg.content) : formatMessage(msg.content)" @click="handleMessageContentClick" />
           <div v-if="msg.role === 'assistant' && isActivelyStreaming(i) && streamingChat.webSearch.value" class="web-research-progress text-caption q-mt-sm">
             <q-spinner color="primary" size="16px" class="q-mr-xs" />
@@ -552,6 +578,19 @@
       @update:active-ids="updateActiveSkills"
       @update:enabled="updateSkillsEnabled"
     />
+
+    <q-dialog v-model="deleteMessageOpen" persistent @hide="deletingMessageIndex = null">
+      <q-card style="width: 380px; max-width: 90vw">
+        <q-card-section class="text-h6">Delete this message?</q-card-section>
+        <q-card-section>
+          This user message and all messages after it will be permanently deleted.
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" :disable="isDeletingMessage" v-close-popup />
+          <q-btn color="negative" label="Delete" :loading="isDeletingMessage" @click="deleteMessage" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </q-page>
 </template>
 
@@ -603,7 +642,26 @@ const codeRenderer = {
   }
 }
 
+// common in gemma output
+const inlineLatexArrow = {
+  name: 'inlineLatexArrow',
+  level: 'inline',
+  start(src) {
+    return src.indexOf('$\\')
+  },
+  tokenizer(src) {
+    const match = /^\$\s*\\(?:rightarrow|to)\s*\$/.exec(src)
+    if (!match) return undefined
+
+    return { type: 'inlineLatexArrow', raw: match[0], text: '→' }
+  },
+  renderer(token) {
+    return token.text
+  }
+}
+
 const marked = new Marked({ renderer: codeRenderer })
+marked.use({ extensions: [inlineLatexArrow] })
 
 // User messages reuse the same renderer but disable indented code blocks, so
 // pasted prose with indented paragraphs isn't mistaken for a code block.
@@ -614,6 +672,7 @@ const markedUser = new Marked({
     code() { return undefined }
   }
 })
+markedUser.use({ extensions: [inlineLatexArrow] })
 import { useStreamingChat } from 'src/composables/useStreamingChat'
 import { useTtsPlayer } from 'src/composables/useTtsPlayer'
 import { onBeforeUnmount, onMounted} from 'vue'
@@ -719,6 +778,9 @@ export default {
     editingMessageIndex: null,
     editingContent: '',
     isSavingEdit: false,
+    deleteMessageOpen: false,
+    deletingMessageIndex: null,
+    isDeletingMessage: false,
     forkingIndex: null,
     voiceChatMode: false,
     mobileSettingsOpen: false,
@@ -788,6 +850,7 @@ export default {
     '$route.params.id': {
       immediate: true,
       async handler(newId, oldId) {
+        if (String(newId || '') !== String(oldId || '')) this.deleteMessageOpen = false
         if (oldId !== undefined && String(newId || '') !== String(oldId || '')) this.clearAttachments()
         if (oldId !== undefined && String(newId || '') !== String(oldId || '')) this.webSearchSync = Promise.resolve(true)
         if (newId) {
@@ -982,7 +1045,8 @@ export default {
           return {
             ...msg,
             thinking: this.streamingChat.thinkingText.value,
-            content: this.streamingChat.responseText.value
+            content: this.streamingChat.responseText.value,
+            repo_segments: this.streamingChat.repoSegments.value
           }
         }
         return msg
@@ -1584,6 +1648,28 @@ export default {
     formatMessage(text) {
       return this.sanitizeMarkdown(marked.parse(text))
     },
+    getPiDisplaySegments(msg) {
+      if (msg.repo_segments && msg.repo_segments.length) {
+        return msg.repo_segments.map((seg, i) => ({
+          text: seg.text,
+          activities: i > 0 ? seg.activities : []
+        }))
+      }
+      if (msg.pi_data && msg.pi_data.segment_breaks && msg.pi_data.segment_breaks.length) {
+        const content = Array.from(msg.content || '')
+        const breaks = [0, ...msg.pi_data.segment_breaks, content.length]
+        const activities = msg.pi_data.activities || []
+        const segments = []
+        for (let i = 0; i < breaks.length - 1; i++) {
+          segments.push({
+            text: content.slice(breaks[i], breaks[i + 1]).join(''),
+            activities: i > 0 ? [activities[i - 1] || ''] : []
+          })
+        }
+        return segments
+      }
+      return null
+    },
     formatUserMessage(text) {
       return this.sanitizeMarkdown(markedUser.parse(text))
     },
@@ -1847,6 +1933,31 @@ export default {
     cancelEdit() {
       this.editingMessageIndex = null
       this.editingContent = ''
+    },
+
+    async deleteMessage() {
+      if (this.deletingMessageIndex === null || this.isDeletingMessage) return
+
+      const messageIndex = this.deletingMessageIndex
+      const message = this.messages[messageIndex]
+      if (!message?.id) throw new Error('Cannot delete an unpersisted message')
+      const conversationId = this.conversationId
+
+      if (this.streamingChat.isStreaming.value) this.streamingChat.stop()
+      this.isDeletingMessage = true
+
+      try {
+        await api.delete(`/api/conversations/${conversationId}/messages/${message.id}`)
+
+        if (String(this.conversationId) === String(conversationId)) {
+          this.messages = this.messages.slice(0, messageIndex)
+          this.cancelEdit()
+        }
+        this.deleteMessageOpen = false
+        await this.refreshConversations()
+      } finally {
+        this.isDeletingMessage = false
+      }
     },
 
     async saveEdit() {
@@ -2209,6 +2320,27 @@ export default {
 }
 .web-source-card a {
   overflow-wrap: anywhere;
+}
+.pi-segments {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.pi-segment-mid {
+  color: var(--text-subtle);
+  font-size: 0.9em;
+}
+.pi-segment-final {
+  /* full styling - inherits from parent bubble */
+}
+.pi-segment-divider {
+  padding: 4px 0;
+  border-top: 1px solid var(--border-subtle, rgba(128, 128, 128, 0.2));
+}
+.pi-activity {
+  display: flex;
+  align-items: center;
+  line-height: 1.4;
 }
 .failed-message {
   display: flex;

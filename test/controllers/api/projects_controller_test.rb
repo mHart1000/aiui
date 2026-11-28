@@ -34,6 +34,25 @@ class Api::ProjectsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "", @project.reload.description
   end
 
+  test "pi mode requires a repo path and preserves its settings when disabled" do
+    patch "/api/projects/#{@project.id}", params: { project: { pi_mode: true } }, headers: @headers, as: :json
+    assert_response :unprocessable_entity
+
+    patch "/api/projects/#{@project.id}", params: { project: {
+      pi_mode: true,
+      repo_path: "/home/matthew/dev/aiui",
+      pi_model: "Qwen3.8-27B-UD-Q4_K_M"
+    } }, headers: @headers, as: :json
+    assert_response :success
+    assert response.parsed_body["pi_mode"]
+
+    patch "/api/projects/#{@project.id}", params: { project: { pi_mode: false } }, headers: @headers, as: :json
+    assert_response :success
+    refute response.parsed_body["pi_mode"]
+    assert_equal "/home/matthew/dev/aiui", response.parsed_body["repo_path"]
+    assert_equal "Qwen3.8-27B-UD-Q4_K_M", response.parsed_body["pi_model"]
+  end
+
   test "reject blank names and overlong descriptions without changing the project" do
     [ { name: " " }, { name: "x" * (Project::MAX_NAME_LENGTH + 1) },
       { description: "x" * (Project::MAX_DESCRIPTION_LENGTH + 1) } ].each do |attrs|

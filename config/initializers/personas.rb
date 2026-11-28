@@ -89,4 +89,25 @@ Rails.application.config.to_prepare do
     description: "A supportive mock-interview coach for voice mode. You're the candidate; it asks questions and gives quick feedback after each answer.",
     path: Rails.root.join("persona", "interviewer.md")
   )
+
+  Persona.register(
+    id: "caveman",
+    name: "Caveman",
+    description: "A capable assistant with a playful caveman voice: short words, blunt explanations, and occasional prehistoric metaphors.",
+    path: Rails.root.join("persona", "caveman.md")
+  )
+
+  Persona.register(
+    id: "professor",
+    name: "Professor",
+    description: "A custom professor persona.",
+    path: Rails.root.join("persona", "professor.md")
+  )
+
+  Persona.register(
+    id: "asd-ste100",
+    name: "ASD-STE100",
+    description: "Answers in the controlled, concise style of ASD-STE100 Simplified Technical English.",
+    path: Rails.root.join("persona", "asd-ste100.md")
+  )
 end

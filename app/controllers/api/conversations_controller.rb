@@ -93,6 +93,7 @@ module Api
             persona_label: m.persona_label,
             created_at: m.created_at,
             web_search_data: m.web_search_data,
+            pi_data: m.pi_data,
             images: m.images.attachments.map { |a|
               {
                 id: a.id,

@@ -271,7 +271,8 @@ class ConversationTest < ActiveSupport::TestCase
       generation_ms: 1500,
       tokens_per_second: 13.3,
       persona_version: "abc12345",
-      skill_versions: { "1" => "def67890" }
+      skill_versions: { "1" => "def67890" },
+      pi_data: { "activities" => [ { "tool" => "read", "target" => "README.md" } ], "segments" => [ { "offset" => 1 } ] }
     )
 
     copy = @conversation.fork_at(answer).messages.order(:created_at).last
@@ -282,6 +283,7 @@ class ConversationTest < ActiveSupport::TestCase
     assert_equal 1500, copy.generation_ms
     assert_equal "abc12345", copy.persona_version
     assert_equal({ "1" => "def67890" }, copy.skill_versions)
+    assert_equal({ "activities" => [ { "tool" => "read", "target" => "README.md" } ], "segments" => [ { "offset" => 1 } ] }, copy.pi_data)
   end
 
   test "fork_at leaves the source conversation untouched" do

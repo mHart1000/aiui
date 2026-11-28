@@ -92,6 +92,33 @@ class ChatStreamingServiceTest < ActiveSupport::TestCase
     assert_equal [ "Original context", "Updated context", nil ], descriptions
   end
 
+  test "project pi mode controls repo adapter routing" do
+    project = @user.projects.create!(
+      name: "Repo project",
+      pi_mode: false,
+      repo_path: "/home/matthew/dev/aiui",
+      pi_model: "repo-model"
+    )
+    @conversation.update!(project: project)
+    calls = []
+    service = lambda do |**kwargs, &block|
+      calls << kwargs
+      block.call("answer", :response)
+      {}
+    end
+
+    ChatService.stub(:call, service) do
+      build_service.call
+      project.update!(pi_mode: true)
+      answering = @conversation.messages.create!(role: "user", content: "Follow up")
+      build_service(@conversation, answering).call
+    end
+
+    assert_nil calls.first[:repo_path]
+    assert_equal "/home/matthew/dev/aiui", calls.second[:repo_path]
+    assert_equal "repo-model", calls.second[:pi_model]
+  end
+
   test "saves partial content when client disconnects" do
     partial_chunks = [ "Hello", " world", " partial" ]
     disconnecting_service = lambda do |**_kwargs, &block|

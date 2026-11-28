@@ -25,7 +25,7 @@ Rails.application.routes.draw do
         post :duplicate
         patch :web_search_settings
       end
-      resources :messages, only: [ :update ]
+      resources :messages, only: [ :update, :destroy ]
       post "messages/stream", to: "messages#create_streaming"
     end
     resources :models, only: [ :index ] do

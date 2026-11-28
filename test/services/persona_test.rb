@@ -31,6 +31,9 @@ class PersonaTest < ActiveSupport::TestCase
     assert_includes ids, "persona2"
     assert_includes ids, "persona2-condensed"
     assert_includes ids, "teacher2"
+    assert_includes ids, "caveman"
+    assert_includes ids, "professor"
+    assert_includes ids, "asd-ste100"
   end
 
   test "load returns content and 8-char sha version" do

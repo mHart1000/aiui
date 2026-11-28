@@ -7,7 +7,7 @@ class Conversation < ApplicationRecord
   COPIED_MESSAGE_COLUMNS = %w[
     role content thinking prompt_tokens completion_tokens total_tokens
     generation_ms tokens_per_second model_label persona_label persona_version skill_versions
-    web_search_data pdf_sources
+    web_search_data pdf_sources pi_data
     created_at updated_at
   ].freeze
 
@@ -136,7 +136,7 @@ class Conversation < ApplicationRecord
     validated || model_code
   end
 
-  def add_assistant_message(reply:, thinking:, tokens:, stats: nil, model_label: nil, persona_label: nil, persona_version: nil, skill_versions: nil, web_search_data: {})
+  def add_assistant_message(reply:, thinking:, tokens:, stats: nil, model_label: nil, persona_label: nil, persona_version: nil, skill_versions: nil, web_search_data: {}, pi_data: nil)
     if tokens&.dig(:planning) && tokens&.dig(:execution)
       total_prompt = tokens[:planning][:prompt_tokens] + tokens[:execution][:prompt_tokens]
       total_completion = tokens[:planning][:completion_tokens] + tokens[:execution][:completion_tokens]
@@ -160,7 +160,8 @@ class Conversation < ApplicationRecord
       persona_label: persona_label,
       persona_version: persona_version,
       skill_versions: skill_versions,
-      web_search_data: web_search_data || {}
+      web_search_data: web_search_data || {},
+      pi_data: pi_data
     )
   end
 
