@@ -365,7 +365,7 @@
                 color="negative"
                 icon="delete"
                 aria-label="Delete message"
-                :disable="isSavingEdit || !msg.id"
+                :disable="isSavingEdit || isDeletingMessage || !msg.id"
                 @click="deletingMessageIndex = i; deleteMessageOpen = true"
               >
                 <q-tooltip>Delete message and later messages</q-tooltip>
@@ -850,6 +850,7 @@ export default {
     '$route.params.id': {
       immediate: true,
       async handler(newId, oldId) {
+        if (String(newId || '') !== String(oldId || '')) this.deleteMessageOpen = false
         if (oldId !== undefined && String(newId || '') !== String(oldId || '')) this.clearAttachments()
         if (oldId !== undefined && String(newId || '') !== String(oldId || '')) this.webSearchSync = Promise.resolve(true)
         if (newId) {
@@ -1940,15 +1941,18 @@ export default {
       const messageIndex = this.deletingMessageIndex
       const message = this.messages[messageIndex]
       if (!message?.id) throw new Error('Cannot delete an unpersisted message')
+      const conversationId = this.conversationId
 
       if (this.streamingChat.isStreaming.value) this.streamingChat.stop()
       this.isDeletingMessage = true
 
       try {
-        await api.delete(`/api/conversations/${this.conversationId}/messages/${message.id}`)
+        await api.delete(`/api/conversations/${conversationId}/messages/${message.id}`)
 
-        this.messages = this.messages.slice(0, messageIndex)
-        this.cancelEdit()
+        if (String(this.conversationId) === String(conversationId)) {
+          this.messages = this.messages.slice(0, messageIndex)
+          this.cancelEdit()
+        }
         this.deleteMessageOpen = false
         await this.refreshConversations()
       } finally {
