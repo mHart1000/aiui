@@ -7,7 +7,7 @@ class Conversation < ApplicationRecord
   COPIED_MESSAGE_COLUMNS = %w[
     role content thinking prompt_tokens completion_tokens total_tokens
     generation_ms tokens_per_second model_label persona_label persona_version skill_versions
-    web_search_data pdf_sources
+    web_search_data pdf_sources pi_data
     created_at updated_at
   ].freeze
 
