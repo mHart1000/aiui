@@ -27,21 +27,36 @@ class AiAdapters::PiAdapterTest < ActiveSupport::TestCase
 
   test "builds correct command" do
     adapter = AiAdapters::PiAdapter.new(repo_path: "/tmp", session_id: "conv-42", pi_bin: "pi")
-    cmd = adapter.send(:build_command, "hello world")
+    cmd = adapter.send(:build_command)
     assert_equal [
       "pi", "--mode", "json",
       "--session-id", "conv-42",
       "--tools", "read,bash",
-      "--thinking", "off",
-      "--", "hello world"
+      "--thinking", "off"
     ], cmd
   end
 
   test "respects PI_BIN environment variable" do
     with_modified_env("PI_BIN", "/usr/local/bin/pi") do
       adapter = AiAdapters::PiAdapter.new(repo_path: "/tmp", session_id: "123")
-      cmd = adapter.send(:build_command, "test")
+      cmd = adapter.send(:build_command)
       assert_equal "/usr/local/bin/pi", cmd.first
+    end
+  end
+
+  test "writes prompt to stdin and closes it" do
+    events = [
+      { "type" => "message_update", "assistantMessageEvent" => { "type" => "text_delta", "delta" => "ok" } },
+      { "type" => "message_end", "message" => { "role" => "assistant", "stopReason" => "stop", "usage" => { "input" => 10, "output" => 5 } } }
+    ]
+    stream_jsonl = events.map(&:to_json).join("\n") + "\n"
+
+    stub_process(stream_jsonl, exit_status: 0) do |fake_stdin|
+      adapter = AiAdapters::PiAdapter.new(repo_path: "/tmp", session_id: "123")
+      adapter.chat(messages: [ { role: "user", content: "hello via stdin" } ])
+
+      assert_equal "hello via stdin", fake_stdin.string
+      assert fake_stdin.closed?
     end
   end
 
@@ -232,6 +247,55 @@ class AiAdapters::PiAdapterTest < ActiveSupport::TestCase
     end
   end
 
+  test "sends large prompts over stdin without E2BIG or pipe deadlock" do
+    large_prompt = "x" * 512_000
+    child_script = <<~RUBY
+      require "json"
+
+      STDOUT.sync = true
+      received = STDIN.read
+      puts({
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", delta: received.bytesize.to_s }
+      }.to_json)
+      puts({
+        type: "message_end",
+        message: { role: "assistant", stopReason: "stop", usage: { input: 10, output: 1 } }
+      }.to_json)
+    RUBY
+
+    adapter = AiAdapters::PiAdapter.new(repo_path: "/tmp", session_id: "123")
+    command = [ RbConfig.ruby, "-e", child_script ]
+
+    received_text = +""
+    adapter.stub(:build_command, command) do
+      adapter.chat(messages: [ { role: "user", content: large_prompt } ]) do |chunk, phase|
+        received_text << chunk if phase == :response
+      end
+    end
+
+    assert_equal "512000", received_text
+  end
+
+  test "surfaces Pi error when child exits before reading large stdin prompt" do
+    large_prompt = "x" * 512_000
+    child_script = <<~RUBY
+      STDIN.close
+      STDERR.write("early failure")
+      exit 1
+    RUBY
+
+    adapter = AiAdapters::PiAdapter.new(repo_path: "/tmp", session_id: "123")
+    command = [ RbConfig.ruby, "-e", child_script ]
+
+    adapter.stub(:build_command, command) do
+      error = assert_raises(AiAdapters::PiAdapter::Error) do
+        adapter.chat(messages: [ { role: "user", content: large_prompt } ])
+      end
+      assert_includes error.message, "early failure"
+    end
+  end
+
   test "terminates the subprocess when the streaming callback disconnects" do
     child_pid = nil
 
@@ -298,7 +362,7 @@ class AiAdapters::PiAdapterTest < ActiveSupport::TestCase
 
     fake_stdin = StringIO.new
     Open3.stub(:popen3, ->(*_args, **_kwargs) { [ fake_stdin, fake_stdout, fake_stderr, fake_wait_thr ] }) do
-      yield
+      yield fake_stdin
     end
   end
 

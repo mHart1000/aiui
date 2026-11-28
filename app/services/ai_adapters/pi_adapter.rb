@@ -22,7 +22,7 @@ module AiAdapters
     # Raises PiAdapter::Error on failure
     def chat(messages:, stream: false, **_opts, &block)
       prompt = extract_prompt(messages)
-      cmd = build_command(prompt)
+      cmd = build_command
 
       full_content = +""
       segment_breaks = []
@@ -36,6 +36,7 @@ module AiAdapters
       stdout = nil
       stderr = nil
       wait_thr = nil
+      stdin_thread = nil
       stderr_thread = nil
 
       begin
@@ -45,7 +46,7 @@ module AiAdapters
           chdir: @repo_path,
           pgroup: true
         )
-        stdin.close
+        stdin_thread = start_stdin_writer(stdin, prompt)
         stderr_thread = start_stderr_reader(stderr)
 
         buffer = ""
@@ -109,11 +110,22 @@ module AiAdapters
         close_io(stdin)
         close_io(stdout)
         close_io(stderr)
-        cleanup_stderr_reader(stderr_thread)
+        cleanup_io_thread(stdin_thread)
+        cleanup_io_thread(stderr_thread)
       end
     end
 
     private
+
+    def start_stdin_writer(stdin, prompt)
+      Thread.new do
+        stdin.write(prompt) unless prompt.empty?
+      rescue Errno::EPIPE, IOError
+        # The child exited or closed stdin before consuming the full prompt.
+      ensure
+        close_io(stdin)
+      end
+    end
 
     def start_stderr_reader(stderr)
       Thread.new do
@@ -133,7 +145,7 @@ module AiAdapters
       end
     end
 
-    def cleanup_stderr_reader(thread)
+    def cleanup_io_thread(thread)
       return unless thread
 
       unless thread.join(PROCESS_TERMINATION_GRACE_SECONDS)
@@ -168,7 +180,7 @@ module AiAdapters
       # The stream was already closed during process shutdown.
     end
 
-    def build_command(prompt)
+    def build_command
       cmd = [
         @pi_bin, "--mode", "json",
         "--session-id", @session_id,
@@ -176,7 +188,7 @@ module AiAdapters
         "--thinking", "off"
       ]
       cmd += [ "--model", "llama.cpp/#{@model}" ] if @model
-      cmd += [ "--", prompt ]
+      cmd
     end
 
     def extract_text_content(content)
